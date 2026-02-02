@@ -1,7 +1,7 @@
 # 🧠 AnkiGen Pro - Medical MCQ Extractor
 
 > **Automated tool for generating Anki cards from Medical documents (PDF/Images) using AI & OCR power.**
-> *Developed by [Tran Hoa](https://github.com/tranhoait123)*
+> *Developed by [PonZ](https://github.com/tranhoait123)*
 
 [ [🇻🇳 Tiếng Việt](README.md) | **🇺🇸 English** ]
 

@@ -1,7 +1,7 @@
 # 🧠 AnkiGen Pro - Medical MCQ Extractor
 
 > **Công cụ tự động hóa tạo thẻ Anki từ tài liệu Y khoa (PDF/Ảnh) với sức mạnh của AI & OCR.**
-> *Developed by [Tran Hoa](https://github.com/tranhoait123)*
+> *Developed by [PonZ](https://github.com/tranhoait123)*
 
 [ **🇻🇳 Tiếng Việt** | [🇺🇸 English](README.en.md) ]
 

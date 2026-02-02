@@ -1,0 +1,5 @@
+{
+  "name": "ANKI MCQ EXPORT",
+  "description": "Tạo thẻ Anki từ tài liệu y khoa (PDF/Text) bằng công nghệ Gemini. Tự động trích xuất câu hỏi trắc nghiệm, giải thích và nguồn tài liệu để import vào Anki.",
+  "requestFramePermissions": []
+}

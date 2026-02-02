@@ -147,21 +147,46 @@ const App: React.FC = () => {
   };
 
   const buildAnkiHtml = (exp: Explanation, difficulty: string, depth: string) => {
-    const style = `margin-bottom: 8px; padding: 10px; border-left: 4px solid; border-radius: 0 4px 4px 0;`;
+    // Style constants matching the screenshot vibe (clean, medical)
+    const containerStyle = "font-family: -apple-system, system-ui, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; font-size: 14px;";
+    const boxStyle = "margin-bottom: 12px; padding: 12px; border-left: 4px solid; border-radius: 4px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.05);";
+
     return `
-      <div style="font-family: Arial; line-height: 1.5;">
-        <div style="${style} background: #fff1f2; border-color: #f43f5e; color: #881337;">
-          <b>🎯 ĐÁP ÁN CỐT LÕI:</b><br>${exp.core}
+      <div style="${containerStyle}">
+        <div style="${boxStyle} border-color: #e11d48; background-color: #fff1f2; color: #9f1239;">
+          <div style="font-weight: 800; font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; display: flex; items-center; gap: 4px;">
+            🎯 ĐÁP ÁN CỐT LÕI
+          </div>
+          ${exp.core}
         </div>
-        <div style="${style} background: #f3f4f6; border-color: #9ca3af; color: #1f2937; font-style: italic;">
-          <b>📖 BẰNG CHỨNG:</b><br>${exp.evidence}
+
+        <div style="${boxStyle} border-color: #6b7280; background-color: #f9fafb; color: #374151;">
+          <div style="font-weight: 800; font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; display: flex; items-center; gap: 4px;">
+            📖 LÝ THUYẾT & BẰNG CHỨNG
+          </div>
+          <div style="font-style: italic;">
+            ${exp.evidence}
+          </div>
         </div>
-        <div style="${style} background: #eef2ff; border-color: #6366f1; color: #312e81;">
-          <b>💡 PHÂN TÍCH SÂU:</b><br>${exp.analysis}
+
+        <div style="${boxStyle} border-color: #4f46e5; background-color: #eef2ff; color: #3730a3;">
+          <div style="font-weight: 800; font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; display: flex; items-center; gap: 4px;">
+            💡 PHÂN TÍCH SÂU (CHẨN ĐOÁN PHÂN BIỆT)
+          </div>
+          ${exp.analysis}
         </div>
-        ${exp.warning ? `<div style="${style} background: #fffbeb; border-color: #f59e0b; color: #78350f;"><b>⚠️ LƯU Ý:</b><br>${exp.warning}</div>` : ''}
-        <div style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 10px; font-size: 11px; color: #999; font-weight: bold; text-transform: uppercase;">
-          📊 ĐỘ KHÓ: ${difficulty} | 🧠 PHÂN TÍCH: ${depth}
+
+        ${exp.warning ? `
+        <div style="${boxStyle} border-color: #d97706; background-color: #fffbeb; color: #92400e;">
+          <div style="font-weight: 800; font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; display: flex; items-center; gap: 4px;">
+             ⚠️ CẢNH BÁO LÂM SÀNG
+          </div>
+          ${exp.warning}
+        </div>` : ''}
+
+        <div style="margin-top: 16px; border-top: 1px dashed #e5e7eb; padding-top: 12px; font-size: 10px; color: #9ca3af; display: flex; justify-content: space-between;">
+           <span>📊 ĐỘ KHÓ: <b>${difficulty}</b></span>
+           <span>🧠 TƯ DUY: <b>${depth}</b></span>
         </div>
       </div>
     `.replace(/\s+/g, ' ').trim();

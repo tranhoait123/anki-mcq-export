@@ -28,13 +28,7 @@ export const extractTextWithTesseract = async (
     try {
         const worker = await getWorker();
 
-        const ret = await worker.recognize(imageSource, {}, {
-            logger: (m: any) => {
-                if (m.status === 'recognizing text') {
-                    onProgress?.(Math.round(m.progress * 100));
-                }
-            }
-        });
+        const ret = await worker.recognize(imageSource);
 
         // Do NOT terminate worker. Keep it alive for reuse.
         return ret.data.text;

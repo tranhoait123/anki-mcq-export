@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { UploadedFile, MCQ, GeneratedResponse, AnalysisResult, AuditResult, Explanation } from './types';
-import FileUploader from './components/FileUploader';
-import MCQDisplay from './components/MCQDisplay';
-import { generateQuestions, analyzeDocument, auditMissingQuestions } from './services/geminiService';
-import { BrainCircuit, Loader2, Download, CheckCircle2, AlertTriangle, Info, ShieldAlert, ChevronDown, ChevronUp } from 'lucide-react';
-import { extractTextWithTesseract } from './services/ocrService';
-import { ScanText, Languages } from 'lucide-react';
+import FileUploader from './ui/FileUploader';
+import MCQDisplay from './ui/MCQDisplay';
+import { generateQuestions, analyzeDocument, auditMissingQuestions } from './core/brain';
+import { BrainCircuit, Loader2, Download, CheckCircle2, AlertTriangle, Info, ShieldAlert, ChevronDown, ChevronUp, ScanText } from 'lucide-react';
+import { extractTextWithTesseract } from './core/vision';
 
 const App: React.FC = () => {
   const [files, setFiles] = useState<UploadedFile[]>([]);

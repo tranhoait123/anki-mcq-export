@@ -1,6 +1,6 @@
 import React, { useCallback } from 'react';
+import { UploadCloud, FileText, X, Loader2, Image as ImageIcon } from 'lucide-react';
 import { UploadedFile } from '../types';
-import { UploadCloud, FileText, X, Loader2, FileType, FileWarning } from 'lucide-react';
 import mammoth from 'mammoth';
 
 interface FileUploaderProps {

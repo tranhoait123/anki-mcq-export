@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UploadedFile, MCQ, GeneratedResponse, AnalysisResult, AuditResult, Explanation } from './types';
+import { UploadedFile, MCQ, GeneratedResponse, AnalysisResult, AuditResult, Explanation, DuplicateInfo } from './types';
 import FileUploader from './ui/FileUploader';
 import MCQDisplay from './ui/MCQDisplay';
 import { generateQuestions, analyzeDocument, auditMissingQuestions } from './core/brain';
@@ -18,6 +18,8 @@ const App: React.FC = () => {
   const [currentCount, setCurrentCount] = useState(0);
   const [showAudit, setShowAudit] = useState(false);
   const [ocrMode, setOcrMode] = useState<'gemini' | 'tesseract'>('gemini');
+  const [duplicates, setDuplicates] = useState<DuplicateInfo[]>([]);
+  const [showDuplicates, setShowDuplicates] = useState(false);
 
   // Helper to process files for analysis/generation
   const prepareFiles = async (forcedMode?: 'gemini' | 'tesseract'): Promise<UploadedFile[]> => {
@@ -71,6 +73,8 @@ const App: React.FC = () => {
     setMcqs([]);
     setAudit(null);
     setShowAudit(false);
+    setDuplicates([]);
+    setShowDuplicates(false);
 
     try {
       // 1. Initial Attempt (Default Mode)
@@ -121,6 +125,11 @@ const App: React.FC = () => {
       }));
       setMcqs(formatted);
 
+      // Store duplicates for display
+      if (res.duplicates && res.duplicates.length > 0) {
+        setDuplicates(res.duplicates);
+      }
+
       // Nếu số lượng trích xuất ít hơn 80% số lượng ước tính, tự động chạy kiểm toán
       if (analysis && formatted.length < analysis.estimatedCount * 0.8) {
         runAudit(formatted.length, filesToUse); // Pass the files we actually used? Ideally the original ones for context.
@@ -143,6 +152,22 @@ const App: React.FC = () => {
     } finally {
       setAuditing(false);
     }
+  };
+
+  // Restore a duplicate question back to the main list
+  const restoreDuplicate = (dupId: string) => {
+    const dup = duplicates.find(d => d.id === dupId);
+    if (!dup || !dup.fullData) return;
+
+    // Add to mcqs with new unique ID
+    const restoredMcq: MCQ = {
+      ...dup.fullData,
+      id: `restored-${Date.now()}`
+    };
+    setMcqs(prev => [...prev, restoredMcq]);
+
+    // Remove from duplicates list by ID
+    setDuplicates(prev => prev.filter(d => d.id !== dupId));
   };
 
   const buildAnkiHtml = (exp: Explanation, difficulty: string, depth: string) => {
@@ -291,6 +316,50 @@ const App: React.FC = () => {
                   </div>
                   <div className="bg-slate-50 p-2.5 rounded text-slate-500 border border-slate-100 italic">
                     {audit.advice}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Duplicates Display Section */}
+          {duplicates.length > 0 && (
+            <div className="bg-white border border-orange-200 rounded-xl overflow-hidden shadow-sm">
+              <button
+                onClick={() => setShowDuplicates(!showDuplicates)}
+                className="w-full p-3 flex items-center justify-between text-left text-sm font-medium bg-orange-50 text-orange-800"
+              >
+                <div className="flex items-center gap-2">
+                  <Info size={16} />
+                  <span>Câu hỏi bị loại ({duplicates.length})</span>
+                </div>
+                {showDuplicates ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              </button>
+
+              {showDuplicates && (
+                <div className="p-4 max-h-64 overflow-y-auto">
+                  <div className="space-y-2">
+                    {duplicates.map((d, i) => (
+                      <div key={i} className="text-xs p-2 bg-orange-50 border border-orange-100 rounded">
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-slate-700 truncate" title={d.question}>
+                              {i + 1}. {d.question}...
+                            </div>
+                            <div className="text-orange-600 mt-1">
+                              ➜ {d.reason}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => restoreDuplicate(d.id)}
+                            className="shrink-0 px-2 py-1 text-xs bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 transition-colors"
+                            title="Khôi phục câu hỏi này"
+                          >
+                            🔄 Khôi phục
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

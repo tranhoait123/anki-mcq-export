@@ -108,6 +108,96 @@ const extractJson = (text: string): string => {
   return text.substring(start, end + 1);
 };
 
+// --- Deduplication Helpers ---
+
+/**
+ * Normalize text for comparison: lowercase, remove extra whitespace & punctuation
+ */
+const normalizeText = (text: string): string => {
+  return text
+    .toLowerCase()
+    .replace(/[\s\n\r]+/g, ' ')      // Collapse whitespace
+    .replace(/[.,;:!?\"'()\\[\\]{}]/g, '') // Remove punctuation
+    .trim();
+};
+
+/**
+ * Extract question number from text (e.g., "Câu 15:", "Question 3.", "15.")
+ */
+const extractQuestionNumber = (text: string): number | null => {
+  const patterns = [
+    /câu\s*(?:số\s*)?(\d+)/i,        // Vietnamese: Câu 15, Câu số 15
+    /question\s*(\d+)/i,             // English: Question 15
+    /^(\d+)\s*[.:)\]]/,              // Just number: 15. or 15: or 15)
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+  }
+  return null;
+};
+
+/**
+ * Calculate similarity ratio between two strings (0-1)
+ */
+const calculateSimilarity = (str1: string, str2: string): number => {
+  const s1 = normalizeText(str1);
+  const s2 = normalizeText(str2);
+
+  if (s1 === s2) return 1;
+  if (s1.length === 0 || s2.length === 0) return 0;
+
+  // Check if one contains the other
+  if (s1.includes(s2) || s2.includes(s1)) return 0.95;
+
+  // Simple word overlap ratio
+  const words1 = new Set(s1.split(' ').filter(w => w.length > 2));
+  const words2 = new Set(s2.split(' ').filter(w => w.length > 2));
+
+  if (words1.size === 0 || words2.size === 0) return 0;
+
+  let overlap = 0;
+  words1.forEach(w => { if (words2.has(w)) overlap++; });
+
+  return overlap / Math.max(words1.size, words2.size);
+};
+
+/**
+ * Check if a question is duplicate - returns detailed info for logging
+ */
+const checkDuplicate = (newQ: string, existingQuestions: any[]): { isDup: boolean; reason?: string; matchedWith?: string } => {
+  const SIMILARITY_THRESHOLD = 0.70; // Reduced to 70% to avoid false positives
+
+  const newNumber = extractQuestionNumber(newQ);
+
+  for (const existing of existingQuestions) {
+    // Check 1: Same question number = definite duplicate
+    const existingNumber = extractQuestionNumber(existing.question);
+    if (newNumber !== null && existingNumber !== null && newNumber === existingNumber) {
+      return {
+        isDup: true,
+        reason: `Trùng số câu hỏi: Câu ${newNumber}`,
+        matchedWith: existing.question.substring(0, 60)
+      };
+    }
+
+    // Check 2: High text similarity
+    const similarity = calculateSimilarity(newQ, existing.question);
+    if (similarity >= SIMILARITY_THRESHOLD) {
+      return {
+        isDup: true,
+        reason: `Độ tương đồng ${Math.round(similarity * 100)}%`,
+        matchedWith: existing.question.substring(0, 60)
+      };
+    }
+  }
+
+  return { isDup: false };
+};
+
 const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any) => {
   return {
     model: 'gemini-3-flash-preview',
@@ -201,6 +291,8 @@ export const generateQuestions = async (
     };
 
     let allQuestions: any[] = [];
+    let allDuplicates: { id: string; question: string; reason: string; matchedWith: string; fullData: any }[] = [];
+    let duplicateCounter = 0;  // Counter for unique IDs
     let loopCount = 0;
     let keepFetching = true;
     let consecutiveEmptyBatches = 0;
@@ -210,9 +302,19 @@ export const generateQuestions = async (
       const currentCount = allQuestions.length;
       if (limit > 0 && currentCount >= limit) break;
 
+      // Better prompt to reduce duplicate extraction
+      const lastQuestionSnippet = allQuestions.length > 0
+        ? allQuestions[allQuestions.length - 1].question.substring(0, 80)
+        : '';
+
       let promptText = allQuestions.length === 0
-        ? "BẮT ĐẦU: Lấy 30 câu đầu tiên. Chú ý nếu có đáp án E thì phải trích xuất đầy đủ."
-        : `TIẾP TỤC: Sau câu "${allQuestions[allQuestions.length - 1].question.substring(0, 50)}...", lấy 30 câu tiếp theo. Đừng bỏ sót đáp án E nếu có.`;
+        ? "BẮT ĐẦU: Lấy 50 câu hỏi ĐẦU TIÊN trong tài liệu. Trích xuất đầy đủ A, B, C, D, E nếu có."
+        : `TIẾP TỤC từ vị trí SAU câu hỏi này: "${lastQuestionSnippet}..."
+
+⚠️ QUY TẮC BẮT BUỘC:
+- KHÔNG được lặp lại câu hỏi trên hoặc bất kỳ câu nào đã có.
+- Chỉ lấy 50 câu hỏi TIẾP THEO chưa được trích xuất.
+- Nếu đã hết câu hỏi mới, trả về mảng rỗng [].`;
 
       if (onProgress) onProgress(`Đang quét đợt ${loopCount}... (Có ${currentCount} câu)...`, currentCount);
 
@@ -244,19 +346,54 @@ export const generateQuestions = async (
         }
 
         const parsed = JSON.parse(extractJson(text)) as GeneratedResponse;
-        const newQs = parsed.questions || [];
+        const rawNewQs = parsed.questions || [];
+
+        // === DEDUPLICATION: Filter out questions that already exist ===
+        const newQs: typeof rawNewQs = [];
+        const duplicatesInfo: { id: string; question: string; reason: string; matchedWith: string; fullData: typeof rawNewQs[0] }[] = [];
+
+        for (const q of rawNewQs) {
+          const result = checkDuplicate(q.question, allQuestions);
+          if (result.isDup) {
+            duplicateCounter++;
+            duplicatesInfo.push({
+              id: `dup-${Date.now()}-${duplicateCounter}`,
+              question: q.question.substring(0, 50),
+              reason: result.reason || '',
+              matchedWith: result.matchedWith || '',
+              fullData: q  // Store full question data for restore
+            });
+          } else {
+            newQs.push(q);
+          }
+        }
+
+        if (duplicatesInfo.length > 0) {
+          console.log(`\n🔄 Batch ${loopCount}: Loại bỏ ${duplicatesInfo.length} câu trùng lặp:`);
+          duplicatesInfo.forEach((d, i) => {
+            console.log(`  ${i + 1}. "${d.question}..." → ${d.reason}`);
+          });
+          // Add to global duplicates array for UI display
+          allDuplicates.push(...duplicatesInfo);
+        }
 
         if (newQs.length === 0) {
-          if (expectedCount > 0 && currentCount < expectedCount * 0.9 && consecutiveEmptyBatches < 3 && keyManager.hasNextKey()) {
-            console.warn(`Got 0 questions but target not reached (${currentCount}/${expectedCount}). Rotating key and retrying...`);
-            keyManager.rotate();
+          // If ALL questions in batch were duplicates, AI might be stuck
+          if (rawNewQs.length > 0) {
+            console.warn(`Batch ${loopCount} contained ONLY duplicates. AI may be looping.`);
             consecutiveEmptyBatches++;
+          }
+
+          if (expectedCount > 0 && currentCount < expectedCount * 0.9 && consecutiveEmptyBatches < 3 && keyManager.hasNextKey()) {
+            console.warn(`Got 0 new questions but target not reached (${currentCount}/${expectedCount}). Rotating key and retrying...`);
+            keyManager.rotate();
             continue; // Retry loop with new key
           }
           keepFetching = false;
         } else {
           allQuestions = [...allQuestions, ...newQs];
           consecutiveEmptyBatches = 0; // Reset counter on success
+          console.log(`Added ${newQs.length} unique questions. Total: ${allQuestions.length}`);
         }
       } catch (e: any) {
         console.error("Extraction loop error:", e);
@@ -272,7 +409,80 @@ export const generateQuestions = async (
       }
     }
 
-    return { questions: allQuestions };
+    // === DOUBLE-CHECK MODE: Verify extraction completeness ===
+    if (expectedCount > 0 && allQuestions.length < expectedCount * 0.9) {
+      console.log(`\n🔍 DOUBLE-CHECK MODE: Thiếu ${expectedCount - allQuestions.length} câu (có ${allQuestions.length}/${expectedCount})`);
+
+      if (onProgress) onProgress(`Đang kiểm tra lại... (có ${allQuestions.length}/${expectedCount} câu)`, allQuestions.length);
+
+      // Extract question numbers we already have
+      const extractedNumbers = new Set<number>();
+      allQuestions.forEach(q => {
+        const num = extractQuestionNumber(q.question);
+        if (num !== null) extractedNumbers.add(num);
+      });
+
+      // Find gaps in the sequence
+      const maxNumber = Math.max(...Array.from(extractedNumbers), expectedCount);
+      const missingNumbers: number[] = [];
+      for (let i = 1; i <= maxNumber; i++) {
+        if (!extractedNumbers.has(i)) missingNumbers.push(i);
+      }
+
+      if (missingNumbers.length > 0) {
+        console.log(`📋 Các câu có thể bị thiếu: ${missingNumbers.slice(0, 20).join(', ')}${missingNumbers.length > 20 ? '...' : ''}`);
+
+        // Second pass: specifically request missing questions
+        const missingRanges = missingNumbers.slice(0, 30).join(', ');
+        const secondPassPrompt = `TÌM CÂU HỎI BỊ THIẾU:
+Hãy tìm và trích xuất CÁC CÂU HỎI sau đây trong tài liệu: Câu ${missingRanges}
+
+⚠️ CHỈ trích xuất những câu hỏi có SỐ THỨ TỰ trong danh sách trên.
+Nếu không tìm thấy câu nào, trả về mảng rỗng [].`;
+
+        await new Promise(resolve => setTimeout(resolve, 4000));
+
+        try {
+          const secondPassText = await executeWithRotation(async (apiKey) => {
+            const ai = new GoogleGenAI({ apiKey });
+            const chat = ai.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_EXTRACT, questionSchema));
+            const response = await chat.sendMessage({
+              message: [...parts, { text: secondPassPrompt }]
+            });
+            return response.text;
+          });
+
+          if (secondPassText) {
+            const secondParsed = JSON.parse(extractJson(secondPassText)) as GeneratedResponse;
+            const secondPassQs = secondParsed.questions || [];
+
+            // Add only non-duplicates from second pass
+            let addedFromSecondPass = 0;
+            for (const q of secondPassQs) {
+              const result = checkDuplicate(q.question, allQuestions);
+              if (!result.isDup) {
+                allQuestions.push(q);
+                addedFromSecondPass++;
+              }
+            }
+
+            if (addedFromSecondPass > 0) {
+              console.log(`✅ Double-check: Tìm thêm được ${addedFromSecondPass} câu. Tổng: ${allQuestions.length}`);
+            }
+          }
+        } catch (e) {
+          console.warn("Double-check pass failed:", e);
+        }
+      }
+    }
+
+    // Final summary
+    console.log(`\n📊 KẾT QUẢ CUỐI CÙNG: ${allQuestions.length} câu hỏi (mục tiêu: ${expectedCount || 'không xác định'})`);
+    if (allDuplicates.length > 0) {
+      console.log(`🔄 Tổng số câu bị loại do trùng lặp: ${allDuplicates.length}`);
+    }
+
+    return { questions: allQuestions, duplicates: allDuplicates };
   } catch (error: any) {
     throw new Error(error.message);
   }

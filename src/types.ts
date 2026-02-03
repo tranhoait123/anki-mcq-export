@@ -9,12 +9,12 @@ export interface Explanation {
 export interface MCQ {
   id: string;
   question: string;
-  options: string[]; 
+  options: string[];
   correctAnswer: string;
   explanation: Explanation; // Chuyển từ string sang object cấu trúc
   source: string;
-  difficulty: string; 
-  depthAnalysis: string; 
+  difficulty: string;
+  depthAnalysis: string;
 }
 
 export interface GeneratedResponse {
@@ -27,6 +27,24 @@ export interface GeneratedResponse {
     difficulty: string;
     depthAnalysis: string;
   }[];
+  duplicates?: DuplicateInfo[];
+}
+
+export interface DuplicateInfo {
+  id: string;  // Unique ID for stable restore
+  question: string;
+  reason: string;
+  matchedWith: string;
+  // Full question data for restore functionality
+  fullData: {
+    question: string;
+    options: string[];
+    correctAnswer: string;
+    explanation: Explanation;
+    source: string;
+    difficulty: string;
+    depthAnalysis: string;
+  };
 }
 
 export interface AnalysisResult {
@@ -47,7 +65,7 @@ export interface AuditResult {
 export interface UploadedFile {
   name: string;
   type: string;
-  content: string; 
+  content: string;
   isProcessing?: boolean;
   progress?: number;
 }

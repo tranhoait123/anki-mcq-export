@@ -370,8 +370,8 @@ export const generateQuestions = async (
 
       if (onProgress) onProgress(`Đang quét đợt ${loopCount}... (Có ${currentCount} câu)...`, currentCount);
 
-      // RATE LIMITING: Maintain the 4s delay as a baseline courtesy
-      await new Promise(resolve => setTimeout(resolve, 4000));
+      // RATE LIMITING: Maintain the 2s delay as a baseline courtesy
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
       try {
         // WRAPPED API CALL
@@ -500,7 +500,7 @@ export const generateQuestions = async (
   - Nếu văn bản chỗ đó bị bẩn/mờ, hãy dùng chế độ KHÔI PHỤC để đọc.
   - Nếu không tìm thấy, tuyệt đối KHÔNG BỊA ĐẶT.`;
 
-      await new Promise(resolve => setTimeout(resolve, 4000));
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
       try {
         const gapText = await executeWithUserRotation(async (apiKey) => {

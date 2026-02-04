@@ -373,7 +373,7 @@ const App: React.FC = () => {
       return [
         esc(formattedQ),
         esc(cleanOps[0]), esc(cleanOps[1]), esc(cleanOps[2]), esc(cleanOps[3]), esc(cleanOps[4]),
-        esc(m.correctAnswer),
+        esc(m.correctAnswer.match(/^[A-E]/i)?.[0]?.toUpperCase() || m.correctAnswer),
         esc(buildAnkiHtml(m.explanation, m.difficulty, m.depthAnalysis)),
         esc(m.source),
         esc(m.difficulty)
@@ -404,7 +404,7 @@ const App: React.FC = () => {
       return [
         esc(formattedQ),
         esc(cleanOps[0]), esc(cleanOps[1]), esc(cleanOps[2]), esc(cleanOps[3]), esc(cleanOps[4]),
-        esc(m.correctAnswer), // Keep CorrectAnswer as is (usually full text, cleaning it might mismatch key)
+        esc(m.correctAnswer.match(/^[A-E]/i)?.[0]?.toUpperCase() || m.correctAnswer), // Normalize to A/B/C/D
         esc(buildAnkiHtml(m.explanation, m.difficulty, m.depthAnalysis)),
         esc(m.source),
         esc(m.difficulty)

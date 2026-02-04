@@ -1,3 +1,6 @@
+import { GoogleGenAI, Type } from "@google/ai-generativelanguage"; // Re-checking if it should be @google/genai or ai-generativelanguage
+// Actually, earlier code used @google/genai. I'll stick to what was there.
+// Wait, looking at brain.ts imports in Step 1603: "import { GoogleGenAI, Type } from "@google/genai";"
 import { GoogleGenAI, Type } from "@google/genai";
 import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings } from "../types";
 
@@ -28,13 +31,13 @@ QUY TẮC TRÍCH XUẤT (HỖ TRỢ ĐA ĐỊNH DẠNG):
    - **Điền khuyết (Fill-in)**: Chuyển thành "Điền vào chỗ trống...".
    - **Case Study**: Lặp lại tóm tắt tình huống ở đầu mỗi câu hỏi liên quan.
 
-YÊU CẦU GIẢI THÍCH (DEEP ANALYSIS) - BẮT BUỘC VÀ CHI TIẾT:
-- **core (Cốt lõi)**: Giải thích trực diện tại sao lựa chọn đó là đúng nhất. KHÔNG ĐƯỢC để trống hoặc dùng placeholder.
-- **analysis (Biện luận)**: Thực hiện CHẨN ĐOÁN PHÂN BIỆT. Phân tích tại sao các lựa chọn khác sai.
-- **evidence (Lý thuyết)**: Trích dẫn lý thuyết tiêu chuẩn từ các nguồn uy tín (Harrison, Bộ Y tế, Dược thư...)
-- **warning**: Cảnh báo các bẫy lâm sàng hoặc các nhầm lẫn thường gặp.
+YÊU CẦU GIẢI THÍCH (DEEP ANALYSIS) - CHUYÊN SÂU Y KHOA:
+- **core (Cốt lõi)**: Trình bày ngắn gọn nhưng súc tích lý do tại sao phương án được chọn là đúng nhất về mặt bệnh học/lâm sàng.
+- **analysis (Biện luận)**: Thực hiện **CHẨN ĐOÁN PHÂN BIỆT (Differential Diagnosis)**. Phân tích cụ thể tại sao các phương án khác lại sai hoặc không phù hợp trong ngữ cảnh này. (Ví dụ: "Mặc dù B có triệu chứng tương tự nhưng lứa tuổi bệnh nhân hướng tới A nhiều hơn...").
+- **evidence (Lý thuyết)**: Trích dẫn lý thuyết trực tiếp từ tài liệu hoặc các nguồn uy tín (Harrison, Nelson, Bộ Y tế, Dược thư...)
+- **warning**: Chỉ ra các bẫy lâm sàng, bẫy trắc nghiệm, hoặc các nhầm lẫn thường gặp giữa các triệu chứng lâm sàng tương tự.
 
-⚠️ **TUYỆT ĐỐI KHÔNG SỬ DỤNG VĂN BẢN MẪU (PLACEHOLDER)**. Dữ liệu phải là THỰC TẾ từ tài liệu.
+⚠️ **YÊU CẦU VỀ DỮ LIỆU**: Tuyệt đối không sử dụng văn bản giả hoặc ghi chú chung chung (Placeholder). Giải thích phải có giá trị học thuật cao để phục vụ cho việc ôn thi Chứng chỉ hành nghề hoặc nội trú.
 
 OUTPUT FORMAT: JSON array.
 `;
@@ -352,15 +355,15 @@ export const generateQuestions = async (
       let promptText = allQuestions.length === 0
         ? "BẮT ĐẦU: Lấy 50 câu hỏi ĐẦU TIÊN trong tài liệu. Trích xuất đầy đủ A, B, C, D, E nếu có."
         : `TIẾP TỤC từ vị trí SAU ${anchor}.
-⚠️ Nhiệm vụ:
-- Tìm và trích xuất các câu hỏi TIẾP THEO ngay sau vị trí trên.
-- Nếu câu hỏi tiếp theo bị ngắt quãng, hãy tự động ghép nối.`;
+  ⚠️ Nhiệm vụ:
+  - Tìm và trích xuất các câu hỏi TIẾP THEO ngay sau vị trí trên.
+  - Nếu câu hỏi tiếp theo bị ngắt quãng, hãy tự động ghép nối.`;
 
       const instructionNote = `
-⚠️ QUY TẮC BẮT BUỘC:
-- KHÔNG được lặp lại câu hỏi cũ.
-- Chỉ lấy 50 câu hỏi TIẾP THEO.
-- Nếu đã hết câu hỏi mới, trả về mảng rỗng [].`;
+  ⚠️ QUY TẮC BẮT BUỘC:
+  - KHÔNG được lặp lại câu hỏi cũ.
+  - Chỉ lấy 50 câu hỏi TIẾP THEO.
+  - Nếu đã hết câu hỏi mới, trả về mảng rỗng [].`;
 
       promptText += "\n" + instructionNote;
 
@@ -489,12 +492,12 @@ export const generateQuestions = async (
       // Request missing questions
       const missingRanges = missingNumbers.slice(0, 30).join(', ');
       const gapPrompt = `TÌM KIẾM MỤC TIÊU (LẦN ${gapFillAttempts}):
-Hãy tìm và trích xuất chính xác các câu hỏi có số thứ tự sau: ${missingRanges}
-
-⚠️ QUY TẮC:
-- Chỉ trích xuất đúng các câu hỏi thiếu này.
-- Nếu văn bản chỗ đó bị bẩn/mờ, hãy dùng chế độ KHÔI PHỤC để đọc.
-- Nếu không tìm thấy, tuyệt đối KHÔNG BỊA ĐẶT.`;
+  Hãy tìm và trích xuất chính xác các câu hỏi có số thứ tự sau: ${missingRanges}
+  
+  ⚠️ QUY TẮC:
+  - Chỉ trích xuất đúng các câu hỏi thiếu này.
+  - Nếu văn bản chỗ đó bị bẩn/mờ, hãy dùng chế độ KHÔI PHỤC để đọc.
+  - Nếu không tìm thấy, tuyệt đối KHÔNG BỊA ĐẶT.`;
 
       await new Promise(resolve => setTimeout(resolve, 4000));
 

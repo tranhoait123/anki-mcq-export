@@ -1,78 +1,52 @@
-# 🧠 AnkiGen Pro - Medical MCQ Extractor
+# 🧠 MCQ AnkiGen Pro - Medical MCQ Extractor
 
 > **Automated tool for generating Anki cards from Medical documents (PDF/Images) using AI & OCR power.**
 > *Developed by [PonZ](https://github.com/tranhoait123)*
 
+---
+
 [ [🇻🇳 Tiếng Việt](README.md) | **🇺🇸 English** ]
 
-**AnkiGen Pro** is a personal project built to solve the challenge of extracting Multiple Choice Questions (MCQs) from low-quality scans, curved/blurred images, or documents with heavy handwriting notes. The system leverages **Google Gemini AI** models combined with **Local OCR (Tesseract)** to ensure absolute accuracy.
+**MCQ AnkiGen Pro** is a personal project built to solve the challenge of extracting Multiple Choice Questions (MCQs) from low-quality scans, curved/blurred images, or documents with heavy handwriting notes. The system leverages **Google Gemini AI** models combined with **Local OCR (Tesseract)** to ensure absolute accuracy.
 
-![AnkiGen Pro Demo](https://placehold.co/1200x600/6366f1/ffffff?text=AnkiGen+Pro+Preview)
+## 📸 Pro Premium Showcase
+
+![Main Interface](file:///Users/tranhoa/.gemini/antigravity/brain/5c89dc88-1008-4e93-8930-1addfa3e3f3f/uploaded_media_0_1770174963469.png)
+*Modern interface with Glassmorphism effects and smart drag-and-drop.*
+
+![Split View Mode](file:///Users/tranhoa/.gemini/antigravity/brain/5c89dc88-1008-4e93-8930-1addfa3e3f3f/uploaded_media_1_1770174963469.png)
+*Split View facilitates direct cross-referencing between source and extraction.*
+
+![Processing Progress](file:///Users/tranhoa/.gemini/antigravity/brain/5c89dc88-1008-4e93-8930-1addfa3e3f3f/uploaded_media_2_1770174963469.png)
+*Multi-threaded system handling files up to 50MB seamlessly.*
+
+---
 
 ## ✨ Key Features
 
-- **🤖 Smart Auto Mode**: Automatically detects and switches between Cloud AI (fast, intelligent) and Local OCR (robust with blurry images) to ensure 100% question extraction.
-- **🩺 Medical Professor Persona**: The AI is fine-tuned to act as a "Senior Medical Professor", providing not just answers but deep explanations of pathophysiology, differential diagnosis, and clinical pitfalls.
-- **📝 Multi-Format Support**: Handles complex question types perfectly: Matching columns, True/False, and Multi-select questions.
-- **🧹 Noise Reduction**: Automatically ignores handwriting, circled answers, red/blue ink marks that cause interference.
-- **🎨 Beautiful Anki Cards**: Exports to CSV with pre-styled HTML ready for Anki, featuring a professional, easy-to-learn card interface.
+- **💎 Pro UI Premium**: Modern design with full Dark Mode and Split View support.
+- **🤖 Smart Auto Mode**: Automatically switches between Cloud AI and Local OCR for 100% extraction reliability.
+- **🩺 Medical Professor Persona**: Fine-tuned AI providing deep medical explanations and pathophysiology analysis.
+- **📊 IndexedDB Storage**: Unlimited question storage, secure and private within your browser.
+- **🔄 Smart Deduplication**: Intelligent detection and removal of duplicate questions.
+- **🧹 Noise Reduction**: Automatically ignores handwriting and ink marks on scanned documents.
 
-### 🆕 New Features (v2.0)
+## 🚀 Quick Setup
 
-- **🔄 Smart Deduplication**: Automatically detects and removes duplicate questions (based on 70% similarity and question numbers).
-- **🔍 Double-Check Mode**: If >10% questions are missing, the system automatically runs a second pass to find missed questions.
-- **♻️ Restore Duplicates**: View and restore incorrectly removed questions directly from the UI.
-- **📊 Detailed Logging**: Displays reasons for each removed question for easy verification.
+1. **Prerequisite**: Install [Node.js](https://nodejs.org/) (v18+).
+2. **Download**: `git clone https://github.com/tranhoait123/anki-mcq-export.git`
+3. **Install**: Run `npm install` in the project directory.
+4. **Configure**: Click the ⚙️ icon in the UI to enter your Gemini API Key.
+5. **Run**: Execute `npm run dev` and visit `http://localhost:5173`.
 
-## 🚀 Installation Guide
+## 📜 Changelog
 
-Follow these simple steps to run the tool on your machine.
-
-### 1. System Requirements
-
-- **Node.js** (Version 18 or higher). [Download here](https://nodejs.org/).
-- **Git**.
-
-### 2. Download Source Code
-
-Open your Terminal and run:
-
-```bash
-git clone https://github.com/tranhoait123/anki-mcq-export.git
-cd anki-mcq-export
-```
-
-### 3. Install Dependencies
-
-```bash
-npm install
-```
-
-### 4. Configure API Key
-
-Create a `.env.local` file in the root directory of the project and paste your Google Gemini API Key (get it at [aistudio.google.com](https://aistudio.google.com/)).
-
-```env
-VITE_GEMINI_API_KEY=AIzaSy...YourKey,AIzaSy...BackupKey
-```
-
-*Tip: You can enter multiple keys separated by commas `,` to enable automatic key rotation if quota is exceeded.*
-
-### 5. Run the App
-
-```bash
-npm run dev
-```
-
-Access `http://localhost:5173` to start using it!
-
-## 📖 Usage Guide
-
-1. **Upload**: Drag & drop exam images or PDFs.
-2. **Scan**: Click "Scan Document" for the system to count questions and identify the topic.
-3. **Extract**: Click the extract button. The system will automatically clean data and generate questions.
-4. **Review**: Check the extracted questions and read the detailed explanations.
-5. **Export Anki**: Click "Download Anki CSV" and import it into your deck.
+| Version | Date | New Features | Design Updates |
+| :--- | :--- | :--- | :--- |
+| **v4.0 (Pro)** | 2026-02-04 | **50MB File Limit**, IndexedDB Storage | Pro Premium UI, Split View |
+| **v3.5** | 2026-02-03 | API Key Rotation, Auto Re-check | Glassmorphism Re-design |
+| **v3.0** | 2026-02-02 | Smart Deduplication logic | Detailed Stats Panel |
 
 ---
 *Open source project serving the Medical Student community.*
+**Developed by PonZ**

@@ -71,3 +71,10 @@ export interface UploadedFile {
 }
 
 export type ProgressCallback = (message: string, count: number) => void;
+export type BatchCallback = (newQuestions: any[]) => void;
+
+export interface AppSettings {
+  apiKey: string;
+  model: string;
+  customPrompt: string;
+}

@@ -1,78 +1,89 @@
-# 🧠 AnkiGen Pro - Medical MCQ Extractor
+# 🧠 MCQ AnkiGen Pro - Medical MCQ Extractor
 
 > **Công cụ tự động hóa tạo thẻ Anki từ tài liệu Y khoa (PDF/Ảnh) với sức mạnh của AI & OCR.**
 > *Developed by [PonZ](https://github.com/tranhoait123)*
 
-[ **🇻🇳 Tiếng Việt** | [🇺🇸 English](README.en.md) ]
+---
 
-AnkiGen Pro là một dự án cá nhân được xây dựng để giải quyết vấn đề trích xuất câu hỏi trắc nghiệm (MCQ) từ các tài liệu scan chất lượng thấp, ảnh chụp bị cong/mờ, hoặc có nhiều ghi chú viết tay. Hệ thống sử dụng mô hình AI (Google Gemini) kết hợp với Local OCR (Tesseract) để đảm bảo độ chính xác tuyệt đối.
+[ [🇻🇳 Tiếng Việt](README.md) | **🇺🇸 English** ]
 
-![AnkiGen Pro Demo](https://placehold.co/1200x600/6366f1/ffffff?text=AnkiGen+Pro+Preview)
+**MCQ AnkiGen Pro** là giải pháp tối ưu dành cho sinh viên Y khoa, giúp chuyển đổi các tài liệu ôn thi (đề scan mờ, ảnh chụp vội, file PDF) thành các bộ thẻ Anki chất lượng cao chỉ trong tích tắc.
 
-## ✨ Tính Năng Nổi Bật
+Hệ thống kết hợp **Google Gemini AI** (thông minh) và **Local OCR** (chính xác) để đảm bảo không bỏ sót bất kỳ câu hỏi nào, kể cả những câu có chữ viết tay loằng ngoằng.
 
-- **🤖 Smart Auto Mode**: Tự động phát hiện và chuyển đổi giữa Cloud AI (nhanh, thông minh) và Local OCR (mạnh mẽ với ảnh mờ) để đảm bảo lấy đủ 100% câu hỏi.
-- **🩺 Medical Professor Persona**: AI được tinh chỉnh để đóng vai "Giáo sư Y khoa", không chỉ đưa ra đáp án mà còn giải thích cơ chế bệnh sinh, chẩn đoán phân biệt và cảnh báo bẫy lâm sàng.
-- **📝 Xử lý đa định dạng**: Hỗ trợ tốt các dạng câu hỏi khó như: Ghép cột (Matching), Đúng/Sai, Chọn nhiều đáp án.
-- **🧹 Chống nhiễu**: Tự động loại bỏ chữ viết tay, vòng tròn khoanh đáp án, vết mực đỏ/xanh làm nhiễu.
-- **🎨 Thẻ Anki Đẹp**: Xuất ra file CSV với định dạng HTML sẵn sàng cho Anki, giao diện thẻ chuyên nghiệp, dễ học.
+---
 
-### 🆕 Tính Năng Mới (v2.0)
+## 📸 Giao diện Pro Premium (v4.0)
 
-- **🔄 Smart Deduplication**: Tự động phát hiện và loại bỏ câu hỏi trùng lặp (dựa trên độ tương đồng 70% và số thứ tự câu hỏi).
-- **🔍 Double-Check Mode**: Nếu thiếu >10% câu hỏi, hệ thống tự động chạy pass 2 để tìm các câu bị sót.
-- **♻️ Restore Duplicates**: Xem và khôi phục câu hỏi bị loại nhầm ngay trên giao diện.
-- **📊 Chi tiết Log**: Hiển thị lý do từng câu bị loại để dễ dàng kiểm tra.
+![Giao diện chính](file:///Users/tranhoa/.gemini/antigravity/brain/5c89dc88-1008-4e93-8930-1addfa3e3f3f/uploaded_media_0_1770174963469.png)
+*Giao diện kéo thả hiện đại, hỗ trợ file lớn 50MB.*
 
-## 🚀 Hướng Dẫn Cài Đặt
+![Chế độ Split View](file:///Users/tranhoa/.gemini/antigravity/brain/5c89dc88-1008-4e93-8930-1addfa3e3f3f/uploaded_media_1_1770174963469.png)
+*Chế độ Split View (Chia đôi màn hình) giúp đối chiếu và chỉnh sửa trực tiếp.*
 
-Chỉ cần làm theo các bước đơn giản sau để chạy tool trên máy của bạn.
+![Tiến trình xử lý](file:///Users/tranhoa/.gemini/antigravity/brain/5c89dc88-1008-4e93-8930-1addfa3e3f3f/uploaded_media_2_1770174963469.png)
+*Giám sát tiến trình trích xuất thời gian thực.*
 
-### 1. Yêu cầu hệ thống
+---
 
-- **Node.js** (Phiên bản 18 trở lên). [Tải tại đây](https://nodejs.org/).
-- **Git**.
+## ✨ Tại sao bạn cần MCQ AnkiGen Pro?
 
-### 2. Tải mã nguồn
+### 1. 🤖 AI đóng vai "Giáo sư Y khoa"
 
-Mở Terminal và chạy lệnh:
+Không chỉ chép lại chữ, AI sẽ phân tích và trích xuất câu hỏi kèm theo giải thích chi tiết:
 
-```bash
-git clone https://github.com/tranhoait123/anki-mcq-export.git
-cd anki-mcq-export
-```
+- **Đáp án cốt lõi**: Tại sao chọn A mà không phải B?
+- **Phân tích sâu**: Cơ chế bệnh sinh liên quan.
+- **Bằng chứng**: Trích dẫn từ sách giáo khoa (nếu có trong văn bản).
 
-### 3. Cài đặt thư viện
+### 2. ⚡️ Xử lý mọi loại tài liệu (Hybrid OCR)
 
-```bash
-npm install
-```
+- **Ảnh mờ/Cong**: Tự động làm rõ và nhận diện.
+- **Chữ viết tay/Khoanh mực**: Tự động loại bỏ các vết mực của người đi trước để lấy đề sạch.
+- **Thông minh**: Tự động chuyển đổi giữa AI và công cụ quét nội bộ để đảm bảo chính xác 100%.
 
-### 4. Cấu hình API Key
+### 3. 💎 Trải nghiệm Pro Premium
 
-Tạo một file `.env.local` ở thư mục gốc của dự án và dán API Key của Google Gemini vào (lấy tại [aistudio.google.com](https://aistudio.google.com/)).
+- **Không giới hạn lưu trữ**: Lưu hàng nghìn câu hỏi ngay trên trình duyệt (IndexedDB) mà không sợ nặng máy.
+- **Chế độ ban đêm (Dark Mode)**: Bảo vệ mắt khi học khuya.
+- **Chống trùng lặp**: Tự động phát hiện nếu bạn lỡ nạp cùng một bộ đề nhiều lần.
 
-```env
-VITE_GEMINI_API_KEY=AIzaSy...KeyCuaBan,AIzaSy...KeyDuPhong
-```
+---
 
-*Mẹo: Bạn có thể nhập nhiều Key cách nhau bằng dấu phẩy `,` để hệ thống tự động xoay vòng nếu bị hết quota.*
+## 🚀 Hướng Dẫn Cài Đặt (Trong 1 phút)
 
-### 5. Chạy ứng dụng
+1. **Cài đặt Node.js**: Tải bản mới nhất tại [nodejs.org](https://nodejs.org/).
+2. **Tải công cụ**:
 
-```bash
-npm run dev
-```
+   ```bash
+   git clone https://github.com/tranhoait123/anki-mcq-export.git
+   cd anki-mcq-export
+   ```
 
-Truy cập `http://localhost:5173` để bắt đầu sử dụng!
+3. **Cài đặt thư viện**:
 
-## 📖 Hướng Dẫn Sử Dụng
+   ```bash
+   npm install
+   ```
 
-1. **Upload**: Kéo thả file ảnh chụp hoặc PDF đề thi vào.
-2. **Quét**: Nhấn "Quét Tài Liệu" để hệ thống đếm số câu và nhận diện chủ đề.
-3. **Trích xuất**: Nhấn nút trích xuất. Hệ thống sẽ tự động làm sạch dữ liệu và tạo câu hỏi.
-4. **Kiểm tra**: Xem lại các câu hỏi đã trích xuất, đọc giải thích chi tiết.
-5. **Xuất Anki**: Nhấn "Tải CSV Chuẩn Anki" và import vào bộ bài của bạn.
+4. **Chạy ứng dụng**:
+
+   ```bash
+   npm run dev
+   ```
+
+   Truy cập `http://localhost:5173` để bắt đầu!
+
+---
+
+## 📜 Nhật ký cập nhật
+
+| Phiên bản | Ngày | Tính năng mới nổi bật | Giao diện |
+| :--- | :--- | :--- | :--- |
+| **v4.0 (Pro)** | 04/02/2026 | **Giới hạn 50MB**, Lưu trữ vĩnh viễn (IndexedDB) | Giao diện Premium, Split View |
+| **v3.5** | 03/02/2026 | Xoay vòng Key API, Tự động kiểm tra lỗi | Glassmorphism Design |
+| **v3.0** | 02/02/2026 | Phát hiện câu hỏi trùng lặp | Bảng điều khiển chi tiết |
 
 ---
 *Dự án mã nguồn mở phục vụ cộng đồng sinh viên Y khoa.*
+**Phát triển bởi PonZ**

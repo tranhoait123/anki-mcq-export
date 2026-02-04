@@ -1,102 +1,104 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
-import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult } from "../types";
+import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings } from "../types";
 
 const SYSTEM_INSTRUCTION_EXTRACT = `
-Bạn là một **GIÁO SƯ Y KHOA ĐẦU NGÀNH (Senior Medical Professor)** đang biên soạn thẻ học Anki cho sinh viên Y khoa.
-Mục tiêu: Giúp sinh viên hiểu sâu sắc bản chất vấn đề, cơ chế bệnh sinh và tư duy lâm sàng.
+Bạn là một **GIÁO SƯ Y KHOA ĐẦU NGÀNH (Senior Medical Professor)** kiêm **CHUYÊN GIA KHÔI PHỤC VĂN BẢN (Forensic Document Examiner)**.
+Mục tiêu: Trích xuất chính xác câu hỏi trắc nghiệm từ các tài liệu chất lượng thấp, bị nhiễu hoặc viết tay.
 
-QUY TẮC TUYỆT ĐỐI (STRICT RULES):
-1. **CHỐNG NHIỄU (NOISE REDUCTION)**:
-   - **BỎ QUA HOÀN TOÀN** các chi tiết viết tay, vết mực đỏ/xanh, vòng tròn khoanh đáp án, dấu tích, con dấu đè lên văn bản.
-   - Chỉ trích xuất nội dung từ **CHỮ IN (Printed Text)** màu đen/xám của đề gốc.
-   - Nếu văn bản bị cong ở lề (gáy sách), hãy dùng ngữ cảnh để "đoán" và khôi phục từ bị méo.
-2. **KHÔNG BỊA ĐẶT (NO HALLUCINATIONS)**: Chỉ được trích xuất những câu hỏi CÓ THỰC. Tuyệt đối không tự sáng tác.
-3. **LẤY HẾT (FULL COVERAGE)**: Quét kỹ từng dòng, không bỏ sót câu hỏi nào. Nếu câu hỏi ngắt trang, hãy nối lại.
+🔍 **CHẾ ĐỘ KHÔI PHỤC (FORENSIC MODE)** - ƯU TIÊN CAO NHẤT:
+1. **XUYÊN THẤU NHIỄU**:
+   - Bạn có khả năng "đọc" nội dung bên trong các vòng tròn khoanh đáp án, vết gạch xóa, hoặc chữ viết tay đè lên. 
+   - **TUYỆT ĐỐI KHÔNG BỎ QUA** câu hỏi chỉ vì nó bị khoanh tròn hay đánh dấu. Hãy trích xuất nội dung gốc (printed text) bên dưới các vết tích đó.
+2. **TỰ ĐỘNG SỬA LỖI (AUTO-CORRECTION)**:
+   - Nếu OCR nhận diện sai do mờ/nghiêng (VD: "pu tiên" → "ưu tiên", "biêu ô" → "biểu mô"), hãy dùng kiến thức Y khoa để **TỰ ĐỘNG SỬA LỖI** chính tả về đúng thuật ngữ chuyên ngành.
+3. **KHÔI PHỤC CẤU TRÚC**:
+   - Nếu câu hỏi bị chia cắt giữa 2 trang (ngắt trang), hãy nối chúng lại thành một câu hoàn chỉnh.
+   - Nếu ngón tay che mất một phần nhỏ, hãy dùng ngữ cảnh để điền từ bị thiếu (nếu chắc chắn 99%).
 
-NHIỆM VỤ CỤ THỂ (HỖ TRỢ ĐA ĐỊNH DẠNG):
-1. **Trích xuất câu hỏi**:
-   - **MCQ Đơn (Standard)**: Lấy đủ A, B, C, D, E.
-   - **Đúng/Sai (True/False)**: Chuyển thành câu hỏi MCQ với các lựa chọn là các ý A, B, C, D (đánh dấu ý đúng trong phần giải thích).
-   - **Ghép nối (Matching)**: Chuyển thành câu hỏi dạng: "Ghép các mục cột trái với cột phải: 1-?, 2-?,...". Các lựa chọn A, B, C, D sẽ là các phương án ghép.
-   - **Chọn nhiều (Multi-select)**: Ghi rõ trong nội dung câu hỏi "(Chọn nhiều đáp án đúng)".
-   - **Điền khuyết/Tự luận ngắn**: Chuyển thành câu hỏi: "Điền vào chỗ trống: [Nội dung]...", Đáp án là từ cần điền.
+⛔ **QUY TẮC AN TOÀN (SAFETY PROTOCOL)**:
+- **KHÔNG BỊA ĐẶT (NO HALLUCINATIONS)**: Chỉ khôi phục khi có cơ sở. Nếu câu hỏi bị che quá 50% hoặc không thể đoán được, hãy BỎ QUA thay vì sáng tác.
+- Chỉ trích xuất những câu hỏi CÓ THỰC trong tài liệu.
 
-2. **Giải thích chuyên sâu (Deep Analysis)**:
-   - **core (Cốt lõi)**: Giải thích trực diện. Dẫn chứng Sinh lý bệnh/Guideline.
-   - **analysis (Tư duy biện luận)**: **CHẨN ĐOÁN PHÂN BIỆT**. Giải thích TẠI SAO các đáp án kia sai? (Quan trọng nhất).
-   - **evidence (Lý thuyết trọng tâm - Key Theory)**:
-     - Trích dẫn ngắn gọn lý thuyết/kiến thức nền tảng cần có để trả lời câu hỏi này.
-     - Ưu tiên lấy từ tài liệu gốc.
-     - **QUAN TRỌNG**: Nếu tài liệu gốc quá vắn tắt hoặc thiếu lý thuyết, hãy **BỔ SUNG** từ kiến thức Y khoa chuẩn mực của bạn (Harrison, Bộ Y tế, Dược thư...). Đảm bảo người học đọc xong là hiểu ngay nguyên lý mà không cần tra cứu thêm.
-   - **warning**: Bẫy lâm sàng.
+QUY TẮC TRÍCH XUẤT (HỖ TRỢ ĐA ĐỊNH DẠNG):
+1. **FULL CONTENT**: Lấy đủ Câu hỏi + 5 Lựa chọn (A,B,C,D,E).
+2. **Xử lý các dạng đặc biệt**:
+   - **MCQ Đơn (Standard)**: A, B, C, D...
+   - **True/False**: Chuyển thành MCQ "Ý nào đúng/sai?".
+   - **Ghép nối (Matching)**: Chuyển thành dạng "Ghép cột 1-?, 2-?..." (A,B,C,D là các phương án ghép).
+   - **Điền khuyết (Fill-in)**: Chuyển thành "Điền vào chỗ trống...".
+   - **Case Study**: Lặp lại tóm tắt tình huống ở đầu mỗi câu hỏi liên quan.
 
-QUY TẮC ĐỊNH DẠNG:
-- Xử lý Case Study: Nếu câu hỏi dựa trên tình huống lâm sàng dài, hãy lặp lại tóm tắt tình huống ở mỗi câu hỏi.
+YÊU CẦU GIẢI THÍCH (DEEP ANALYSIS):
+- **core (Cốt lõi)**: Giải thích trực diện.
+- **analysis (Biện luận)**: **CHẨN ĐOÁN PHÂN BIỆT**. Tại sao chọn A mà không phải B?
+- **evidence (Lý thuyết)**: 
+  - Trích dẫn ngắn gọn lý thuyết nền tảng.
+  - **NGUỒN TÀI LIỆU**: Ưu tiên trích dẫn từ **Harrison, Bộ Y tế, Dược thư quốc gia** hoặc Guideline chuẩn quốc tế.
+- **warning**: Bẫy lâm sàng thường gặp.
+
+OUTPUT FORMAT: JSON array.
 `;
 
 const SYSTEM_INSTRUCTION_AUDIT = `
 Bạn là Chuyên gia Kiểm toán Tài liệu AI. 
-Nhiệm vụ: Phân tích lý do tại sao quá trình trích xuất câu hỏi trắc nghiệm từ tài liệu (có thể là file scan, mờ) không đạt được số lượng mong muốn.
-Kiểm tra các yếu tố: 
-- Lỗi OCR (chữ dính nhau, ký tự lạ).
-- Bố cục phức tạp (chia 2 cột, bảng biểu).
-- Ảnh mờ hoặc bị nghiêng.
-- Các câu hỏi bị dính vào nhau.
-- Tài liệu bị thiếu trang hoặc ngắt quãng.
+Nhiệm vụ: Phân tích lý do tại sao trích xuất thất bại hoặc số lượng quá ít.
+Hãy tìm các nguyên nhân cụ thể:
+- **Handwriting interference**: Chữ viết tay/khoanh tròn đè lên văn bản gốc quá nhiều.
+- **Physical obstruction**: Ngón tay, vật thể lạ che khuất.
+- **Low resolution/Blur**: Ảnh quá mờ không thể đọc được cả bằng mắt thường.
+- **Complexity**: Bố cục quá rối rắm, bảng biểu vỡ.
+
+Đưa ra lời khuyên cụ thể để người dùng chụp lại tốt hơn (VD: "Cần chụp thẳng góc", "Tránh để ngón tay che chữ").
 `;
 
 // --- Key Management ---
-class KeyManager {
+// --- User Key Management ---
+
+class UserKeyRotator {
   private keys: string[] = [];
   private currentIndex: number = 0;
-  private exhaustedKeys: Set<string> = new Set();
 
-  constructor() {
-    const keyString = import.meta.env.VITE_GEMINI_API_KEY || "";
-    this.keys = keyString.split(',').map(k => k.trim()).filter(k => k.length > 0);
-    if (this.keys.length === 0) {
-      console.error("No API keys found in VITE_GEMINI_API_KEY");
+  constructor() { }
+
+  init(apiKeyString: string) {
+    if (!apiKeyString) {
+      this.keys = [];
+      return;
     }
+    // Robust splitting: commas, semicolons, newlines, or even spaces if user forgot commas
+    // Try standard delimiters first
+    let parts = apiKeyString.split(/[,;\n]+/);
+
+    this.keys = parts.map(k => k.trim()).filter(k => k.length > 10); // keys are usually long
+    this.currentIndex = 0;
+    console.log(`🔑 Loaded ${this.keys.length} API Keys.`);
   }
 
-  getKey(): string {
-    if (this.keys.length === 0) throw new Error("VITE_GEMINI_API_KEY is not configured or empty.");
-
-    // Find a key that is not exhausted
-    for (let i = 0; i < this.keys.length; i++) {
-      const keyToCheck = this.keys[(this.currentIndex + i) % this.keys.length];
-      if (!this.exhaustedKeys.has(keyToCheck)) {
-        this.currentIndex = (this.currentIndex + i) % this.keys.length;
-        return keyToCheck;
-      }
+  getCurrentKey(): string {
+    if (this.keys.length === 0) {
+      throw new Error("Vui lòng nhập Google API Key trong phần Cài đặt.");
     }
-
-    // If all keys are exhausted, clear the list and just return the current one (loop back)
-    console.warn("All keys temporarily exhausted. Resetting exhaustion status.");
-    this.exhaustedKeys.clear();
     return this.keys[this.currentIndex];
   }
 
-  markExhausted(key: string) {
-    this.exhaustedKeys.add(key);
-    console.warn(`API Key ending in ...${key.slice(-4)} marked as exhausted/rate-limited.`);
-    // Move to next key immediately
+  rotate(): string {
+    if (this.keys.length <= 1) return this.getCurrentKey();
+
     this.currentIndex = (this.currentIndex + 1) % this.keys.length;
+    console.log(`🔄 Rotating to API Key #${this.currentIndex + 1}`);
+    return this.keys[this.currentIndex];
   }
 
-  rotate() {
-    this.currentIndex = (this.currentIndex + 1) % this.keys.length;
-    console.log(`Rotating to next key: ...${this.keys[this.currentIndex].slice(-4)}`);
+  get keyCount(): number {
+    return this.keys.length;
   }
 
-  hasNextKey(): boolean {
-    // If we have more than 1 key, we can rotate
-    return this.keys.length > 1;
+  getKeyIndex(): number {
+    return this.currentIndex;
   }
 }
 
-const keyManager = new KeyManager();
+const userKeyRotator = new UserKeyRotator();
 
 // --- Helpers ---
 
@@ -198,12 +200,12 @@ const checkDuplicate = (newQ: string, existingQuestions: any[]): { isDup: boolea
   return { isDup: false };
 };
 
-const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any) => {
+const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any, modelName: string = 'gemini-3-flash') => {
   return {
-    model: 'gemini-3-flash-preview',
+    model: modelName,
     config: {
       systemInstruction,
-      temperature: 0.1,
+      temperature: 0.3,
       responseMimeType: "application/json",
       responseSchema: schema
     }
@@ -212,47 +214,83 @@ const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any)
 
 // --- Execution with Retry & Rotation ---
 
-async function executeWithRotation<T>(
-  operation: (apiKey: string) => Promise<T>,
-  retryCount = 0
+// Wrapper for API calls with Rotation support
+async function executeWithUserRotation<T>(
+  operation: (apiKey: string) => Promise<T>
 ): Promise<T> {
-  const MAX_RETRIES = 10;
+  const MAX_RETRIES_PER_KEY = 2;
+  const ATTEMPTS_LIMIT = 10; // Global safety limit
+  let attempts = 0;
 
-  try {
-    const apiKey = keyManager.getKey();
-    return await operation(apiKey);
-  } catch (error: any) {
-    if (retryCount >= MAX_RETRIES) throw error;
+  while (attempts < ATTEMPTS_LIMIT) {
+    attempts++;
+    const currentKey = userKeyRotator.getCurrentKey();
 
-    const isRateLimit = error.message?.includes("429") || error.message?.includes("Quota exceeded");
+    try {
+      // console.log(`Attempting with Key #${userKeyRotator.getKeyIndex() + 1}...`);
+      return await operation(currentKey);
+    } catch (error: any) {
+      const msg = error.message?.toLowerCase() || "";
+      const isRateLimit = msg.includes("429") || msg.includes("quota exceeded") || msg.includes("resource exhausted");
+      const isKeyError = msg.includes("api key") && (msg.includes("invalid") || msg.includes("not found") || msg.includes("expired"));
 
-    if (isRateLimit) {
-      console.warn("Hit rate limit/quota. Rotating key...");
-      keyManager.markExhausted(keyManager.getKey()); // Mark current key as bad
+      if (isRateLimit || isKeyError) {
+        const reason = isRateLimit ? "Rate Limit (429)" : "Invalid/Expired Key";
+        console.warn(`⚠️ ${reason} on Key #${userKeyRotator.getKeyIndex() + 1}. Rotating...`);
 
-      // Wait a bit before retrying even with a new key, just to be safe
-      await new Promise(resolve => setTimeout(resolve, 2000));
+        userKeyRotator.rotate();
 
-      return executeWithRotation(operation, retryCount + 1);
+        // Simple backoff
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
+
+      // If it's another error (e.g. 500 or unknown), we might want to retry ONCE on the same key 
+      // or rotate if we have many keys? 
+      // For now, let's treat unknown errors as fatal unless we want to be very aggressive.
+      // But users often get "Overloaded" (503) which might be temporary.
+      throw error;
     }
-
-    throw error;
   }
+  throw new Error(`Đã thử tất cả ${userKeyRotator.keyCount} Keys nhưng đều thất bại (429/Invalid). Vui lòng kiểm tra lại Key.`);
 }
 
 
 export const generateQuestions = async (
   files: UploadedFile[],
+  settings: AppSettings,
   limit: number = 0,
   onProgress?: ProgressCallback,
-  expectedCount: number = 0
+  expectedCount: number = 0,
+  onBatchComplete?: BatchCallback
 ): Promise<GeneratedResponse> => {
   try {
+    // 1. Initialize Client with Dynamic Key
+    // 1. Initialize Rotator
+    userKeyRotator.init(settings.apiKey);
+
+    // Validate immediatley
+    // This will throw if empty
+    userKeyRotator.getCurrentKey();
+
+    // Initialize parts from files
     const parts: any[] = files.map(file => {
+      // Handle images/PDFs (base64)
       if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
-        return { inlineData: { mimeType: file.type, data: file.content } };
+        // If content is already base64 (data:image/...), split it.
+        // If it's raw text, this might be wrong for PDF. Assuming file.content is base64 for binary types.
+        const base64Data = file.content.includes(',') ? file.content.split(',')[1] : file.content;
+        return {
+          inlineData: {
+            mimeType: file.type,
+            data: base64Data
+          }
+        };
       }
-      return { text: `FILE: ${file.name}\n${file.content}\n` };
+      // Handle Text Files
+      else {
+        return { text: `FILE: ${file.name}\n${file.content}\n` };
+      }
     });
 
     const questionSchema = {
@@ -302,19 +340,29 @@ export const generateQuestions = async (
       const currentCount = allQuestions.length;
       if (limit > 0 && currentCount >= limit) break;
 
-      // Better prompt to reduce duplicate extraction
-      const lastQuestionSnippet = allQuestions.length > 0
-        ? allQuestions[allQuestions.length - 1].question.substring(0, 80)
-        : '';
+      // Better prompt with Smart Anchoring
+      const lastQ = allQuestions.length > 0 ? allQuestions[allQuestions.length - 1] : null;
+      const lastQuestionSnippet = lastQ?.question.substring(0, 80) || '';
+      const lastNum = lastQ ? extractQuestionNumber(lastQ.question) : null;
+
+      const anchor = lastNum
+        ? `Câu số ${lastNum} (hoặc Question ${lastNum})`
+        : `câu hỏi có nội dung "${lastQuestionSnippet}..."`;
 
       let promptText = allQuestions.length === 0
         ? "BẮT ĐẦU: Lấy 50 câu hỏi ĐẦU TIÊN trong tài liệu. Trích xuất đầy đủ A, B, C, D, E nếu có."
-        : `TIẾP TỤC từ vị trí SAU câu hỏi này: "${lastQuestionSnippet}..."
+        : `TIẾP TỤC từ vị trí SAU ${anchor}.
+⚠️ Nhiệm vụ:
+- Tìm và trích xuất các câu hỏi TIẾP THEO ngay sau vị trí trên.
+- Nếu câu hỏi tiếp theo bị ngắt quãng, hãy tự động ghép nối.`;
 
+      const instructionNote = `
 ⚠️ QUY TẮC BẮT BUỘC:
-- KHÔNG được lặp lại câu hỏi trên hoặc bất kỳ câu nào đã có.
-- Chỉ lấy 50 câu hỏi TIẾP THEO chưa được trích xuất.
+- KHÔNG được lặp lại câu hỏi cũ.
+- Chỉ lấy 50 câu hỏi TIẾP THEO.
 - Nếu đã hết câu hỏi mới, trả về mảng rỗng [].`;
+
+      promptText += "\n" + instructionNote;
 
       if (onProgress) onProgress(`Đang quét đợt ${loopCount}... (Có ${currentCount} câu)...`, currentCount);
 
@@ -323,9 +371,9 @@ export const generateQuestions = async (
 
       try {
         // WRAPPED API CALL
-        const text = await executeWithRotation(async (apiKey) => {
+        const text = await executeWithUserRotation(async (apiKey) => {
           const ai = new GoogleGenAI({ apiKey });
-          const chat = ai.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_EXTRACT, questionSchema));
+          const chat = ai.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_EXTRACT, questionSchema, settings.model));
           const response = await chat.sendMessage({
             // Always send parts + prompt. This treats each request as standalone but with full context.
             message: [...parts, { text: promptText }]
@@ -334,12 +382,11 @@ export const generateQuestions = async (
         });
 
         if (!text) {
-          // Empty response? 
-          if (expectedCount > 0 && currentCount < expectedCount * 0.9 && consecutiveEmptyBatches < 3 && keyManager.hasNextKey()) {
-            console.warn("Empty response but target not reached. Rotating key and retrying...");
-            keyManager.rotate();
+          // Empty response handling
+          if (expectedCount > 0 && currentCount < expectedCount * 0.9 && consecutiveEmptyBatches < 3) {
+            console.warn("Empty response. Retrying...");
             consecutiveEmptyBatches++;
-            continue; // Retry loop with new key (same prompt)
+            continue;
           }
           keepFetching = false;
           continue;
@@ -384,23 +431,27 @@ export const generateQuestions = async (
             consecutiveEmptyBatches++;
           }
 
-          if (expectedCount > 0 && currentCount < expectedCount * 0.9 && consecutiveEmptyBatches < 3 && keyManager.hasNextKey()) {
-            console.warn(`Got 0 new questions but target not reached (${currentCount}/${expectedCount}). Rotating key and retrying...`);
-            keyManager.rotate();
-            continue; // Retry loop with new key
+          if (expectedCount > 0 && currentCount < expectedCount * 0.9 && consecutiveEmptyBatches < 3) {
+            console.warn(`Got 0 new questions but target not reached (${currentCount}/${expectedCount}). Retrying...`);
+            continue; // Retry loop
           }
           keepFetching = false;
         } else {
           allQuestions = [...allQuestions, ...newQs];
+
+          // STREAMING: Notify new questions immediately
+          if (onBatchComplete && newQs.length > 0) {
+            onBatchComplete(newQs);
+          }
+
           consecutiveEmptyBatches = 0; // Reset counter on success
           console.log(`Added ${newQs.length} unique questions. Total: ${allQuestions.length}`);
         }
       } catch (e: any) {
         console.error("Extraction loop error:", e);
         // If we error out, also try rotating if we haven't reached target?
-        if (expectedCount > 0 && currentCount < expectedCount * 0.9 && consecutiveEmptyBatches < 3 && keyManager.hasNextKey()) {
-          console.warn("Error encountered. Rotating key and retrying...");
-          keyManager.rotate();
+        if (expectedCount > 0 && currentCount < expectedCount * 0.9 && consecutiveEmptyBatches < 3) {
+          console.warn("Error encountered. Retrying...");
           consecutiveEmptyBatches++;
           continue;
         }
@@ -409,11 +460,12 @@ export const generateQuestions = async (
       }
     }
 
-    // === DOUBLE-CHECK MODE: Verify extraction completeness ===
-    if (expectedCount > 0 && allQuestions.length < expectedCount * 0.9) {
-      console.log(`\n🔍 DOUBLE-CHECK MODE: Thiếu ${expectedCount - allQuestions.length} câu (có ${allQuestions.length}/${expectedCount})`);
-
-      if (onProgress) onProgress(`Đang kiểm tra lại... (có ${allQuestions.length}/${expectedCount} câu)`, allQuestions.length);
+    // === AGGRESSIVE GAP FILLING LOOP ===
+    // Loop up to 3 times to find missing questions
+    let gapFillAttempts = 0;
+    while (gapFillAttempts < 3) {
+      gapFillAttempts++;
+      console.log(`\n🔍 GAP FILLING ATTEMPT ${gapFillAttempts}/3...`);
 
       // Extract question numbers we already have
       const extractedNumbers = new Set<number>();
@@ -429,52 +481,64 @@ export const generateQuestions = async (
         if (!extractedNumbers.has(i)) missingNumbers.push(i);
       }
 
-      if (missingNumbers.length > 0) {
-        console.log(`📋 Các câu có thể bị thiếu: ${missingNumbers.slice(0, 20).join(', ')}${missingNumbers.length > 20 ? '...' : ''}`);
+      if (missingNumbers.length === 0) break; // No gaps found
 
-        // Second pass: specifically request missing questions
-        const missingRanges = missingNumbers.slice(0, 30).join(', ');
-        const secondPassPrompt = `TÌM CÂU HỎI BỊ THIẾU:
-Hãy tìm và trích xuất CÁC CÂU HỎI sau đây trong tài liệu: Câu ${missingRanges}
+      console.log(`📋 Các câu bị thiếu (Attempt ${gapFillAttempts}): ${missingNumbers.slice(0, 20).join(', ')}${missingNumbers.length > 20 ? '...' : ''}`);
+      if (onProgress) onProgress(`Đang soát lại lần ${gapFillAttempts}: Tìm câu ${missingNumbers.slice(0, 5).join(', ')}...`, allQuestions.length);
 
-⚠️ CHỈ trích xuất những câu hỏi có SỐ THỨ TỰ trong danh sách trên.
-Nếu không tìm thấy câu nào, trả về mảng rỗng [].`;
+      // Request missing questions
+      const missingRanges = missingNumbers.slice(0, 30).join(', ');
+      const gapPrompt = `TÌM KIẾM MỤC TIÊU (LẦN ${gapFillAttempts}):
+Hãy tìm và trích xuất chính xác các câu hỏi có số thứ tự sau: ${missingRanges}
 
-        await new Promise(resolve => setTimeout(resolve, 4000));
+⚠️ QUY TẮC:
+- Chỉ trích xuất đúng các câu hỏi thiếu này.
+- Nếu văn bản chỗ đó bị bẩn/mờ, hãy dùng chế độ KHÔI PHỤC để đọc.
+- Nếu không tìm thấy, tuyệt đối KHÔNG BỊA ĐẶT.`;
 
-        try {
-          const secondPassText = await executeWithRotation(async (apiKey) => {
-            const ai = new GoogleGenAI({ apiKey });
-            const chat = ai.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_EXTRACT, questionSchema));
-            const response = await chat.sendMessage({
-              message: [...parts, { text: secondPassPrompt }]
-            });
-            return response.text;
+      await new Promise(resolve => setTimeout(resolve, 4000));
+
+      try {
+        const gapText = await executeWithUserRotation(async (apiKey) => {
+          const ai = new GoogleGenAI({ apiKey });
+          const chat = ai.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_EXTRACT, questionSchema, settings.model));
+          const response = await chat.sendMessage({
+            message: [...parts, { text: gapPrompt }]
           });
+          return response.text;
+        });
 
-          if (secondPassText) {
-            const secondParsed = JSON.parse(extractJson(secondPassText)) as GeneratedResponse;
-            const secondPassQs = secondParsed.questions || [];
+        if (gapText) {
+          const gapParsed = JSON.parse(extractJson(gapText)) as GeneratedResponse;
+          const gapQs = gapParsed.questions || [];
+          let addedCount = 0;
 
-            // Add only non-duplicates from second pass
-            let addedFromSecondPass = 0;
-            for (const q of secondPassQs) {
-              const result = checkDuplicate(q.question, allQuestions);
-              if (!result.isDup) {
-                allQuestions.push(q);
-                addedFromSecondPass++;
-              }
-            }
-
-            if (addedFromSecondPass > 0) {
-              console.log(`✅ Double-check: Tìm thêm được ${addedFromSecondPass} câu. Tổng: ${allQuestions.length}`);
+          for (const q of gapQs) {
+            const result = checkDuplicate(q.question, allQuestions);
+            if (!result.isDup) {
+              allQuestions.push(q);
+              addedCount++;
+              if (onBatchComplete) onBatchComplete([q]);
             }
           }
-        } catch (e) {
-          console.warn("Double-check pass failed:", e);
+
+          if (addedCount > 0) {
+            console.log(`✅ Gap Fill: Tìm thêm được ${addedCount} câu.`);
+          } else {
+            console.log("⚠️ Gap Fill: Không tìm thấy thêm câu nào mới.");
+          }
         }
+      } catch (e) {
+        console.warn("Gap fill attempt failed:", e);
       }
     }
+
+    // Final Sort: Ensure questions are in numerical order (since Gap Filling might add them out of order)
+    allQuestions.sort((a, b) => {
+      const numA = extractQuestionNumber(a.question) || 999999;
+      const numB = extractQuestionNumber(b.question) || 999999;
+      return numA - numB;
+    });
 
     // Final summary
     console.log(`\n📊 KẾT QUẢ CUỐI CÙNG: ${allQuestions.length} câu hỏi (mục tiêu: ${expectedCount || 'không xác định'})`);
@@ -488,18 +552,17 @@ Nếu không tìm thấy câu nào, trả về mảng rỗng [].`;
   }
 };
 
-export const analyzeDocument = async (files: UploadedFile[]): Promise<AnalysisResult> => {
+export const analyzeDocument = async (files: UploadedFile[], settings: AppSettings): Promise<AnalysisResult> => {
   let attempts = 0;
   const MaxAttempts = 3;
 
+  // Manual Rotation Logic for Analysis
+  userKeyRotator.init(settings.apiKey);
+
   while (attempts < MaxAttempts) {
     try {
-      // We don't use executeWithRotation wrapper here because we want manual control over rotation
-      // based on LOGICAL failures (bad content), not just HTTP 429.
-      // However, we still want to catch 429.
-      // Let's use a try-catch block similar to generateQuestions loop logic.
+      const apiKey = userKeyRotator.getCurrentKey();
 
-      const apiKey = keyManager.getKey();
       const ai = new GoogleGenAI({ apiKey });
 
       const parts: any[] = files.map(file => {
@@ -520,7 +583,7 @@ export const analyzeDocument = async (files: UploadedFile[]): Promise<AnalysisRe
         required: ["topic", "estimatedCount", "questionRange"]
       };
 
-      const chat = ai.chats.create(getModelConfig(apiKey, "Phân tích số câu hỏi trắc nghiệm trong tài liệu Y khoa.", schema));
+      const chat = ai.chats.create(getModelConfig(apiKey, "Phân tích số câu hỏi trắc nghiệm trong tài liệu Y khoa.", schema, settings.model));
       const res = await chat.sendMessage({ message: [...parts, { text: "Quét tài liệu và ước tính tổng số câu hỏi MCQ có mặt." }] });
       const text = res.text;
 
@@ -536,7 +599,7 @@ export const analyzeDocument = async (files: UploadedFile[]): Promise<AnalysisRe
 
       if (isRateLimit || attempts < MaxAttempts - 1) {
         console.log("Rotating key and retrying analysis...");
-        keyManager.rotate();
+        userKeyRotator.rotate();
         attempts++;
         await new Promise(r => setTimeout(r, 2000));
         continue;
@@ -547,8 +610,10 @@ export const analyzeDocument = async (files: UploadedFile[]): Promise<AnalysisRe
   throw new Error("Analysis failed after multiple attempts");
 };
 
-export const auditMissingQuestions = async (files: UploadedFile[], count: number): Promise<AuditResult> => {
-  return await executeWithRotation(async (apiKey) => {
+export const auditMissingQuestions = async (files: UploadedFile[], count: number, settings: AppSettings): Promise<AuditResult> => {
+  userKeyRotator.init(settings.apiKey);
+
+  return await executeWithUserRotation(async (apiKey) => {
     const ai = new GoogleGenAI({ apiKey });
     const parts: any[] = files.map(file => {
       if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
@@ -569,7 +634,7 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
       required: ["status", "reasons", "advice", "problematicSections"]
     };
 
-    const chat = ai.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_AUDIT, schema));
+    const chat = ai.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_AUDIT, schema, settings.model));
     const res = await chat.sendMessage({
       message: [
         ...parts,

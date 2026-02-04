@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { UploadCloud, FileText, X, Loader2, Image as ImageIcon } from 'lucide-react';
 import { UploadedFile } from '../types';
 import mammoth from 'mammoth';
@@ -174,13 +174,20 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
     setFiles(prev => prev.filter((_, i) => i !== index));
   };
 
+  const [isDragActive, setIsDragActive] = useState(false);
+
   return (
     <div className="w-full space-y-4">
       <div
-        className="border-2 border-dashed border-indigo-300 bg-indigo-50 rounded-lg p-8 text-center hover:bg-indigo-100 transition-colors cursor-pointer"
-        onDrop={handleDrop}
-        onDragOver={(e) => e.preventDefault()}
+        onDragOver={(e) => { e.preventDefault(); setIsDragActive(true); }}
+        onDragLeave={() => setIsDragActive(false)}
+        onDrop={(e) => { setIsDragActive(false); handleDrop(e); }}
         onClick={() => document.getElementById('fileInput')?.click()}
+        className={`relative border-2 border-dashed rounded-3xl p-10 transition-all cursor-pointer group flex flex-col items-center justify-center text-center
+          ${isDragActive
+            ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-900/20 scale-[1.02]'
+            : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 hover:border-indigo-400 hover:bg-white dark:hover:bg-slate-800'
+          }`}
       >
         <input
           type="file"
@@ -190,25 +197,30 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
           className="hidden"
           onChange={handleInputChange}
         />
-        <div className="flex flex-col items-center justify-center text-indigo-600">
-          <UploadCloud size={48} className="mb-2" />
-          <p className="font-semibold text-lg">Kéo thả hoặc nhấn để tải tài liệu</p>
-          <p className="text-sm text-indigo-400 mt-1">Hỗ trợ: PDF, Ảnh (PNG/JPG), Word, Text</p>
+        <div className="pro-gradient p-4 rounded-2xl shadow-lg shadow-indigo-100 dark:shadow-none mb-4 group-hover:scale-110 transition-all">
+          <UploadCloud size={32} className="text-white" />
+        </div>
+        <div>
+          <p className="font-black text-slate-800 dark:text-white uppercase tracking-tighter text-lg leading-tight">Kéo thả hoặc nhấn để tải tài liệu</p>
+          <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] mt-1 mb-4 text-center">Mastered by PonZ - Y khoa & Chuyên nghiệp</p>
+          <p className="inline-block px-4 py-1.5 bg-slate-200/50 dark:bg-slate-800 rounded-full text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest border border-slate-100 dark:border-slate-700">
+            Hỗ trợ: PDF / Ảnh / Word (Tối đa 50MB/file)
+          </p>
         </div>
       </div>
 
       {files.length > 0 && (
-        <div className="bg-white rounded-lg shadow border border-gray-100 p-4">
-          <h3 className="text-sm font-semibold text-gray-500 mb-2 uppercase tracking-wide">Tài liệu đã chọn ({files.length})</h3>
+        <div className="bg-white dark:bg-slate-900 rounded-lg shadow border border-gray-100 dark:border-slate-800 p-4">
+          <h3 className="text-sm font-semibold text-gray-500 dark:text-slate-400 mb-2 uppercase tracking-wide">Tài liệu đã chọn ({files.length})</h3>
           <ul className="space-y-2">
             {files.map((file, idx) => (
-              <li key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded hover:bg-gray-100 transition">
+              <li key={idx} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-slate-800 rounded hover:bg-gray-100 dark:hover:bg-slate-700 transition">
                 <div className="flex items-center space-x-3 overflow-hidden flex-1">
-                  <div className={`p-2 rounded ${file.isProcessing ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'}`}>
+                  <div className={`p-2 rounded ${file.isProcessing ? 'bg-amber-100 text-amber-600 dark:bg-amber-900 dark:text-amber-100' : 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-100'}`}>
                     {file.isProcessing ? <Loader2 size={20} className="animate-spin" /> : <FileText size={20} />}
                   </div>
                   <div className="flex flex-col min-w-0 flex-1">
-                    <span className="text-sm font-medium truncate text-gray-700">{file.name}</span>
+                    <span className="text-sm font-medium truncate text-gray-700 dark:text-slate-200">{file.name}</span>
                     {file.isProcessing ? (
                       <div className="flex items-center space-x-2 mt-1">
                         <div className="h-1.5 w-full bg-amber-200 rounded-full overflow-hidden">
@@ -226,7 +238,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
                 </div>
                 <button
                   onClick={() => removeFile(idx)}
-                  className="text-gray-400 hover:text-red-500 p-1 rounded-full hover:bg-red-50 transition ml-2"
+                  className="text-gray-400 hover:text-red-500 p-1 rounded-full hover:bg-red-50 dark:hover:bg-red-900/30 transition ml-2"
                   disabled={file.isProcessing}
                 >
                   <X size={18} />

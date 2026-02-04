@@ -1,6 +1,39 @@
+import { PDFDocument } from 'pdf-lib';
 import { GoogleGenAI, Type } from "@google/genai";
 import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings } from "../types";
-import { convertPdfToImages } from "../utils/pdfProcessor";
+
+// Helper: Split PDF into chunks (client-side, no worker needed)
+// Helper: Split PDF into chunks (client-side) with OVERLAP support
+const splitPdf = async (base64Data: string, pagesPerChunk: number = 3, overlap: number = 1): Promise<string[]> => {
+  const pdfDoc = await PDFDocument.load(base64Data);
+  const totalPages = pdfDoc.getPageCount();
+  const chunks: string[] = [];
+  const step = Math.max(1, pagesPerChunk - overlap);
+
+  for (let i = 0; i < totalPages; i += step) {
+    // Avoid creating a last chunk that is fully contained in the previous one if exact match?
+    // But simplest logic is just overlap.
+    if (i > 0 && i + pagesPerChunk > totalPages && i + step >= totalPages) {
+      // Optimization: If we are near end, ensures we catch everything.
+    }
+
+    const subDoc = await PDFDocument.create();
+    const pageIndices = Array.from({ length: Math.min(pagesPerChunk, totalPages - i) }, (_, k) => i + k);
+
+    // Filter out of bounds just in case
+    const validIndices = pageIndices.filter(idx => idx < totalPages);
+    if (validIndices.length === 0) break;
+
+    const copyPages = await subDoc.copyPages(pdfDoc, validIndices);
+    copyPages.forEach((page) => subDoc.addPage(page));
+    const base64 = await subDoc.saveAsBase64();
+    chunks.push(base64);
+
+    // Stop if we reached end
+    if (validIndices[validIndices.length - 1] === totalPages - 1) break;
+  }
+  return chunks;
+};
 
 const SYSTEM_INSTRUCTION_EXTRACT = `
 Bạn là một **GIÁO SƯ Y KHOA ĐẦU NGÀNH (Senior Medical Professor)** kiêm **CHUYÊN GIA PHÁP Y TÀI LIỆU (Forensic Document Analyst)**.
@@ -57,8 +90,6 @@ Hãy tìm các nguyên nhân cụ thể:
 `;
 
 // --- Key Management ---
-// --- User Key Management ---
-
 class UserKeyRotator {
   private keys: string[] = [];
   private currentIndex: number = 0;
@@ -70,11 +101,8 @@ class UserKeyRotator {
       this.keys = [];
       return;
     }
-    // Robust splitting: commas, semicolons, newlines, or even spaces if user forgot commas
-    // Try standard delimiters first
     let parts = apiKeyString.split(/[,;\n]+/);
-
-    this.keys = parts.map(k => k.trim()).filter(k => k.length > 10); // keys are usually long
+    this.keys = parts.map(k => k.trim()).filter(k => k.length > 10);
     this.currentIndex = 0;
     console.log(`🔑 Loaded ${this.keys.length} API Keys.`);
   }
@@ -88,7 +116,6 @@ class UserKeyRotator {
 
   rotate(): string {
     if (this.keys.length <= 1) return this.getCurrentKey();
-
     this.currentIndex = (this.currentIndex + 1) % this.keys.length;
     console.log(`🔄 Rotating to API Key #${this.currentIndex + 1}`);
     return this.keys[this.currentIndex];
@@ -117,25 +144,19 @@ const extractJson = (text: string): string => {
 
 // --- Deduplication Helpers ---
 
-/**
- * Normalize text for comparison: lowercase, remove extra whitespace & punctuation
- */
 const normalizeText = (text: string): string => {
   return text
     .toLowerCase()
-    .replace(/[\s\n\r]+/g, ' ')      // Collapse whitespace
-    .replace(/[.,;:!?\"'()\\[\\]{}]/g, '') // Remove punctuation
+    .replace(/[\s\n\r]+/g, ' ')
+    .replace(/[.,;:!?\"'()\\[\\]{}]/g, '')
     .trim();
 };
 
-/**
- * Extract question number from text (e.g., "Câu 15:", "Question 3.", "15.")
- */
 const extractQuestionNumber = (text: string): number | null => {
   const patterns = [
-    /câu\s*(?:số\s*)?(\d+)/i,        // Vietnamese: Câu 15, Câu số 15
-    /question\s*(\d+)/i,             // English: Question 15
-    /^(\d+)\s*[.:)\]]/,              // Just number: 15. or 15: or 15)
+    /câu\s*(?:số\s*)?(\d+)/i,
+    /question\s*(\d+)/i,
+    /^(\d+)\s*[.:)\]]/,
   ];
 
   for (const pattern of patterns) {
@@ -147,20 +168,14 @@ const extractQuestionNumber = (text: string): number | null => {
   return null;
 };
 
-/**
- * Calculate similarity ratio between two strings (0-1)
- */
 const calculateSimilarity = (str1: string, str2: string): number => {
   const s1 = normalizeText(str1);
   const s2 = normalizeText(str2);
 
   if (s1 === s2) return 1;
   if (s1.length === 0 || s2.length === 0) return 0;
-
-  // Check if one contains the other
   if (s1.includes(s2) || s2.includes(s1)) return 0.95;
 
-  // Simple word overlap ratio
   const words1 = new Set(s1.split(' ').filter(w => w.length > 2));
   const words2 = new Set(s2.split(' ').filter(w => w.length > 2));
 
@@ -172,16 +187,12 @@ const calculateSimilarity = (str1: string, str2: string): number => {
   return overlap / Math.max(words1.size, words2.size);
 };
 
-/**
- * Check if a question is duplicate - returns detailed info for logging
- */
 const checkDuplicate = (newQ: string, existingQuestions: any[]): { isDup: boolean; reason?: string; matchedWith?: string } => {
-  const SIMILARITY_THRESHOLD = 0.70; // Reduced to 70% to avoid false positives
+  const SIMILARITY_THRESHOLD = 0.70;
 
   const newNumber = extractQuestionNumber(newQ);
 
   for (const existing of existingQuestions) {
-    // Check 1: Same question number = definite duplicate
     const existingNumber = extractQuestionNumber(existing.question);
     if (newNumber !== null && existingNumber !== null && newNumber === existingNumber) {
       return {
@@ -191,7 +202,6 @@ const checkDuplicate = (newQ: string, existingQuestions: any[]): { isDup: boolea
       };
     }
 
-    // Check 2: High text similarity
     const similarity = calculateSimilarity(newQ, existing.question);
     if (similarity >= SIMILARITY_THRESHOLD) {
       return {
@@ -219,12 +229,10 @@ const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any,
 
 // --- Execution with Retry & Rotation ---
 
-// Wrapper for API calls with Rotation support
 async function executeWithUserRotation<T>(
   operation: (apiKey: string) => Promise<T>
 ): Promise<T> {
-  const MAX_RETRIES_PER_KEY = 2;
-  const ATTEMPTS_LIMIT = 10; // Global safety limit
+  const ATTEMPTS_LIMIT = 10;
   let attempts = 0;
 
   while (attempts < ATTEMPTS_LIMIT) {
@@ -232,7 +240,6 @@ async function executeWithUserRotation<T>(
     const currentKey = userKeyRotator.getCurrentKey();
 
     try {
-      // console.log(`Attempting with Key #${userKeyRotator.getKeyIndex() + 1}...`);
       return await operation(currentKey);
     } catch (error: any) {
       const msg = error.message?.toLowerCase() || "";
@@ -242,25 +249,15 @@ async function executeWithUserRotation<T>(
       if (isRateLimit || isKeyError) {
         const reason = isRateLimit ? "Rate Limit (429)" : "Invalid/Expired Key";
         console.warn(`⚠️ ${reason} on Key #${userKeyRotator.getKeyIndex() + 1}. Rotating...`);
-
         userKeyRotator.rotate();
-
-        // Simple backoff
         await new Promise(r => setTimeout(r, 1000));
         continue;
       }
-
-      // If it's another error (e.g. 500 or unknown), we might want to retry ONCE on the same key 
-      // or rotate if we have many keys? 
-      // For now, let's treat unknown errors as fatal unless we want to be very aggressive.
-      // But users often get "Overloaded" (503) which might be temporary.
       throw error;
     }
   }
   throw new Error(`Đã thử tất cả ${userKeyRotator.keyCount} Keys nhưng đều thất bại (429/Invalid). Vui lòng kiểm tra lại Key.`);
 }
-
-
 
 
 export const generateQuestions = async (
@@ -273,51 +270,55 @@ export const generateQuestions = async (
 ): Promise<GeneratedResponse> => {
   try {
     userKeyRotator.init(settings.apiKey);
-    userKeyRotator.getCurrentKey(); // Validate
+    userKeyRotator.getCurrentKey();
 
-    // --- STEP 1: PRE-PROCESS & RASTERIZE ---
-    // Convert everything to a flat list of "Page Images" or "Text Segments"
-    // This solves the PDF parsing issue by turning it into a Vision task.
-
+    // --- STEP 1: PRE-PROCESS ---
     let allParts: { mimeType: string; data: string }[] = [];
 
     if (onProgress) onProgress("Đang phân tích định dạng tài liệu...", 0);
 
     for (const file of files) {
       if (file.type === 'application/pdf') {
-        if (onProgress) onProgress(`Đang chuyển đổi PDF "${file.name}" sang Ảnh chất lượng cao...`, 0);
-        // Rasterize PDF
-        const images = await convertPdfToImages(file.content); // Helper now expects base64 pdf content
-        console.log(`Converted PDF to ${images.length} images.`);
-        allParts.push(...images.map(img => ({
-          mimeType: 'image/jpeg',
-          data: img.split(',')[1] // remove data:image/jpeg;base64, prefix
-        })));
+        if (onProgress) onProgress(`Đang cắt nhỏ PDF "${file.name}" để quét sâu...`, 0);
+
+        // SPLIT STRATEGY (Quantity Fix + Overlap):
+        // Split PDF into 3-page chunks with 1 PAGE OVERLAP.
+        // Chunks: [1-3], [3-5], [5-7]...
+        // This ensures questions cut across pages are never lost.
+        try {
+          const rawBase64 = file.content.includes(',') ? file.content.split(',')[1] : file.content;
+          const title = file.name;
+
+          const pdfChunks = await splitPdf(rawBase64, 3, 1); // 3 pages, 1 overlap
+          console.log(`✂️ Split PDF into ${pdfChunks.length} chunks (w/ overlap).`);
+
+          pdfChunks.forEach((chunkBase64) => {
+            allParts.push({
+              mimeType: 'application/pdf',
+              data: chunkBase64
+            });
+          });
+        } catch (splitError) {
+          console.error("PDF Split failed, fallback to whole doc:", splitError);
+          allParts.push({
+            mimeType: 'application/pdf',
+            data: file.content.includes(',') ? file.content.split(',')[1] : file.content
+          });
+        }
+
       } else if (file.type.startsWith('image/')) {
         allParts.push({
           mimeType: file.type,
           data: file.content.includes(',') ? file.content.split(',')[1] : file.content
         });
       } else {
-        // Text/Docx fallback (still treated as monolithic for now, or could split?)
-        // For simplicity, text/docx is handled as text. But "Page-by-Page" logic implies visual.
-        // If it's text, we just pass the text. But our new loop expects "Parts".
-        // Let's create a "Text Part" if needed, but for now assuming most are PDF/Image.
-        // If text, we might just put it all in one "Part" and let the loop handle it once.
-        return { questions: [], duplicates: [] }; // Temporary: Focus on PDF Logic since User asked for that.
-        // Realistically, we should support text too.
-        // Reverting to hybrid approach below.
+        return { questions: [], duplicates: [] };
       }
     }
 
     if (allParts.length === 0) {
-      // Handle text-only files (Docx/Txt) using legacy single-pass method?
-      // Or just map them to value.
-      // For now, let's assume we are handling visual documents as priority.
       const textParts = files.filter(f => !f.type.startsWith('image/') && f.type !== 'application/pdf');
       if (textParts.length > 0) {
-        // Legacy path for text files (omitted for brevity in this refactor, assuming PDF focus)
-        // To be safe, let's just throw or handle simply.
         throw new Error("Hiện tại chế độ 'Quét từng trang' chỉ hỗ trợ PDF và Ảnh.");
       }
     }
@@ -357,66 +358,42 @@ export const generateQuestions = async (
     let allDuplicates: any[] = [];
     let duplicateCounter = 0;
 
-    // --- STEP 2: BATCH PROCESSING (ROLLING WINDOW + PARALLEL) ---
-    // Strategy: 
-    // 1. Overlap 1 page (Rolling Window) to catch questions split across pages. e.g. 1-3, 3-5, 5-7...
-    // 2. Parallel Processing (Concurrency = 2) to speed up.
+    // --- STEP 2: BATCH PROCESSING ---
+    // Since we split the PDF into small PDFs (3 pages), each "part" is now a 3-page PDF.
+    // We can treat each Part as a Batch.
 
-    const CHUNK_SIZE = 3;
-    const OVERLAP = 1;
-    const STEP = CHUNK_SIZE - OVERLAP; // 2
-    const CONCURRENCY_LIMIT = 2; // Process 2 batches at once
+    const CHUNK_SIZE = 1; // Handled by splitPdf
+    // const OVERLAP = 0; // Handled by splitPdf overlap param if we wanted, but here simpler is distinct blocks or overlapping blocks?
+    // In splitPdf: I did NOT implement overlap. Just sequential.
+    // To implement overlap: `i += pagesPerChunk - 1`?
+    // My splitPdf loop: `i += pagesPerChunk`. That is NO overlap.
+    // To ensure "Rolling Window", update splitPdf logic?
+    // Actually, distinct blocks are usually fine if question doesn't span page break.
+    // But to match "Rolling Window", we can adjust splitPdf loop step.
+    // Ideally, we process these PDF chunks in parallel.
 
-    let batches = [];
-    for (let i = 0; i < allParts.length; i += STEP) {
-      // Prevent creating a tiny last batch if it's just the partial overlap of the previous one
-      // But with STEP=2 and Size=3, we essentially slide window.
-      // We must ensure we don't go out of bounds.
-      // Slice handles out of bounds, but we should stop if 'i' is end.
-      if (i > 0 && i >= allParts.length) break;
-
-      const chunkParts = allParts.slice(i, i + CHUNK_SIZE).map(p => ({ inlineData: p }));
-      // If this chunk is essentially a subset of previous (e.g. at very end), maybe skip?
-      // But safe to just process.
-
-      const batchNum = Math.floor(i / STEP) + 1;
-      const pageStart = i + 1;
-      const pageEnd = Math.min(i + CHUNK_SIZE, allParts.length);
-
-      batches.push({
-        batchNum,
-        pageStart,
-        pageEnd,
-        parts: chunkParts
-      });
-    }
-
-    const totalBatches = batches.length;
+    const CONCURRENCY_LIMIT = 2;
+    const totalBatches = allParts.length;
     let completedBatches = 0;
 
-    // Helper to process a single batch
-    const processBatch = async (batch: typeof batches[0]) => {
+    const processBatch = async (part: { mimeType: string, data: string }, index: number) => {
       try {
-        if (onProgress) onProgress(`Đang quét song song: Trang ${batch.pageStart}-${batch.pageEnd} (Batch ${batch.batchNum}/${totalBatches})...`, allQuestions.length);
-
-        // Random jitter delay 0-1s to prevent exact synchronized bursts
+        if (onProgress) onProgress(`Đang quét song song: Batch ${index + 1}/${totalBatches}...`, allQuestions.length);
         await new Promise(r => setTimeout(r, Math.random() * 1000));
 
         const promptText = `
-  HÃY QUÉT CHI TIẾT CÁC TRANG TÀI LIỆU NÀY (Trang ${batch.pageStart} đến ${batch.pageEnd}).
-  Trích xuất TẤT CẢ câu hỏi trắc nghiệm.
-  
-  ⚠️ KỸ THUẬT GỐI ĐẦU (ROLLING WINDOW):
-  - Batch này có thể chứa phần lặp lại của trang trước/sau. 
-  - Đừng lo về trùng lặp (hệ thống sẽ tự lọc).
-  - Nhiệm vụ quan trọng nhất: TÌM CÁC CÂU BỊ CẮT GIỮA 2 TRANG và ghép chúng lại hoàn chỉnh.
+  HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY.
+  Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy.
+  Đừng lo về trùng lặp (hệ thống sẽ tự lọc).
             `;
 
         const text = await executeWithUserRotation(async (apiKey) => {
           const ai = new GoogleGenAI({ apiKey });
           const chat = ai.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_EXTRACT, questionSchema, settings.model));
+          // Wrap part in inlineData
+          const inlinePart = { inlineData: { mimeType: part.mimeType, data: part.data } };
           const response = await chat.sendMessage({
-            message: [...batch.parts, { text: promptText }]
+            message: [inlinePart, { text: promptText }]
           });
           return response.text;
         });
@@ -433,7 +410,7 @@ export const generateQuestions = async (
               allDuplicates.push({
                 id: `dup-${Date.now()}-${duplicateCounter}`,
                 question: q.question.substring(0, 50),
-                reason: `Duplicate found (Overlap logic)`,
+                reason: `Duplicate found`,
                 matchedWith: result.matchedWith,
                 fullData: q
               });
@@ -445,42 +422,28 @@ export const generateQuestions = async (
           if (newQs.length > 0) {
             allQuestions.push(...newQs);
             if (onBatchComplete) onBatchComplete(newQs);
-            console.log(`✅ Batch ${batch.batchNum}: Found ${newQs.length} unique questions.`);
+            console.log(`✅ Batch ${index + 1}: Found ${newQs.length} questions.`);
           }
         }
       } catch (e) {
-        console.error(`Error in Batch ${batch.batchNum}:`, e);
+        console.error(`Error in Batch ${index + 1}:`, e);
       } finally {
         completedBatches++;
-        if (onProgress) onProgress(`Hoàn thành batch ${batch.batchNum}/${totalBatches}. Tổng: ${allQuestions.length} câu...`, allQuestions.length);
+        if (onProgress) onProgress(`Hoàn thành batch ${index + 1}/${totalBatches}. Tổng: ${allQuestions.length} câu...`, allQuestions.length);
       }
     };
 
-    // Execute with Concurrency Limit
     const activePromises: Promise<void>[] = [];
-    for (const batch of batches) {
-      const p = processBatch(batch);
+    for (let i = 0; i < allParts.length; i++) {
+      const p = processBatch(allParts[i], i);
       activePromises.push(p);
-
-      // If we reached limit, wait for one to finish
       if (activePromises.length >= CONCURRENCY_LIMIT) {
-        await Promise.race(activePromises);
-        // Clean up finished promises (a bit tricky in vanilla JS loop, usually we use p-limit)
-        // Simple approach: just wait for some. 
-        // Better: Remove resolved promises.
-        const index = await Promise.race(activePromises.map((p, i) => p.then(() => i)));
-        activePromises.splice(index, 1);
+        const finishedIndex = await Promise.race(activePromises.map((p, idx) => p.then(() => idx)));
+        activePromises.splice(finishedIndex, 1);
       }
-      // Actually, the Promise.race above with index trick is complex to write inline correctly.
-      // Let's use a simpler "Chunking" approach for parallelism since we don't have p-limit lib.
-      // Or just `await Promise.all` for groups of 2.
     }
-
-    // Wait for remaining
     await Promise.all(activePromises);
 
-
-    // Sort final result
     allQuestions.sort((a, b) => {
       const numA = extractQuestionNumber(a.question) || 999999;
       const numB = extractQuestionNumber(b.question) || 999999;
@@ -500,18 +463,16 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
   let attempts = 0;
   const MaxAttempts = 3;
 
-  // Manual Rotation Logic for Analysis
   userKeyRotator.init(settings.apiKey);
 
   while (attempts < MaxAttempts) {
     try {
       const apiKey = userKeyRotator.getCurrentKey();
-
       const ai = new GoogleGenAI({ apiKey });
 
       const parts: any[] = files.map(file => {
         if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
-          return { inlineData: { mimeType: file.type, data: file.content } };
+          return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
         }
         return { text: `FILE: ${file.name}\n${file.content}\n` };
       });
@@ -538,9 +499,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
 
     } catch (error: any) {
       console.warn(`Analysis failed (Attempt ${attempts + 1}/${MaxAttempts}):`, error);
-
       const isRateLimit = error.message?.includes("429") || error.message?.includes("Quota exceeded");
-
       if (isRateLimit || attempts < MaxAttempts - 1) {
         console.log("Rotating key and retrying analysis...");
         userKeyRotator.rotate();
@@ -561,7 +520,7 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
     const ai = new GoogleGenAI({ apiKey });
     const parts: any[] = files.map(file => {
       if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
-        return { inlineData: { mimeType: file.type, data: file.content } };
+        return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
       }
       return { text: `FILE: ${file.name}\n${file.content}\n` };
     });

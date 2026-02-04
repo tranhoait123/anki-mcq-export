@@ -80,7 +80,7 @@ Không chỉ chép lại chữ, AI sẽ phân tích và trích xuất câu hỏi
 
 | Phiên bản | Ngày | Tính năng mới nổi bật | Giao diện |
 | :--- | :--- | :--- | :--- |
-| **v4.5 (Vision)** | 04/02/2026 | **Vision Scanning (100% Accuracy)**, Song song hóa, Gối đầu (Rolling Window) | Thanh tiến trình chi tiết |
+| **v4.6 (Native)** | 04/02/2026 | **Native PDF Engine (Direct + Smart Chunking)**, Loại bỏ hoàn toàn lỗi Worker/Font, Quét Gối đầu (Overlap Scanning) | Thanh tiến trình chi tiết |
 | **v4.0 (Pro)** | 04/02/2026 | **Giới hạn 50MB**, Lưu trữ vĩnh viễn (IndexedDB) | Giao diện Premium, Split View |
 | **v3.5** | 03/02/2026 | Xoay vòng Key API, Tự động kiểm tra lỗi | Glassmorphism Design |
 | **v3.0** | 02/02/2026 | Phát hiện câu hỏi trùng lặp | Bảng điều khiển chi tiết |

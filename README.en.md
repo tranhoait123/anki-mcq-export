@@ -48,7 +48,7 @@
 
 | Version | Date | New Features | Design Updates |
 | :--- | :--- | :--- | :--- |
-| **v4.5 (Vision)** | 2026-02-04 | **Vision Scanning (100% Accuracy)**, Parallel & Rolling processing | Detailed Progress Bar |
+| **v4.6 (Native)** | 2026-02-04 | **Native PDF Engine (Direct + Smart Chunking)**, Zero PDF.js/Worker Errors, Overlap Scanning | Detailed Progress Bar |
 | **v4.0 (Pro)** | 2026-02-04 | **50MB File Limit**, IndexedDB Storage | Pro Premium UI, Split View |
 | **v3.5** | 2026-02-03 | API Key Rotation, Auto Re-check | Glassmorphism Re-design |
 | **v3.0** | 2026-02-02 | Smart Deduplication logic | Detailed Stats Panel |

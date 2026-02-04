@@ -54,7 +54,12 @@ const App: React.FC = () => {
             if (persistedSettings) await db.saveSettings(persistedSettings);
           }
         }
-        if (persistedSettings) setSettings(persistedSettings);
+        if (persistedSettings) {
+          // Migration: gemini-3-flash -> gemini-3-flash-preview
+          if (persistedSettings.model === 'gemini-3-flash') persistedSettings.model = 'gemini-3-flash-preview';
+          if (persistedSettings.model === 'gemini-3-pro') persistedSettings.model = 'gemini-3-pro-preview';
+          setSettings(persistedSettings);
+        }
 
         // 2. Check MCQs
         let persistedMcqs = await db.getAllMCQs();

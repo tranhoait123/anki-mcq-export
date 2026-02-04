@@ -142,19 +142,20 @@ if uploaded_files:
                 Định dạng trả về là một JSON array:
                 [
                   {
-                    "question": "Câu hỏi...",
+                    "question": "Câu hỏi thực tế...",
                     "options": ["A", "B", "C", "D"],
                     "correctAnswer": "A",
                     "explanation": {
-                      "core": "Đáp án cốt lõi...",
-                      "analysis": "Phân tích vì sao chọn cái này, loại trừ cái kia...",
-                      "evidence": "Trích dẫn y văn/guideline...",
-                      "warning": "Bẫy thường gặp..."
+                      "core": "Giải thích trực diện tại sao A đúng.",
+                      "analysis": "Phân tích vì sao các câu khác sai (biện luận lâm sàng).",
+                      "evidence": "Nguồn y văn (Harrison, Bộ Y tế...).",
+                      "warning": "Cảnh báo bẫy thường gặp."
                     },
                     "difficulty": "Dễ/Trung bình/Khó",
                     "source": "Tên tài liệu..."
                   }
                 ]
+                ⚠️ TUYỆT ĐỐI KHÔNG TRẢ VỀ CÁC CHỮ NHƯ "Câu hỏi thực tế...", "Giải thích trực diện...". Phải thay thế bằng nội dung thật từ tài liệu.
                 """
                 
                 with st.spinner("Đang phân tích tài liệu y khoa..."):

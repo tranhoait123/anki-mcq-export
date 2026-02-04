@@ -34,7 +34,7 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState<AppSettings>({
     apiKey: '',
-    model: 'gemini-3-flash',
+    model: 'gemini-3-flash-preview',
     customPrompt: ''
   });
 

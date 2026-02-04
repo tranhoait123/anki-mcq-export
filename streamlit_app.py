@@ -70,20 +70,43 @@ st.markdown("""
 
     html, body, [class*="css"] {
         font-family: 'Inter', sans-serif;
-        color: var(--slate-900);
+        color: #0f172a !important; /* Force dark text for main content */
     }
     
     h1, h2, h3, h4, .outfit-font {
         font-family: 'Outfit', sans-serif;
+        color: #0f172a !important;
     }
     
+    /* Force label color for inputs, excluding special items */
+    label, p, span:not(.pro-badge):not(.opt-circle-correct), div:not(.exp-icon):not(.q-number) {
+        color: #1e293b !important;
+    }
+
+    /* Exceptions for white text */
+    .pro-badge, .main-btn button, .q-number, .opt-circle-correct, .exp-icon {
+        color: white !important;
+    }
+
     .stApp {
-        background-color: #F8FAFC;
+        background-color: #F8FAFC !important;
+    }
+
+    /* Sidebar Fixes */
+    .stSidebar {
+        background-color: white !important;
+        border-right: 1px solid #e2e8f0;
+    }
+    
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] h2 {
+        color: #1e293b !important;
     }
 
     /* Glass Effect */
     .glass {
-        background: rgba(255, 255, 255, 0.7);
+        background: rgba(255, 255, 255, 0.7) !important;
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
         border: 1px solid rgba(255, 255, 255, 0.3);
@@ -316,7 +339,7 @@ st.markdown("""
 with st.sidebar:
     st.markdown("<h2 class='outfit-font'>⚙️ Cấu hình</h2>", unsafe_allow_html=True)
     api_key = st.text_input("Gemini API Key", type="password", help="Dán nhiều Key ngăn cách bằng dấu phẩy để tự động xoay vòng.")
-    model_name = st.selectbox("Model", ["gemini-3-flash", "gemini-3-pro", "gemini-2.5-pro", "gemini-1.5-flash"], index=0)
+    model_name = st.selectbox("Model", ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-pro", "gemini-1.5-flash"], index=0)
     st.divider()
     st.info("💡 Tip: Bản Pro tự động xử lý file lỗi, xoay vòng Key và khôi phục văn bản mờ.")
 

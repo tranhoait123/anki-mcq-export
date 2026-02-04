@@ -1,6 +1,3 @@
-import { GoogleGenAI, Type } from "@google/ai-generativelanguage"; // Re-checking if it should be @google/genai or ai-generativelanguage
-// Actually, earlier code used @google/genai. I'll stick to what was there.
-// Wait, looking at brain.ts imports in Step 1603: "import { GoogleGenAI, Type } from "@google/genai";"
 import { GoogleGenAI, Type } from "@google/genai";
 import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings } from "../types";
 

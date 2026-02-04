@@ -408,9 +408,14 @@ with col_left:
 
                         🩺 BIỆN LUẬN LÂM SÀNG:
                         - core: Đáp án đúng nhất.
-                        - analysis: Chẩn đoán phân biệt. Tại sao A đúng và các câu khác sai?
-                        - evidence: Nêu cơ chế bệnh sinh hoặc trích dẫn nguồn uy tín.
+                        - analysis: Chẩn đoán phân biệt. Tại sao phương án này là "Gương mặt vàng" còn các phương án khác lại sai?
+                        - evidence: Nêu rõ cơ chế bệnh sinh hoặc trích dẫn lý thuyết trực tiếp từ tài liệu hoặc trích dẫn nguồn uy tín (Harrison, Nelson, Bộ Y tế, Dược thư...).
                         - warning: Cảnh báo bẫy lâm sàng.
+
+                        🎯 CHỈ THỊ CUỐI CÙNG:
+                        - Chỉ trả về duy nhất mảng JSON. 
+                        - Đảm bảo các trường "evidence" và "analysis" luôn có nội dung học thuật.
+                        - Nếu có nhiều đáp án đúng, chọn đáp án "Đúng nhất".
 
                         ⛔ HÀNG RÀO AN TOÀN: Tuyệt đối không sử dụng văn bản giả. Không bịa đặt.
 

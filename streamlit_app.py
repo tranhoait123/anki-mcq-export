@@ -101,7 +101,7 @@ with st.sidebar:
     st.divider()
     
     api_key = st.text_input("Gemini API Key", type="password", help="Lấy tại aistudio.google.com")
-    model_name = st.selectbox("Model", ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp"], index=0)
+    model_name = st.selectbox("Model", ["gemini-3-flash", "gemini-3-pro", "gemini-2.5-pro", "gemini-1.5-flash"], index=0)
     
     st.divider()
     st.info("Dữ liệu của bạn được xử lý trực tiếp qua API của Google và không được lưu trữ trên server này.")
@@ -139,23 +139,24 @@ if uploaded_files:
                 
                 prompt = """
                 Bạn là một Giáo sư Y khoa đầu ngành. Trích xuất tất cả các câu hỏi trắc nghiệm từ tài liệu này. 
+                Nhiệm vụ: Phân tích sâu sắc, cung cấp biện luận lâm sàng, chẩn đoán phân biệt và trích dẫn nguồn y văn uy tín.
+                
                 Định dạng trả về là một JSON array:
                 [
                   {
-                    "question": "Câu hỏi thực tế...",
+                    "question": "Câu hỏi",
                     "options": ["A", "B", "C", "D"],
                     "correctAnswer": "A",
                     "explanation": {
-                      "core": "Giải thích trực diện tại sao A đúng.",
-                      "analysis": "Phân tích vì sao các câu khác sai (biện luận lâm sàng).",
-                      "evidence": "Nguồn y văn (Harrison, Bộ Y tế...).",
-                      "warning": "Cảnh báo bẫy thường gặp."
+                      "core": "Giải thích tại sao đúng (bệnh học/lâm sàng).",
+                      "analysis": "Biện luận chẩn đoán phân biệt, tại sao các câu khác sai.",
+                      "evidence": "Nguồn y văn (Harrison, Nelson, Bộ Y tế...)",
+                      "warning": "Lưu ý/Bẫy lâm sàng thường gặp."
                     },
                     "difficulty": "Dễ/Trung bình/Khó",
-                    "source": "Tên tài liệu..."
+                    "source": "Tên tài liệu"
                   }
                 ]
-                ⚠️ TUYỆT ĐỐI KHÔNG TRẢ VỀ CÁC CHỮ NHƯ "Câu hỏi thực tế...", "Giải thích trực diện...". Phải thay thế bằng nội dung thật từ tài liệu.
                 """
                 
                 with st.spinner("Đang phân tích tài liệu y khoa..."):

@@ -200,7 +200,7 @@ const checkDuplicate = (newQ: string, existingQuestions: any[]): { isDup: boolea
   return { isDup: false };
 };
 
-const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any, modelName: string = 'gemini-1.5-flash') => {
+const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any, modelName: string = 'gemini-3-flash') => {
   return {
     model: modelName,
     config: {

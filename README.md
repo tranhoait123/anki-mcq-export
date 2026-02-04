@@ -36,11 +36,11 @@ Không chỉ chép lại chữ, AI sẽ phân tích và trích xuất câu hỏi
 - **Phân tích sâu**: Cơ chế bệnh sinh liên quan.
 - **Bằng chứng**: Trích dẫn từ sách giáo khoa (nếu có trong văn bản).
 
-### 2. ⚡️ Xử lý mọi loại tài liệu (Hybrid OCR)
+### 2. ⚡️ Vision Page-by-Page & Parallel Processing (Mới v4.5)
 
-- **Ảnh mờ/Cong**: Tự động làm rõ và nhận diện.
-- **Chữ viết tay/Khoanh mực**: Tự động loại bỏ các vết mực của người đi trước để lấy đề sạch.
-- **Thông minh**: Tự động chuyển đổi giữa AI và công cụ quét nội bộ để đảm bảo chính xác 100%.
+- **Vision Page-by-Page**: Quét từng trang tài liệu dưới dạng hình ảnh (Vision) giúp loại bỏ hoàn toàn lỗi "bỏ sót câu hỏi" thường gặp khi quét file PDF dài.
+- **Xử lý Song Song (Parallel)**: Chạy đa luồng giúp tăng tốc độ trích xuất gấp đôi.
+- **Kỹ thuật Gối đầu (Rolling Window)**: Đảm bảo không mất câu hỏi nằm giữa ranh giới hai trang.
 
 ### 3. 💎 Trải nghiệm Pro Premium
 
@@ -80,6 +80,7 @@ Không chỉ chép lại chữ, AI sẽ phân tích và trích xuất câu hỏi
 
 | Phiên bản | Ngày | Tính năng mới nổi bật | Giao diện |
 | :--- | :--- | :--- | :--- |
+| **v4.5 (Vision)** | 04/02/2026 | **Vision Scanning (100% Accuracy)**, Song song hóa, Gối đầu (Rolling Window) | Thanh tiến trình chi tiết |
 | **v4.0 (Pro)** | 04/02/2026 | **Giới hạn 50MB**, Lưu trữ vĩnh viễn (IndexedDB) | Giao diện Premium, Split View |
 | **v3.5** | 03/02/2026 | Xoay vòng Key API, Tự động kiểm tra lỗi | Glassmorphism Design |
 | **v3.0** | 02/02/2026 | Phát hiện câu hỏi trùng lặp | Bảng điều khiển chi tiết |

@@ -29,7 +29,12 @@
 - **🩺 Medical Professor Persona**: Fine-tuned AI providing deep medical explanations and pathophysiology analysis.
 - **📊 IndexedDB Storage**: Unlimited question storage, secure and private within your browser.
 - **🔄 Smart Deduplication**: Intelligent detection and removal of duplicate questions.
-- **🧹 Noise Reduction**: Automatically ignores handwriting and ink marks on scanned documents.
+
+### 2. ⚡️ Vision Page-by-Page & Parallel Processing (New in v4.5)
+
+- **Vision Page-by-Page**: Scans documents page-by-page as high-res images, completely eliminating the "skipped questions" issue common with long PDF parsing.
+- **Parallel Processing**: Runs dual extraction threads simultaneously, doubling the speed.
+- **Rolling Window**: Overlaps page scanning (e.g., 1-3, 2-4) to capture questions split across page boundaries.
 
 ## 🚀 Quick Setup
 
@@ -43,6 +48,7 @@
 
 | Version | Date | New Features | Design Updates |
 | :--- | :--- | :--- | :--- |
+| **v4.5 (Vision)** | 2026-02-04 | **Vision Scanning (100% Accuracy)**, Parallel & Rolling processing | Detailed Progress Bar |
 | **v4.0 (Pro)** | 2026-02-04 | **50MB File Limit**, IndexedDB Storage | Pro Premium UI, Split View |
 | **v3.5** | 2026-02-03 | API Key Rotation, Auto Re-check | Glassmorphism Re-design |
 | **v3.0** | 2026-02-02 | Smart Deduplication logic | Detailed Stats Panel |

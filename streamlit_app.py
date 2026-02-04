@@ -413,11 +413,13 @@ with col_left:
                         - warning: Cảnh báo bẫy lâm sàng.
 
                         🎯 CHỈ THỊ CUỐI CÙNG:
-                        - Chỉ trả về duy nhất mảng JSON. 
+                        - Chỉ trả về duy nhất mảng JSON. Không giải thích thêm.
                         - Đảm bảo các trường "evidence" và "analysis" luôn có nội dung học thuật.
-                        - Nếu có nhiều đáp án đúng, chọn đáp án "Đúng nhất".
+                        - Nếu có nhiều đáp án đúng, chọn đáp án "Đúng nhất" theo tiêu chuẩn lâm sàng.
 
-                        ⛔ HÀNG RÀO AN TOÀN: Tuyệt đối không sử dụng văn bản giả. Không bịa đặt.
+                        ⛔ HÀNG RÀO AN TOÀN: 
+                        - Tuyệt đối không sử dụng văn bản giả. Không bịa đặt.
+                        - Nếu câu hỏi bị che khuất hoàn toàn (>70%), hãy bỏ qua.
 
                         OUTPUT FORMAT: JSON array.
                         """

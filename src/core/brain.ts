@@ -30,6 +30,11 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
 - **evidence**: Nêu rõ cơ chế bệnh sinh hoặc trích dẫn lý thuyết trực tiếp từ tài liệu hoặc trích dẫn nguồn uy tín (Harrison, Nelson, Bộ Y tế, Dược thư...).
 - **warning**: Cảnh báo các bẫy lâm sàng hoặc nhầm lẫn thường gặp.
 
+⛔ **HÀNG RÀO AN TOÀN (SAFETY PROTOCOL)**:
+- Tuyệt đối không sử dụng văn bản giả hoặc ghi chú chung chung (Placeholder).
+- Không được bịa đặt (hallucinate) các tình huống lâm sàng không có trong văn bản.
+- Nếu một câu hỏi bị che khuất hoàn toàn (>70%) và không có cách nào suy luận logic, hãy bỏ qua câu đó.
+
 🎯 **CHỈ THỊ CUỐI CÙNG (FINAL COMMAND)**:
 - Chỉ trả về duy nhất mảng JSON. Không giải thích thêm bên ngoài JSON.
 - Đảm bảo các trường "evidence" và "analysis" luôn có nội dung học thuật, không để trống.

@@ -28,13 +28,13 @@ QUY TẮC TRÍCH XUẤT (HỖ TRỢ ĐA ĐỊNH DẠNG):
    - **Điền khuyết (Fill-in)**: Chuyển thành "Điền vào chỗ trống...".
    - **Case Study**: Lặp lại tóm tắt tình huống ở đầu mỗi câu hỏi liên quan.
 
-YÊU CẦU GIẢI THÍCH (DEEP ANALYSIS):
-- **core (Cốt lõi)**: Giải thích trực diện.
-- **analysis (Biện luận)**: **CHẨN ĐOÁN PHÂN BIỆT**. Tại sao chọn A mà không phải B?
-- **evidence (Lý thuyết)**: 
-  - Trích dẫn ngắn gọn lý thuyết nền tảng.
-  - **NGUỒN TÀI LIỆU**: Ưu tiên trích dẫn từ **Harrison, Bộ Y tế, Dược thư quốc gia** hoặc Guideline chuẩn quốc tế.
-- **warning**: Bẫy lâm sàng thường gặp.
+YÊU CẦU GIẢI THÍCH (DEEP ANALYSIS) - BẮT BUỘC VÀ CHI TIẾT:
+- **core (Cốt lõi)**: Giải thích trực diện tại sao lựa chọn đó là đúng nhất. KHÔNG ĐƯỢC để trống hoặc dùng placeholder.
+- **analysis (Biện luận)**: Thực hiện CHẨN ĐOÁN PHÂN BIỆT. Phân tích tại sao các lựa chọn khác sai.
+- **evidence (Lý thuyết)**: Trích dẫn lý thuyết tiêu chuẩn từ các nguồn uy tín (Harrison, Bộ Y tế, Dược thư...)
+- **warning**: Cảnh báo các bẫy lâm sàng hoặc các nhầm lẫn thường gặp.
+
+⚠️ **TUYỆT ĐỐI KHÔNG SỬ DỤNG VĂN BẢN MẪU (PLACEHOLDER)**. Dữ liệu phải là THỰC TẾ từ tài liệu.
 
 OUTPUT FORMAT: JSON array.
 `;

@@ -393,7 +393,20 @@ with col_left:
                                 parts.append(f.read().decode("utf-8"))
                         
                         prompt = """
-                        Bạn là Giáo sư Y khoa. Trích xuất MCQs. Phân tích lâm sàng sâu sắc.
+                        Bạn là một GIÁO SƯ Y KHOA ĐẦU NGÀNH kiêm CHUYÊN GIA PHÁP Y TÀI LIỆU.
+                        Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài liệu, bất kể chất lượng ảnh thấp, bị nhiễu, có chữ viết tay, hoặc bị che khuất.
+
+                        🔍 QUY TRÌNH PHÁP Y - BẮT BUỘC:
+                        1. XUYÊN THẤU NHIỄU (HANDWRITING BYPASS): Lờ đi các vết khoanh tròn, gạch chân hoặc ghi chú viết tay. Tập trung vào văn bản in bên dưới.
+                        2. SỬA LỖI THÔNG MINH (CONTEXTUAL INFERENCE): Dùng kiến thức Y khoa để "điền vào chỗ trống" các từ bị mờ hoặc mất pixel. Sửa lỗi chính tả OCR về thuật ngữ chuẩn.
+                        3. KHÔI PHỤC CẤU TRÚC: Nối các đoạn bị ngắt dòng/ngắt trang. Đảm bảo đủ 5 phương án A,B,C,D,E.
+
+                        🩺 BIỆN LUẬN LÂM SÀNG:
+                        - core: Đáp án đúng nhất.
+                        - analysis: Chẩn đoán phân biệt. Tại sao A đúng và các câu khác sai?
+                        - evidence: Nêu cơ chế bệnh sinh hoặc trích dẫn nguồn (Harrison, Nelson, Bộ Y tế).
+                        - warning: Cảnh báo bẫy lâm sàng.
+
                         OUTPUT FORMAT: JSON array.
                         """
                         with st.spinner("Đang xử lý dữ liệu Y khoa chuyên sâu..."):

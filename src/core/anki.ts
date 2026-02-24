@@ -14,45 +14,18 @@ export const formatRichText = (text: string): string => {
 };
 
 export const buildAnkiHtml = (exp: Explanation, difficulty: string, depth: string) => {
-  const boxStyle = "padding: 12px; margin-bottom: 8px; border-radius: 8px; border-left: 4px solid;";
+  return `<b>🎯 ĐÁP ÁN CỐT LÕI</b><br>
+${formatRichText(exp.core)}<br><br>
 
-  return `
-      <div style="font-family: Arial, sans-serif; line-height: 1.5; font-size: 14px;">
-        <div style="${boxStyle} border-color: #f43f5e; background-color: #fff1f2; color: #881337;">
-          <div style="font-weight: 800; font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; display: flex; items-center; gap: 4px;">
-            🎯 ĐÁP ÁN CỐT LÕI
-          </div>
-          ${formatRichText(exp.core)}
-        </div>
+<b>📚 BẰNG CHỨNG</b><br>
+${formatRichText(exp.evidence)}<br><br>
 
-        <div style="${boxStyle} border-color: #9ca3af; background-color: #f9fafb; color: #4b5563; font-style: italic;">
-          <div style="font-weight: 800; font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; display: flex; items-center; gap: 4px; font-style: normal;">
-            📚 BẰNG CHỨNG
-          </div>
-          <div>
-            ${formatRichText(exp.evidence)}
-          </div>
-        </div>
+<b>💡 PHÂN TÍCH SÂU</b> (CHẨN ĐOÁN PHÂN BIỆT)<br>
+${formatRichText(exp.analysis)}<br><br>
 
-        <div style="${boxStyle} border-color: #4f46e5; background-color: #eef2ff; color: #3730a3;">
-          <div style="font-weight: 800; font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; display: flex; items-center; gap: 4px;">
-            💡 PHÂN TÍCH SÂU (CHẨN ĐOÁN PHÂN BIỆT)
-          </div>
-          ${formatRichText(exp.analysis)}
-        </div>
+${exp.warning ? `<b>⚠️ CẢNH BÁO LÂM SÀNG</b><br>
+${formatRichText(exp.warning)}<br><br>
 
-        ${exp.warning ? `
-        <div style="${boxStyle} border-color: #d97706; background-color: #fffbeb; color: #92400e;">
-          <div style="font-weight: 800; font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; display: flex; items-center; gap: 4px;">
-             ⚠️ CẢNH BÁO LÂM SÀNG
-          </div>
-          ${formatRichText(exp.warning)}
-        </div>` : ''}
-
-        <div style="margin-top: 16px; border-top: 1px dashed #e5e7eb; padding-top: 12px; font-size: 10px; color: #9ca3af; display: flex; justify-content: space-between;">
-           <span>📊 ĐỘ KHÓ: <b>${difficulty}</b></span>
-           <span>🧠 TƯ DUY: <b>${depth}</b></span>
-        </div>
-      </div>
-  `.trim();
+` : ''}<b>📊 ĐỘ KHÓ:</b> <b>${difficulty}</b><br>
+<b>🧠 TƯ DUY:</b> <b>${depth}</b>`.trim();
 };

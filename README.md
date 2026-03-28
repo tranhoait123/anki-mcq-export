@@ -9,7 +9,7 @@
 
 **MCQ AnkiGen Pro** là giải pháp tối ưu dành cho sinh viên Y khoa, giúp chuyển đổi các tài liệu ôn thi (đề scan mờ, ảnh chụp vội, file PDF) thành các bộ thẻ Anki chất lượng cao chỉ trong tích tắc.
 
-Hệ thống kết hợp **Google Gemini AI** (thông minh) và **Local OCR** (chính xác) để đảm bảo không bỏ sót bất kỳ câu hỏi nào, kể cả những câu có chữ viết tay loằng ngoằng.
+Hệ thống kết hợp sức mạnh của thế hệ AI mới nhất **Google Gemini 3.1 Flash-Lite** (cực nhanh, thông minh) và **Local OCR** để đảm bảo không bỏ sót bất kỳ câu hỏi nào, kể cả những câu có chữ viết tay loằng ngoằng.
 
 ---
 
@@ -80,6 +80,7 @@ Không chỉ chép lại chữ, AI sẽ phân tích và trích xuất câu hỏi
 
 | Phiên bản | Ngày | Tính năng mới nổi bật | Giao diện |
 | :--- | :--- | :--- | :--- |
+| **v4.7 (Gemini)** | 28/03/2026 | Khuyên dùng mặc định **Gemini 3.1 Flash-Lite**, bổ sung **Gemini 2.5 Flash** | Cập nhật tuỳ chọn Models |
 | **v4.6 (Native)** | 04/02/2026 | **Native PDF Engine (Direct + Smart Chunking)**, Loại bỏ hoàn toàn lỗi Worker/Font, Quét Gối đầu (Overlap Scanning) | Thanh tiến trình chi tiết |
 | **v4.0 (Pro)** | 04/02/2026 | **Giới hạn 50MB**, Lưu trữ vĩnh viễn (IndexedDB) | Giao diện Premium, Split View |
 | **v3.5** | 03/02/2026 | Xoay vòng Key API, Tự động kiểm tra lỗi | Glassmorphism Design |

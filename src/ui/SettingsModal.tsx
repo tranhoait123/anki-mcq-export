@@ -55,7 +55,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                             onChange={e => setSettings({ ...settings, model: e.target.value })}
                             className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                         >
-                            <option value="gemini-3-flash-preview">Gemini 3 Flash (Khuyên dùng - Nhanh & Thông minh)</option>
+                            <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash-Lite (Khuyên dùng - Nhanh & Mượt)</option>
+                            <option value="gemini-2.5-flash">Gemini 2.5 Flash (Sắp xếp dự phòng - Tương thích)</option>
+                            <option value="gemini-3-flash-preview">Gemini 3 Flash (Nhanh & Thông minh)</option>
                             <option value="gemini-3-pro-preview">Gemini 3 Pro (Mạnh nhất - Tư duy Y khoa sâu)</option>
                             <option value="gemini-2.5-pro">Gemini 2.5 Pro (Ổn định - Tương thích cao)</option>
                             <option value="gemini-2.0-flash">Gemini 2.0 Flash (Cực nhanh)</option>

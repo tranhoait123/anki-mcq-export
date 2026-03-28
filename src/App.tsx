@@ -34,7 +34,7 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState<AppSettings>({
     apiKey: '',
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-3.1-flash-lite-preview',
     customPrompt: ''
   });
 
@@ -55,8 +55,8 @@ const App: React.FC = () => {
           }
         }
         if (persistedSettings) {
-          // Migration: gemini-3-flash -> gemini-3-flash-preview
-          if (persistedSettings.model === 'gemini-3-flash') persistedSettings.model = 'gemini-3-flash-preview';
+          // Migration: gemini-3-flash -> gemini-3.1-flash-lite-preview
+          if (persistedSettings.model === 'gemini-3-flash' || persistedSettings.model === 'gemini-3-flash-preview') persistedSettings.model = 'gemini-3.1-flash-lite-preview';
           if (persistedSettings.model === 'gemini-3-pro') persistedSettings.model = 'gemini-3-pro-preview';
           setSettings(persistedSettings);
         }

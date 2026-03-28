@@ -58,11 +58,13 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
    - **Điền khuyết (Fill-in)**: Chuyển thành "Chọn từ phù hợp điền vào chỗ trống...".
    - **Tình huống lâm sàng (Case Study)**: Lặp lại tóm tắt tình huống ở đầu mỗi câu hỏi liên quan để đảm bảo ngữ cảnh.
 
-🩺 **BIỆN LUẬN LÂM SÀNG (DEEP ANALYSIS)**:
-- **core**: Đáp án đúng nhất theo hướng dẫn của Bộ Y tế/Hiệp hội chuyên ngành. Trình bày lý do súc tích.
-- **analysis**: Thực hiện chẩn đoán phân biệt. Tại sao phương án này là "Gương mặt vàng" còn các phương án khác lại sai trong ngữ cảnh này?
-- **evidence**: Nêu rõ cơ chế bệnh sinh hoặc trích dẫn lý thuyết trực tiếp từ tài liệu hoặc trích dẫn nguồn uy tín (Harrison, Nelson, Bộ Y tế, Dược thư...).
-- **warning**: Cảnh báo các bẫy lâm sàng hoặc nhầm lẫn thường gặp.
+🩺 **BIỆN LUẬN LÂM SÀNG (BẮT BUỘC FORMAT CHI TIẾT SAU ĐÂY)**:
+- **core** (🎯 ĐÁP ÁN CỐT LÕI): Đáp án đúng + lý do chọn ngắn gọn.
+- **evidence** (📚 BẰNG CHỨNG): Bảng phân loại, tiêu chuẩn chẩn đoán, guideline liên quan. (Bắt buộc dùng bảng Markdown khi có nhiều tính chất/bệnh lý).
+- **analysis** (💡 PHÂN TÍCH SÂU): Bảng loại trừ từng đáp án sai + bảng xét nghiệm/đặc điểm phân biệt. Trả lời chi tiết, có hệ thống, dùng Markdown table để so sánh. 
+- **warning** (⚠️ CẢNH BÁO LÂM SÀNG): Lưu ý xử trí, theo dõi, tác dụng phụ, hoặc sai lầm thường gặp trên lâm sàng/thi cử.
+- **difficulty** (📊 ĐỘ KHÓ): Chỉ trả về một từ: Easy / Medium / Hard.
+- **depthAnalysis** (🧠 TƯ DUY): Key points dạng blockquote (🔑), bẫy thường gặp trong thi cử. Nhấn mạnh tư duy loại trừ.
 
 ⛔ **HÀNG RÀO AN TOÀN (SAFETY PROTOCOL)**:
 - Tuyệt đối không sử dụng văn bản giả hoặc ghi chú chung chung (Placeholder).
@@ -389,7 +391,13 @@ export const generateQuestions = async (
 
         const text = await executeWithUserRotation(async (apiKey) => {
           const ai = new GoogleGenAI({ apiKey });
-          const chat = ai.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_EXTRACT, questionSchema, settings.model));
+          
+          // Kết hợp Vai trò (Custom Prompt) và Format (System Instruction)
+          const finalInstruction = settings.customPrompt 
+            ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}`
+            : SYSTEM_INSTRUCTION_EXTRACT;
+
+          const chat = ai.chats.create(getModelConfig(apiKey, finalInstruction, questionSchema, settings.model));
           // Wrap part in inlineData
           const inlinePart = { inlineData: { mimeType: part.mimeType, data: part.data } };
           const response = await chat.sendMessage({

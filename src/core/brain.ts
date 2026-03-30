@@ -56,7 +56,13 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
    - **Đúng/Sai (True/False)**: Chuyển thành MCQ với câu hỏi "Phát biểu nào sau đây là ĐÚNG/SAI?".
    - **Ghép nối (Matching)**: Chuyển thành dạng "Ghép cột 1-?, 2-?..." (A,B,C,D là các phương án ghép).
    - **Điền khuyết (Fill-in)**: Chuyển thành "Chọn từ phù hợp điền vào chỗ trống...".
-   - **Tình huống lâm sàng (Case Study)**: Lặp lại tóm tắt tình huống ở đầu mỗi câu hỏi liên quan để đảm bảo ngữ cảnh.
+   - **Tình huống lâm sàng (Case Study / Clinical Vignette)**:
+     + Khi gặp 1 tình huống lâm sàng kèm NHIỀU câu hỏi (VD: "Tình huống lâm sàng 1" → Câu 1, Câu 2, Câu 3...):
+     + **BẮT BUỘC** lặp lại NGUYÊN VĂN toàn bộ đoạn tình huống lâm sàng vào đầu trường "question" của MỖI câu hỏi.
+     + Format mỗi câu: "[TÌNH HUỐNG LÂM SÀNG]\n{toàn bộ nội dung case nguyên văn}\n\n[CÂU HỎI]\n{nội dung câu hỏi riêng lẻ}"
+     + Lý do: Mỗi câu hỏi sẽ thành 1 thẻ Anki riêng biệt, sinh viên cần đọc case đầy đủ trên mỗi thẻ.
+     + KHÔNG được tóm tắt, rút gọn hay paraphrase case — phải giữ nguyên văn như trong tài liệu gốc.
+     + Ví dụ: Nếu tài liệu có "Bệnh nhân nam 68 tuổi..." rồi Câu 1, Câu 2, Câu 3 → cả 3 câu đều phải bắt đầu bằng đoạn "Bệnh nhân nam 68 tuổi...".
 
 🩺 **BIỆN LUẬN LÂM SÀNG (BẮT BUỘC FORMAT CHI TIẾT SAU ĐÂY)**:
 - **core** (🎯 ĐÁP ÁN CỐT LÕI): Đáp án đúng + lý do chọn ngắn gọn.
@@ -178,15 +184,49 @@ const calculateSimilarity = (str1: string, str2: string): number => {
   if (s1.length === 0 || s2.length === 0) return 0;
   if (s1.includes(s2) || s2.includes(s1)) return 0.95;
 
-  const words1 = new Set(s1.split(' ').filter(w => w.length > 2));
-  const words2 = new Set(s2.split(' ').filter(w => w.length > 2));
+  const words1 = s1.split(' ').filter(w => w.length > 2);
+  const words2 = s2.split(' ').filter(w => w.length > 2);
 
-  if (words1.size === 0 || words2.size === 0) return 0;
+  if (words1.length === 0 || words2.length === 0) return 0;
 
+  // Detect shared case stem (common prefix by words)
+  // Case-based MCQs share a long clinical vignette prefix
+  let commonPrefixLen = 0;
+  const minLen = Math.min(words1.length, words2.length);
+  for (let i = 0; i < minLen; i++) {
+    if (words1[i] === words2[i]) {
+      commonPrefixLen++;
+    } else {
+      break;
+    }
+  }
+
+  const maxLen = Math.max(words1.length, words2.length);
+
+  // If >40% of words are a shared prefix (case stem),
+  // compare only the unique suffix (the actual question part)
+  if (commonPrefixLen > 5 && commonPrefixLen / maxLen > 0.4) {
+    const suffix1 = words1.slice(commonPrefixLen);
+    const suffix2 = words2.slice(commonPrefixLen);
+
+    if (suffix1.length === 0 && suffix2.length === 0) return 1;
+    if (suffix1.length === 0 || suffix2.length === 0) return 0.5;
+
+    // Compare only the unique question parts
+    const suffixSet1 = new Set(suffix1);
+    const suffixSet2 = new Set(suffix2);
+    let suffixOverlap = 0;
+    suffixSet1.forEach(w => { if (suffixSet2.has(w)) suffixOverlap++; });
+    return suffixOverlap / Math.max(suffixSet1.size, suffixSet2.size);
+  }
+
+  // Default: original word overlap comparison
+  const set1 = new Set(words1);
+  const set2 = new Set(words2);
   let overlap = 0;
-  words1.forEach(w => { if (words2.has(w)) overlap++; });
+  set1.forEach(w => { if (set2.has(w)) overlap++; });
 
-  return overlap / Math.max(words1.size, words2.size);
+  return overlap / Math.max(set1.size, set2.size);
 };
 
 const checkDuplicate = (newQ: string, existingQuestions: any[]): { isDup: boolean; reason?: string; matchedWith?: string } => {

@@ -5,35 +5,28 @@ export const formatRichText = (text: string): string => {
   let html = text;
   
   // Format Tables FIRST before replacing newlines
-  // This regex matches standard Markdown tables (even without leading | )
   if (html.includes('|')) {
-    html = html.replace(/((?:^|\n)[ \t]*(?:\|?.*?\|.*?\n)+(?:\|?[ \t]*:?-+:?[ \t]*\|?.*?\n)(?:\|?.*?\|.*?(?:\n|$))+)/g, (match) => {
+    html = html.replace(/((?:\|[^\n]+\| *(?:\r?\n|$))+)/g, (match) => {
       const rows = match.trim().split('\n');
-      let tableHtml = '<table border="1" cellpadding="5" style="border-collapse: collapse; margin-top: 10px; margin-bottom: 10px; width: 100%; border-color: #e2e8f0; font-size: 0.9em; background-color: white;">';
+      let tableHtml = '<table border="1" cellpadding="5" style="border-collapse: collapse; margin-top: 10px; margin-bottom: 10px; width: 100%; border-color: #e2e8f0; font-size: 0.9em;">';
       
       let isHeader = true;
       for (const row of rows) {
-        if (row.includes('---')) {
-          isHeader = false;
-          continue; // Skip separator
-        }
+        if (row.includes('---')) continue; // Skip separator
         
-        let cleanedRow = row.trim();
-        if (cleanedRow.startsWith('|')) cleanedRow = cleanedRow.substring(1);
-        if (cleanedRow.endsWith('|')) cleanedRow = cleanedRow.substring(0, cleanedRow.length - 1);
-        
-        const cells = cleanedRow.split('|').map(c => c.trim());
-        if (cells.length === 0 || (cells.length === 1 && cells[0] === '')) continue;
+        const cells = row.split('|').map(c => c.trim()).filter(c => c !== '');
+        if (cells.length === 0) continue;
 
         tableHtml += '<tr>';
         for (const cell of cells) {
           if (isHeader) {
-            tableHtml += `<th style="background-color: #f8fafc; text-align: left; padding: 6px; border: 1px solid #e2e8f0;">${cell}</th>`;
+            tableHtml += `<th style="background-color: #f8fafc; text-align: left; padding: 6px;">${cell}</th>`;
           } else {
-            tableHtml += `<td style="padding: 6px; border: 1px solid #e2e8f0;">${cell}</td>`;
+            tableHtml += `<td style="padding: 6px;">${cell}</td>`;
           }
         }
         tableHtml += '</tr>';
+        isHeader = false;
       }
       tableHtml += '</table>';
       return tableHtml;
@@ -55,41 +48,18 @@ export const formatRichText = (text: string): string => {
 };
 
 export const buildAnkiHtml = (exp: Explanation, difficulty: string, depth: string) => {
-  return `
-    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #1e293b; background: #ffffff; padding: 16px; border-radius: 12px; border: 1px solid #e2e8f0; text-align: left;">
-      <div style="margin-bottom: 16px;">
-        <div style="font-weight: bold; font-size: 15px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
-          🎯 ĐÁP ÁN CỐT LÕI
-        </div>
-        <div style="font-size: 14px;">${formatRichText(exp.core)}</div>
-      </div>
+  return `<b>🎯 ĐÁP ÁN CỐT LÕI</b><br>
+${formatRichText(exp.core)}<br><br>
 
-      <div style="margin-bottom: 16px;">
-        <div style="font-weight: bold; font-size: 15px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
-          📚 BẰNG CHỨNG
-        </div>
-        <div style="font-size: 14px;">${formatRichText(exp.evidence)}</div>
-      </div>
+<b>📚 BẰNG CHỨNG</b><br>
+${formatRichText(exp.evidence)}<br><br>
 
-      <div style="margin-bottom: 16px;">
-        <div style="font-weight: bold; font-size: 15px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
-          💡 PHÂN TÍCH SÂU (CHẨN ĐOÁN PHÂN BIỆT)
-        </div>
-        <div style="font-size: 14px;">${formatRichText(exp.analysis)}</div>
-      </div>
+<b>💡 PHÂN TÍCH SÂU</b> (CHẨN ĐOÁN PHÂN BIỆT)<br>
+${formatRichText(exp.analysis)}<br><br>
 
-      ${exp.warning ? `
-      <div style="margin-bottom: 16px;">
-        <div style="font-weight: bold; font-size: 15px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
-          ⚠️ CẢNH BÁO LÂM SÀNG
-        </div>
-        <div style="font-size: 14px;">${formatRichText(exp.warning)}</div>
-      </div>` : ''}
+${exp.warning ? `<b>⚠️ CẢNH BÁO LÂM SÀNG</b><br>
+${formatRichText(exp.warning)}<br><br>
 
-      <div style="border-top: 1px solid #f1f5f9; padding-top: 12px; font-size: 13px; color: #475569;">
-        <div style="margin-bottom: 4px;">📊 <b>ĐỘ KHÓ:</b> ${difficulty}</div>
-        <div>🧠 <b>TƯ DUY:</b> ${formatRichText(depth)}</div>
-      </div>
-    </div>
-  `.replace(/\s+/g, ' ').trim();
+` : ''}<b>📊 ĐỘ KHÓ:</b> <b>${difficulty}</b><br>
+<b>🧠 TƯ DUY:</b> <b>${depth}</b>`.trim();
 };

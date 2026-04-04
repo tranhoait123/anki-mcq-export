@@ -55,45 +55,41 @@ export const formatRichText = (text: string): string => {
 };
 
 export const buildAnkiHtml = (exp: Explanation, difficulty: string, depth: string) => {
-  const boxStyle = "padding: 12px; margin-bottom: 8px; border-radius: 8px; border-left: 4px solid;";
-
   return `
-      <div style="font-family: Arial, sans-serif; line-height: 1.5; font-size: 14px;">
-        <div style="${boxStyle} border-color: #f43f5e; background-color: #fff1f2; color: #881337;">
-          <div style="font-weight: 800; font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; display: flex; align-items: center; gap: 4px;">
-            🎯 ĐÁP ÁN CỐT LÕI
-          </div>
-          ${formatRichText(exp.core)}
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #1e293b; background: #ffffff; padding: 16px; border-radius: 12px; border: 1px solid #e2e8f0; text-align: left;">
+      <div style="margin-bottom: 16px;">
+        <div style="font-weight: bold; font-size: 15px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
+          🎯 ĐÁP ÁN CỐT LÕI
         </div>
-
-        <div style="${boxStyle} border-color: #9ca3af; background-color: #f9fafb; color: #4b5563; font-style: italic;">
-          <div style="font-weight: 800; font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; display: flex; align-items: center; gap: 4px; font-style: normal;">
-            📚 BẰNG CHỨNG
-          </div>
-          <div style="font-style: normal;">
-            ${formatRichText(exp.evidence)}
-          </div>
-        </div>
-
-        <div style="${boxStyle} border-color: #4f46e5; background-color: #eef2ff; color: #3730a3;">
-          <div style="font-weight: 800; font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; display: flex; align-items: center; gap: 4px;">
-            💡 PHÂN TÍCH SÂU (CHẨN ĐOÁN PHÂN BIỆT)
-          </div>
-          ${formatRichText(exp.analysis)}
-        </div>
-
-        ${exp.warning ? `
-        <div style="${boxStyle} border-color: #d97706; background-color: #fffbeb; color: #92400e;">
-          <div style="font-weight: 800; font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; display: flex; align-items: center; gap: 4px;">
-             ⚠️ CẢNH BÁO LÂM SÀNG
-          </div>
-          ${formatRichText(exp.warning)}
-        </div>` : ''}
-
-        <div style="margin-top: 16px; border-top: 1px dashed #e5e7eb; padding-top: 12px; font-size: 10px; color: #9ca3af; display: flex; justify-content: space-between;">
-           <span>📊 ĐỘ KHÓ: <b>${difficulty}</b></span>
-           <span>🧠 TƯ DUY: <b>${depth}</b></span>
-        </div>
+        <div style="font-size: 14px;">${formatRichText(exp.core)}</div>
       </div>
+
+      <div style="margin-bottom: 16px;">
+        <div style="font-weight: bold; font-size: 15px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
+          📚 BẰNG CHỨNG
+        </div>
+        <div style="font-size: 14px;">${formatRichText(exp.evidence)}</div>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <div style="font-weight: bold; font-size: 15px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
+          💡 PHÂN TÍCH SÂU (CHẨN ĐOÁN PHÂN BIỆT)
+        </div>
+        <div style="font-size: 14px;">${formatRichText(exp.analysis)}</div>
+      </div>
+
+      ${exp.warning ? `
+      <div style="margin-bottom: 16px;">
+        <div style="font-weight: bold; font-size: 15px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
+          ⚠️ CẢNH BÁO LÂM SÀNG
+        </div>
+        <div style="font-size: 14px;">${formatRichText(exp.warning)}</div>
+      </div>` : ''}
+
+      <div style="border-top: 1px solid #f1f5f9; padding-top: 12px; font-size: 13px; color: #475569;">
+        <div style="margin-bottom: 4px;">📊 <b>ĐỘ KHÓ:</b> ${difficulty}</div>
+        <div>🧠 <b>TƯ DUY:</b> ${formatRichText(depth)}</div>
+      </div>
+    </div>
   `.replace(/\s+/g, ' ').trim();
 };

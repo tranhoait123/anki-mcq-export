@@ -272,7 +272,7 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete }) => 
   const [editForm, setEditForm] = useState<MCQ | null>(null);
   const [showWarningsOnly, setShowWarningsOnly] = useState(false);
   const [difficultyFilter, setDifficultyFilter] = useState<string>('all');
-  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
+  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('preview');
 
   // Extract unique difficulties for the filter dropdown
   const uniqueDifficulties = useMemo(() =>
@@ -360,16 +360,16 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete }) => 
 
         <div className="flex bg-slate-100 dark:bg-slate-800/50 p-1.5 rounded-xl border border-transparent">
           <button
-            onClick={() => setViewMode('edit')}
-            className={`px-4 py-1.5 text-[10px] font-black rounded-lg flex items-center gap-1.5 transition-all uppercase tracking-tighter ${viewMode === 'edit' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-white' : 'text-slate-500'}`}
-          >
-            <PenLine size={12} /> Soạn thảo
-          </button>
-          <button
             onClick={() => setViewMode('preview')}
             className={`px-4 py-1.5 text-[10px] font-black rounded-lg flex items-center gap-1.5 transition-all uppercase tracking-tighter ${viewMode === 'preview' ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-600 dark:text-white' : 'text-slate-500'}`}
           >
             <Eye size={12} /> Review
+          </button>
+          <button
+            onClick={() => setViewMode('edit')}
+            className={`px-4 py-1.5 text-[10px] font-black rounded-lg flex items-center gap-1.5 transition-all uppercase tracking-tighter ${viewMode === 'edit' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-white' : 'text-slate-500'}`}
+          >
+            <PenLine size={12} /> Soạn thảo
           </button>
         </div>
 

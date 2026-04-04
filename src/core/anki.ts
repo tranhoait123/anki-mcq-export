@@ -5,28 +5,35 @@ export const formatRichText = (text: string): string => {
   let html = text;
   
   // Format Tables FIRST before replacing newlines
+  // This regex matches standard Markdown tables (even without leading | )
   if (html.includes('|')) {
-    html = html.replace(/((?:\|[^\n]+\| *(?:\r?\n|$))+)/g, (match) => {
+    html = html.replace(/((?:^|\n)[ \t]*(?:\|?.*?\|.*?\n)+(?:\|?[ \t]*:?-+:?[ \t]*\|?.*?\n)(?:\|?.*?\|.*?(?:\n|$))+)/g, (match) => {
       const rows = match.trim().split('\n');
-      let tableHtml = '<table border="1" cellpadding="5" style="border-collapse: collapse; margin-top: 10px; margin-bottom: 10px; width: 100%; border-color: #e2e8f0; font-size: 0.9em;">';
+      let tableHtml = '<table border="1" cellpadding="5" style="border-collapse: collapse; margin-top: 10px; margin-bottom: 10px; width: 100%; border-color: #e2e8f0; font-size: 0.9em; background-color: white;">';
       
       let isHeader = true;
       for (const row of rows) {
-        if (row.includes('---')) continue; // Skip separator
+        if (row.includes('---')) {
+          isHeader = false;
+          continue; // Skip separator
+        }
         
-        const cells = row.split('|').map(c => c.trim()).filter(c => c !== '');
-        if (cells.length === 0) continue;
+        let cleanedRow = row.trim();
+        if (cleanedRow.startsWith('|')) cleanedRow = cleanedRow.substring(1);
+        if (cleanedRow.endsWith('|')) cleanedRow = cleanedRow.substring(0, cleanedRow.length - 1);
+        
+        const cells = cleanedRow.split('|').map(c => c.trim());
+        if (cells.length === 0 || (cells.length === 1 && cells[0] === '')) continue;
 
         tableHtml += '<tr>';
         for (const cell of cells) {
           if (isHeader) {
-            tableHtml += `<th style="background-color: #f8fafc; text-align: left; padding: 6px;">${cell}</th>`;
+            tableHtml += `<th style="background-color: #f8fafc; text-align: left; padding: 6px; border: 1px solid #e2e8f0;">${cell}</th>`;
           } else {
-            tableHtml += `<td style="padding: 6px;">${cell}</td>`;
+            tableHtml += `<td style="padding: 6px; border: 1px solid #e2e8f0;">${cell}</td>`;
           }
         }
         tableHtml += '</tr>';
-        isHeader = false;
       }
       tableHtml += '</table>';
       return tableHtml;
@@ -48,18 +55,45 @@ export const formatRichText = (text: string): string => {
 };
 
 export const buildAnkiHtml = (exp: Explanation, difficulty: string, depth: string) => {
-  return `<b>🎯 ĐÁP ÁN CỐT LÕI</b><br>
-${formatRichText(exp.core)}<br><br>
+  const boxStyle = "padding: 12px; margin-bottom: 8px; border-radius: 8px; border-left: 4px solid;";
 
-<b>📚 BẰNG CHỨNG</b><br>
-${formatRichText(exp.evidence)}<br><br>
+  return `
+      <div style="font-family: Arial, sans-serif; line-height: 1.5; font-size: 14px;">
+        <div style="${boxStyle} border-color: #f43f5e; background-color: #fff1f2; color: #881337;">
+          <div style="font-weight: 800; font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; display: flex; align-items: center; gap: 4px;">
+            🎯 ĐÁP ÁN CỐT LÕI
+          </div>
+          ${formatRichText(exp.core)}
+        </div>
 
-<b>💡 PHÂN TÍCH SÂU</b> (CHẨN ĐOÁN PHÂN BIỆT)<br>
-${formatRichText(exp.analysis)}<br><br>
+        <div style="${boxStyle} border-color: #9ca3af; background-color: #f9fafb; color: #4b5563; font-style: italic;">
+          <div style="font-weight: 800; font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; display: flex; align-items: center; gap: 4px; font-style: normal;">
+            📚 BẰNG CHỨNG
+          </div>
+          <div style="font-style: normal;">
+            ${formatRichText(exp.evidence)}
+          </div>
+        </div>
 
-${exp.warning ? `<b>⚠️ CẢNH BÁO LÂM SÀNG</b><br>
-${formatRichText(exp.warning)}<br><br>
+        <div style="${boxStyle} border-color: #4f46e5; background-color: #eef2ff; color: #3730a3;">
+          <div style="font-weight: 800; font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; display: flex; align-items: center; gap: 4px;">
+            💡 PHÂN TÍCH SÂU (CHẨN ĐOÁN PHÂN BIỆT)
+          </div>
+          ${formatRichText(exp.analysis)}
+        </div>
 
-` : ''}<b>📊 ĐỘ KHÓ:</b> <b>${difficulty}</b><br>
-<b>🧠 TƯ DUY:</b> <b>${depth}</b>`.trim();
+        ${exp.warning ? `
+        <div style="${boxStyle} border-color: #d97706; background-color: #fffbeb; color: #92400e;">
+          <div style="font-weight: 800; font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; display: flex; align-items: center; gap: 4px;">
+             ⚠️ CẢNH BÁO LÂM SÀNG
+          </div>
+          ${formatRichText(exp.warning)}
+        </div>` : ''}
+
+        <div style="margin-top: 16px; border-top: 1px dashed #e5e7eb; padding-top: 12px; font-size: 10px; color: #9ca3af; display: flex; justify-content: space-between;">
+           <span>📊 ĐỘ KHÓ: <b>${difficulty}</b></span>
+           <span>🧠 TƯ DUY: <b>${depth}</b></span>
+        </div>
+      </div>
+  `.replace(/\s+/g, ' ').trim();
 };

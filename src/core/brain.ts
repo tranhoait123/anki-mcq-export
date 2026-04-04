@@ -367,9 +367,23 @@ export const generateQuestions = async (
         });
       } else {
         // Xử lý text thô/word document đã extract.
-        allParts.push({
-          text: `FILE: ${file.name}\n${file.content}\n`
-        });
+        // Chunking text để tránh làm AI bị ngợp và mất cấu trúc JSON khi file chữ quá dài.
+        const MAX_CHARS = 15000; // Khoảng ~3000 từ một chunk
+        const OVERLAP = 1000;
+        let offset = 0;
+        let partIdx = 1;
+        while (offset < file.content.length) {
+           allParts.push({ 
+              text: `[TÀI LIỆU: "${file.name}" (Phần ${partIdx++})]\n\n` + file.content.substring(offset, offset + MAX_CHARS) 
+           });
+           offset += (MAX_CHARS - OVERLAP);
+           if (offset >= file.content.length - OVERLAP) {
+              if (offset < file.content.length) {
+                 allParts.push({ text: `[TÀI LIỆU: "${file.name}" (Phần cuối)]\n\n` + file.content.substring(offset, file.content.length) });
+              }
+              break;
+           }
+        }
       }
     }
 

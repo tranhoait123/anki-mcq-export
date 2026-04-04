@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { MCQ, Explanation } from '../types';
 import { CheckCircle2, Search, Quote, Lightbulb, AlertTriangle, Target, Eye, PenLine, Trash2, Filter, FileText } from 'lucide-react';
-import { buildAnkiHtml } from '../core/anki';
+import { buildAnkiHtml, formatRichText } from '../core/anki';
 
 interface MCQDisplayProps {
   mcqs: MCQ[];
@@ -18,9 +18,12 @@ const RichExplanation: React.FC<{ exp: Explanation }> = ({ exp }) => {
           <div className="bg-rose-500 p-1.5 rounded-lg text-white shadow-sm">
             <Target size={14} />
           </div>
-          <div>
+          <div className="flex-1 overflow-hidden">
             <span className="font-bold text-rose-900 dark:text-rose-200 block text-[10px] uppercase tracking-wider mb-1">Đáp án cốt lõi</span>
-            <span className="text-slate-700 dark:text-slate-300 leading-relaxed font-medium">{exp.core}</span>
+            <div 
+              className="text-slate-700 dark:text-slate-300 leading-relaxed font-medium prose-sm dark:prose-invert max-w-none"
+              dangerouslySetInnerHTML={{ __html: formatRichText(exp.core) }}
+            />
           </div>
         </div>
       </div>
@@ -30,9 +33,12 @@ const RichExplanation: React.FC<{ exp: Explanation }> = ({ exp }) => {
           <div className="bg-indigo-500 p-1.5 rounded-lg text-white shadow-sm">
             <Lightbulb size={14} />
           </div>
-          <div>
+          <div className="flex-1 overflow-hidden">
             <span className="font-bold text-indigo-900 dark:text-indigo-200 block text-[10px] uppercase tracking-wider mb-1">Phân tích chuyên sâu</span>
-            <span className="text-slate-700 dark:text-slate-300 leading-relaxed">{exp.analysis}</span>
+            <div 
+              className="text-slate-700 dark:text-slate-300 leading-relaxed prose-sm dark:prose-invert max-w-none"
+              dangerouslySetInnerHTML={{ __html: formatRichText(exp.analysis) }}
+            />
           </div>
         </div>
       </div>
@@ -42,9 +48,12 @@ const RichExplanation: React.FC<{ exp: Explanation }> = ({ exp }) => {
           <div className="bg-slate-500 p-1.5 rounded-lg text-white shadow-sm">
             <Quote size={14} />
           </div>
-          <div className="italic">
+          <div className="flex-1 overflow-hidden italic">
             <span className="font-bold text-slate-900 dark:text-slate-200 block text-[10px] uppercase tracking-wider mb-1 not-italic">Bằng chứng y khoa</span>
-            <span className="text-slate-600 dark:text-slate-400 leading-relaxed">{exp.evidence}</span>
+            <div 
+              className="text-slate-600 dark:text-slate-400 leading-relaxed prose-sm dark:prose-invert max-w-none"
+              dangerouslySetInnerHTML={{ __html: formatRichText(exp.evidence) }}
+            />
           </div>
         </div>
       </div>
@@ -55,9 +64,12 @@ const RichExplanation: React.FC<{ exp: Explanation }> = ({ exp }) => {
             <div className="bg-amber-500 p-1.5 rounded-lg text-white shadow-sm">
               <AlertTriangle size={14} />
             </div>
-            <div>
+            <div className="flex-1 overflow-hidden">
               <span className="font-bold text-amber-900 dark:text-amber-200 block text-[10px] uppercase tracking-wider mb-1">Lưu ý lâm sàng</span>
-              <span className="text-slate-700 dark:text-slate-300 leading-relaxed">{exp.warning}</span>
+              <div 
+                className="text-slate-700 dark:text-slate-300 leading-relaxed prose-sm dark:prose-invert max-w-none"
+                dangerouslySetInnerHTML={{ __html: formatRichText(exp.warning) }}
+              />
             </div>
           </div>
         </div>
@@ -260,7 +272,7 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete }) => 
   const [editForm, setEditForm] = useState<MCQ | null>(null);
   const [showWarningsOnly, setShowWarningsOnly] = useState(false);
   const [difficultyFilter, setDifficultyFilter] = useState<string>('all');
-  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
+  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('preview');
 
   // Extract unique difficulties for the filter dropdown
   const uniqueDifficulties = useMemo(() =>
@@ -348,16 +360,16 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete }) => 
 
         <div className="flex bg-slate-100 dark:bg-slate-800/50 p-1.5 rounded-xl border border-transparent">
           <button
-            onClick={() => setViewMode('edit')}
-            className={`px-4 py-1.5 text-[10px] font-black rounded-lg flex items-center gap-1.5 transition-all uppercase tracking-tighter ${viewMode === 'edit' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-white' : 'text-slate-500'}`}
-          >
-            <PenLine size={12} /> Soạn thảo
-          </button>
-          <button
             onClick={() => setViewMode('preview')}
             className={`px-4 py-1.5 text-[10px] font-black rounded-lg flex items-center gap-1.5 transition-all uppercase tracking-tighter ${viewMode === 'preview' ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-600 dark:text-white' : 'text-slate-500'}`}
           >
             <Eye size={12} /> Review
+          </button>
+          <button
+            onClick={() => setViewMode('edit')}
+            className={`px-4 py-1.5 text-[10px] font-black rounded-lg flex items-center gap-1.5 transition-all uppercase tracking-tighter ${viewMode === 'edit' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-white' : 'text-slate-500'}`}
+          >
+            <PenLine size={12} /> Soạn thảo
           </button>
         </div>
 

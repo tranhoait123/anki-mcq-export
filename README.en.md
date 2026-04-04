@@ -330,6 +330,7 @@ Documents are sent to **Google Gemini API** for OCR/inference. The app **does no
 
 | Version | Date | Highlights |
 | :--- | :--- | :--- |
+| **v5.0 (Atomic)** | 04/04/2026 | **Zustand Architecture, Sonner Toasts, Review-First UI, Enhanced Markdown Tables** |
 | **v4.7 (Gemini)** | 03/28/2026 | Added **Gemini 3.1 Flash-Lite** as default, **Gemini 2.5 Flash** fallback |
 | **v4.6 (Native)** | 02/04/2026 | **Native PDF Engine**, Overlap Scanning |
 | **v4.0 (Pro)** | 02/04/2026 | **50MB Limit**, IndexedDB Storage, Premium UI |

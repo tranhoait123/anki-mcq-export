@@ -3,6 +3,8 @@ import React, { useState, useMemo } from 'react';
 import { MCQ, Explanation } from '../types';
 import { CheckCircle2, Search, Quote, Lightbulb, AlertTriangle, Target, Eye, PenLine, Trash2, Filter, FileText } from 'lucide-react';
 import { buildAnkiHtml, formatRichText } from '../core/anki';
+import { isOptionCorrect } from '../utils/text';
+
 
 interface MCQDisplayProps {
   mcqs: MCQ[];
@@ -123,11 +125,11 @@ const MCQCard = React.memo(({
 
         <div className="space-y-3 mb-8 ml-14">
           {data.options.map((opt, i) => (
-            <div key={i} className={`flex items-center gap-3 p-3 rounded-2xl transition-all ${opt === data.correctAnswer ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800' : 'text-slate-500'}`}>
-              <span className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs ${opt === data.correctAnswer ? 'bg-emerald-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>
+            <div key={i} className={`flex items-center gap-3 p-3 rounded-2xl transition-all ${isOptionCorrect(opt, data.correctAnswer, i) ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800' : 'text-slate-500'}`}>
+              <span className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs ${isOptionCorrect(opt, data.correctAnswer, i) ? 'bg-emerald-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>
                 {String.fromCharCode(65 + i)}
               </span>
-              <span className={`text-sm ${opt === data.correctAnswer ? 'font-bold text-emerald-900 dark:text-emerald-400' : ''}`}>{opt}</span>
+              <span className={`text-sm ${isOptionCorrect(opt, data.correctAnswer, i) ? 'font-bold text-emerald-900 dark:text-emerald-400' : ''}`}>{opt}</span>
             </div>
           ))}
         </div>
@@ -196,12 +198,12 @@ const MCQCard = React.memo(({
         {data.options.map((opt, i) => (
           <div
             key={i}
-            className={`p-4 rounded-2xl border-2 transition-all flex items-center gap-3 ${opt === data.correctAnswer
+            className={`p-4 rounded-2xl border-2 transition-all flex items-center gap-3 ${isOptionCorrect(opt, data.correctAnswer, i)
               ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-500/30'
               : 'bg-white dark:bg-slate-800/50 border-slate-100 dark:border-slate-800 hover:border-indigo-200'
               }`}
           >
-            <span className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs shrink-0 ${opt === data.correctAnswer ? 'bg-emerald-500 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-400'}`}>
+            <span className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs shrink-0 ${isOptionCorrect(opt, data.correctAnswer, i) ? 'bg-emerald-500 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-400'}`}>
               {String.fromCharCode(65 + i)}
             </span>
             {isEditing ? (
@@ -212,13 +214,13 @@ const MCQCard = React.memo(({
                   onChange={e => onOptionChange(i, e.target.value)}
                 />
                 <div className="relative flex items-center cursor-pointer" onClick={() => onChange('correctAnswer', opt)}>
-                  <div className={`w-5 h-5 rounded-full border-2 transition-all flex items-center justify-center ${opt === data.correctAnswer ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
-                    {opt === data.correctAnswer && <CheckCircle2 size={12} className="text-white" />}
+                  <div className={`w-5 h-5 rounded-full border-2 transition-all flex items-center justify-center ${isOptionCorrect(opt, data.correctAnswer, i) ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
+                    {isOptionCorrect(opt, data.correctAnswer, i) && <CheckCircle2 size={12} className="text-white" />}
                   </div>
                 </div>
               </div>
             ) : (
-              <span className={`text-sm leading-tight ${opt === data.correctAnswer ? 'font-bold text-emerald-900 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}`}>{opt}</span>
+              <span className={`text-sm leading-tight ${isOptionCorrect(opt, data.correctAnswer, i) ? 'font-bold text-emerald-900 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}`}>{opt}</span>
             )}
           </div>
         ))}

@@ -11,6 +11,7 @@ import { db } from './core/db';
 import { BrainCircuit, Loader2, Download, CheckCircle2, AlertTriangle, ScanText, Moon, Sun, Settings as SettingsIcon, Columns, FileText, DownloadCloud, Sparkles, Filter, Trash2, Copy } from 'lucide-react';
 import { extractTextWithTesseract } from './core/vision';
 import { buildAnkiHtml, formatRichText } from './core/anki';
+import { isOptionCorrect } from './utils/text';
 import { toast } from 'sonner';
 
 const App: React.FC = () => {
@@ -375,10 +376,15 @@ const App: React.FC = () => {
       while (ops.length < 5) ops.push("");
       const cleanOps = ops.map(o => formatRichText(cleanText(o, 'option')));
 
+      const correctIndex = m.options.findIndex((opt, i) => isOptionCorrect(opt, m.correctAnswer, i));
+      const correctLetter = correctIndex !== -1 
+        ? String.fromCharCode(65 + correctIndex) 
+        : (m.correctAnswer.match(/^[A-E]/i)?.[0]?.toUpperCase() || m.correctAnswer);
+
       return [
         esc(formattedQ),
         esc(cleanOps[0]), esc(cleanOps[1]), esc(cleanOps[2]), esc(cleanOps[3]), esc(cleanOps[4]),
-        esc(m.correctAnswer.match(/^[A-E]/i)?.[0]?.toUpperCase() || m.correctAnswer),
+        esc(correctLetter),
         esc(buildAnkiHtml(m.explanation, m.difficulty, m.depthAnalysis)),
         esc(m.source),
         esc(m.difficulty)
@@ -406,10 +412,15 @@ const App: React.FC = () => {
       while (ops.length < 5) ops.push("");
       const cleanOps = ops.map(o => formatRichText(cleanText(o, 'option')));
 
+      const correctIndex = m.options.findIndex((opt, i) => isOptionCorrect(opt, m.correctAnswer, i));
+      const correctLetter = correctIndex !== -1 
+        ? String.fromCharCode(65 + correctIndex) 
+        : (m.correctAnswer.match(/^[A-E]/i)?.[0]?.toUpperCase() || m.correctAnswer);
+
       return [
         esc(formattedQ),
         esc(cleanOps[0]), esc(cleanOps[1]), esc(cleanOps[2]), esc(cleanOps[3]), esc(cleanOps[4]),
-        esc(m.correctAnswer.match(/^[A-E]/i)?.[0]?.toUpperCase() || m.correctAnswer), // Normalize to A/B/C/D
+        esc(correctLetter), // Normalize to A/B/C/D
         esc(buildAnkiHtml(m.explanation, m.difficulty, m.depthAnalysis)),
         esc(m.source),
         esc(m.difficulty)

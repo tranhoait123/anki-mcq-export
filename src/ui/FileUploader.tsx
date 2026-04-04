@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { UploadCloud, FileText, X, Loader2, Image as ImageIcon } from 'lucide-react';
 import { UploadedFile } from '../types';
 import mammoth from 'mammoth';
+import { toast } from 'sonner';
 
 interface FileUploaderProps {
   files: UploadedFile[];
@@ -152,7 +153,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
       console.error("Error processing file:", error);
       // Remove the failed file
       setFiles(prev => prev.filter(f => f.name !== file.name));
-      alert(`Lỗi khi đọc file ${file.name}: ${error instanceof Error ? error.message : "Định dạng không hỗ trợ"}`);
+      toast.error(`Lỗi khi đọc file ${file.name}: ${error instanceof Error ? error.message : "Định dạng không hỗ trợ"}`);
     }
   }, [files, setFiles, updateFileProgress]);
 

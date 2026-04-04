@@ -274,7 +274,7 @@ const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any,
 async function executeWithUserRotation<T>(
   operation: (apiKey: string) => Promise<T>
 ): Promise<T> {
-  const ATTEMPTS_LIMIT = 10;
+  const ATTEMPTS_LIMIT = 15;
   let attempts = 0;
 
   while (attempts < ATTEMPTS_LIMIT) {
@@ -285,20 +285,26 @@ async function executeWithUserRotation<T>(
       return await operation(currentKey);
     } catch (error: any) {
       const msg = error.message?.toLowerCase() || "";
-      const isRateLimit = msg.includes("429") || msg.includes("quota exceeded") || msg.includes("resource exhausted");
+      const isRateLimit = msg.includes("429") || msg.includes("quota exceeded") || msg.includes("resource exhausted") || msg.includes("timeout") || msg.includes("econnreset");
       const isKeyError = msg.includes("api key") && (msg.includes("invalid") || msg.includes("not found") || msg.includes("expired"));
 
       if (isRateLimit || isKeyError) {
-        const reason = isRateLimit ? "Rate Limit (429)" : "Invalid/Expired Key";
-        console.warn(`⚠️ ${reason} on Key #${userKeyRotator.getKeyIndex() + 1}. Rotating...`);
+        const reason = isRateLimit ? "Rate Limit/Timeout" : "Invalid/Expired Key";
+        console.warn(`⚠️ ${reason} on Key #${userKeyRotator.getKeyIndex() + 1}. Rotating... (Attempt ${attempts})`);
+        
+        // Exponential backoff & jitter logic for rate limits
+        const backoffMs = isRateLimit 
+             ? Math.min(15000, 1000 * Math.pow(1.5, attempts) + Math.random() * 1000) 
+             : 500;
+
         userKeyRotator.rotate();
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, backoffMs));
         continue;
       }
       throw error;
     }
   }
-  throw new Error(`Đã thử tất cả ${userKeyRotator.keyCount} Keys nhưng đều thất bại (429/Invalid). Vui lòng kiểm tra lại Key.`);
+  throw new Error(`Đã thử luân phiên tất cả ${userKeyRotator.keyCount} Keys nhưng đều quá tải (đã thử ${ATTEMPTS_LIMIT} lần). Vui lòng chờ 1-2 phút rồi thử lại.`);
 }
 
 
@@ -315,7 +321,7 @@ export const generateQuestions = async (
     userKeyRotator.getCurrentKey();
 
     // --- STEP 1: PRE-PROCESS ---
-    let allParts: { mimeType: string; data: string }[] = [];
+    let allParts: any[] = [];
 
     if (onProgress) onProgress("Đang phân tích định dạng tài liệu...", 0);
 
@@ -336,33 +342,39 @@ export const generateQuestions = async (
 
           pdfChunks.forEach((chunkBase64) => {
             allParts.push({
-              mimeType: 'application/pdf',
-              data: chunkBase64
+              inlineData: {
+                mimeType: 'application/pdf',
+                data: chunkBase64
+              }
             });
           });
         } catch (splitError) {
           console.error("PDF Split failed, fallback to whole doc:", splitError);
           allParts.push({
-            mimeType: 'application/pdf',
-            data: file.content.includes(',') ? file.content.split(',')[1] : file.content
+            inlineData: {
+              mimeType: 'application/pdf',
+              data: file.content.includes(',') ? file.content.split(',')[1] : file.content
+            }
           });
         }
 
       } else if (file.type.startsWith('image/')) {
         allParts.push({
-          mimeType: file.type,
-          data: file.content.includes(',') ? file.content.split(',')[1] : file.content
+          inlineData: {
+            mimeType: file.type,
+            data: file.content.includes(',') ? file.content.split(',')[1] : file.content
+          }
         });
       } else {
-        return { questions: [], duplicates: [] };
+        // Xử lý text thô/word document đã extract.
+        allParts.push({
+          text: `FILE: ${file.name}\n${file.content}\n`
+        });
       }
     }
 
     if (allParts.length === 0) {
-      const textParts = files.filter(f => !f.type.startsWith('image/') && f.type !== 'application/pdf');
-      if (textParts.length > 0) {
-        throw new Error("Hiện tại chế độ 'Quét từng trang' chỉ hỗ trợ PDF và Ảnh.");
-      }
+      return { questions: [], duplicates: [] };
     }
 
     const questionSchema = {
@@ -418,7 +430,7 @@ export const generateQuestions = async (
     const totalBatches = allParts.length;
     let completedBatches = 0;
 
-    const processBatch = async (part: { mimeType: string, data: string }, index: number) => {
+    const processBatch = async (part: any, index: number) => {
       try {
         if (onProgress) onProgress(`Đang quét song song: Batch ${index + 1}/${totalBatches}...`, allQuestions.length);
         await new Promise(r => setTimeout(r, Math.random() * 1000));
@@ -438,10 +450,9 @@ export const generateQuestions = async (
             : SYSTEM_INSTRUCTION_EXTRACT;
 
           const chat = ai.chats.create(getModelConfig(apiKey, finalInstruction, questionSchema, settings.model));
-          // Wrap part in inlineData
-          const inlinePart = { inlineData: { mimeType: part.mimeType, data: part.data } };
+          // Wrap part as inlineData or text object is already resolved!
           const response = await chat.sendMessage({
-            message: [inlinePart, { text: promptText }]
+            message: [part, { text: promptText }]
           });
           return response.text;
         });

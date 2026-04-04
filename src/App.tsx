@@ -11,6 +11,7 @@ import { db } from './core/db';
 import { BrainCircuit, Loader2, Download, CheckCircle2, AlertTriangle, ScanText, Moon, Sun, Settings as SettingsIcon, Columns, FileText, DownloadCloud, Sparkles, Filter, Trash2, Copy } from 'lucide-react';
 import { extractTextWithTesseract } from './core/vision';
 import { buildAnkiHtml, formatRichText } from './core/anki';
+import { toast } from 'sonner';
 
 const App: React.FC = () => {
   const [files, setFiles] = useState<UploadedFile[]>([]);
@@ -224,7 +225,10 @@ const App: React.FC = () => {
       const filesToUse = await prepareFiles();
       const res = await analyzeDocument(filesToUse, settings);
       setAnalysis(res);
-    } catch (e: any) { alert(e.message); }
+      toast.success(`Phân tích thành công! Dự kiến có khoảng ${res.estimatedCount} câu hỏi.`);
+    } catch (e: any) { 
+      toast.error(e.message || "Lỗi khi phân tích tài liệu");
+    }
     finally { setAnalyzing(false); }
   };
 
@@ -309,7 +313,7 @@ const App: React.FC = () => {
         runAudit(formatted.length, filesToUse); // Pass the files we actually used? Ideally the original ones for context.
       }
     } catch (e: any) {
-      alert("Lỗi trích xuất: " + e.message);
+      toast.error("Lỗi trích xuất: " + e.message);
     }
     finally { setLoading(false); }
   };
@@ -351,6 +355,7 @@ const App: React.FC = () => {
   const handleDeleteMCQ = (id: string) => {
     if (confirm('Bạn có chắc muốn xóa câu hỏi này không?')) {
       setMcqs(prev => prev.filter(m => m.id !== id));
+      toast.success("Đã xóa câu hỏi");
     }
   };
 
@@ -383,7 +388,7 @@ const App: React.FC = () => {
     const csvContent = [headers.join(","), ...rows].join("\n");
     navigator.clipboard.writeText(csvContent);
     // Simple alert for feedback
-    alert("Đã copy toàn bộ nội dung CSV vào bộ nhớ đệm! (Bạn có thể paste vào Excel/Sheets)");
+    toast.success("Đã copy toàn bộ nội dung CSV vào bộ nhớ đệm! (Bạn có thể paste vào Excel/Sheets)");
   };
 
   const downloadCSV = () => {

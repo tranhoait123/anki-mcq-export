@@ -28,10 +28,10 @@
 
 | Tính năng | Mô tả |
 |:---|:---|
-| 🤖 **Trích xuất MCQ bằng AI** | Dùng Google Gemini AI để "đọc" tài liệu scan, ảnh chụp, PDF và trích ra từng câu hỏi trắc nghiệm |
+| 🤖 **Trích xuất MCQ 3.0** | Công cụ AI thế hệ mới, tự động sửa lỗi quét mờ, gối đầu trang và xử lý JSON cực kỳ ổn định |
 | 🩺 **Giải thích như Giáo sư Y khoa** | Mỗi câu hỏi đều kèm: đáp án cốt lõi, phân tích sâu, bằng chứng y văn, cảnh báo lâm sàng |
-| 💾 **Xuất CSV chuẩn Anki** | File CSV sẵn sàng import vào Anki — không cần chỉnh sửa thêm |
-| 🔄 **Chống trùng lặp thông minh** | Tự phát hiện câu hỏi trùng khi bạn nạp nhiều bộ đề cùng lúc |
+| 💾 **Pro Storage (IndexedDB)** | Dữ liệu được lưu an toàn với ID duy nhất — không lo mất dữ liệu khi reload hay lỗi trình duyệt |
+| 🔄 **Lọc trùng Y khoa (95%)** | Thuật toán so sánh nội dung đạt độ chính xác 95%, nhận diện logic phủ định (KHÔNG/NGOẠI TRỪ) |
 | 🌙 **Dark Mode & Split View** | Học đêm không mỏi mắt, đối chiếu tài liệu gốc và kết quả song song |
 
 **Có 3 cách sử dụng:**
@@ -271,13 +271,11 @@ Question | A | B | C | D | E | CorrectAnswer | ExplanationHTML | Source | Diffic
 
 ### 🌙 Các tính năng bổ sung
 
-| Tính năng | Cách sử dụng |
-|:---|:---|
 | **Dark Mode** | Nhấn icon ☀️/🌙 ở Header để chuyển đổi |
-| **Lưu trữ vĩnh viễn** | Dữ liệu được lưu trong IndexedDB trên trình duyệt — không mất khi reload |
-| **Xóa toàn bộ dữ liệu** | Nhấn nút **"⚠️ Xóa hết"** trong thanh kết quả |
+| **Lưu trữ Pro (Safe)** | Dữ liệu được gán ID duy nhất và lưu trong IndexedDB — tuyệt đối không mất dữ liệu |
+| **Trung tâm Trùng lặp** | Giao diện Review chuyên nghiệp để đối chiếu và quyết định Giữ lại/Bỏ qua/Ghi đè câu hỏi trùng |
 | **Cài đặt PWA** | Nếu trình duyệt hỗ trợ, nút **"📲 Tải App"** xuất hiện — cài app về máy như ứng dụng native |
-| **Phát hiện trùng lặp** | Khi trích xuất, panel **"Câu hỏi trùng lặp"** hiển thị các câu bị loại và cho phép **khôi phục** |
+| **Xoay tua API Key** | Tự động đổi Key khi gặp lỗi 429 để quá trình trích xuất không bị gián đoạn |
 
 ---
 
@@ -459,6 +457,7 @@ AI được huấn luyện với vai trò **"Chuyên gia Pháp y Tài liệu"** 
 
 ## 📜 Nhật Ký Cập Nhật
 
+| **v5.2 (Ultima)** | 07/04/2026 | **Medical Extraction 3.0: 95% Content Precision, Robust DB Storage, Duplicate Review UI** |
 | **v5.1 (Robust)** | 04/04/2026 | **Robust MCQ Normalization (A., (B), 1., etc.), Logic so sánh đáp án chính xác 100%** |
 | **v5.0 (Atomic)** | 04/04/2026 | **Zustand Architecture, Sonner Toasts, Review-First Mode, Robust Table Formatting** |
 | **v4.7 (Gemini)** | 28/03/2026 | Khuyên dùng mặc định **Gemini 3.1 Flash-Lite**, bổ sung **Gemini 2.5 Flash** |

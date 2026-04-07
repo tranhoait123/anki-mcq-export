@@ -2,6 +2,7 @@ import { PDFDocument } from 'pdf-lib';
 import { GoogleGenAI, Type } from "@google/genai";
 import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings } from "../types";
 import { db } from './db';
+import { toast } from 'sonner';
 
 // Helper: Hashing for cache identification
 const hashFiles = async (files: UploadedFile[]): Promise<string> => {
@@ -19,8 +20,12 @@ const hashApiKey = (key: string): string => {
   return key.substring(0, 8) + key.substring(key.length - 8); // Simple suffix/prefix hash
 };
 
+// --- Caching Support ---
+let stopCachingInSession = false;
+
 // Helper: Cache Management
 const getOrSetContextCache = async (ai: any, files: UploadedFile[], modelName: string, systemInstruction: string, apiKey: string): Promise<string | null> => {
+  if (stopCachingInSession) return null;
   try {
     const fileHash = await hashFiles(files);
     const keyHash = hashApiKey(apiKey);
@@ -72,8 +77,14 @@ const getOrSetContextCache = async (ai: any, files: UploadedFile[], modelName: s
 
     console.log(`✅ Cache Created: ${cache.name}`);
     return cache.name;
-  } catch (err) {
-    console.warn("⚠️ Context Caching failed (possibly not supported by key/model):", err);
+  } catch (err: any) {
+    const errorMsg = err.message?.toLowerCase() || "";
+    if (errorMsg.includes("429") || errorMsg.includes("quota exceeded")) {
+      console.warn("⚠️ Context Caching failed (Quota 0 on Free Tier). Disabling cache for this session.");
+      stopCachingInSession = true;
+    } else {
+      console.warn("⚠️ Context Caching failed (Not supported by key/model):", err);
+    }
     return null;
   }
 };
@@ -204,6 +215,130 @@ Hãy tìm các nguyên nhân cụ thể:
 Đưa ra lời khuyên cụ thể để người dùng chụp lại tốt hơn (VD: "Cần chụp thẳng góc", "Tránh để ngón tay che chữ").
 `;
 
+// --- Specialty Tag Prompts ---
+export const SPECIALTY_TAG_PROMPTS: Record<string, string> = {
+  "Nhi_khoa": `
+DANH SÁCH TAG ĐƯỢC PHÉP SỬ DỤNG (Chọn 1-3 tag đúng nhất):
+- AI::Nhi_khoa::He_tieu_hoa
+- AI::Nhi_khoa::He_than_tiet_nieu
+- AI::Nhi_khoa::He_ho_hap
+- AI::Nhi_khoa::He_tuan_hoan_tim_mach
+- AI::Nhi_khoa::He_than_kinh_truyen_nhiem
+- AI::Nhi_khoa::He_noi_tiet
+- AI::Nhi_khoa::He_huyet_hoc
+- AI::Nhi_khoa::He_so_sinh
+- AI::Nhi_khoa::Nhi_khoa_tong_quat
+- AI::Nhi_khoa::Hoi_suc_cap_cuu
+- AI::Nhi_khoa::Tiem_chung
+- AI::Nhi_khoa::Viem_phoi
+- AI::Nhi_khoa::Cac_thoi_ki_tuoi_tre
+- AI::Nhi_khoa::Su_tang_truong_the_chat
+- AI::Nhi_khoa::Su_phat_trien_tam_than_van_dong
+- AI::Nhi_khoa::Viem_cau_than
+- AI::Nhi_khoa::Kho_khe
+- AI::Nhi_khoa::Nhu_cau_dinh_duong_danh_gia_va_phan_loai_dinh_duong
+- AI::Nhi_khoa::Thieu_vitamin
+- AI::Nhi_khoa::Tieu_chay
+- AI::Nhi_khoa::Hoi_chung_thieu_mau
+- AI::Nhi_khoa::Hoi_chung_xuat_huyet
+- AI::Nhi_khoa::Hoi_chung_than_hu
+- AI::Nhi_khoa::Nhiem_trung_tieu
+- AI::Nhi_khoa::Suy_tim
+- AI::Nhi_khoa::Tang_huy_et_ap
+- AI::Nhi_khoa::Tim_bam_sinh
+- AI::Nhi_khoa::Tu_chung_fallot
+- AI::Nhi_khoa::Kawasaki
+- AI::Nhi_khoa::Vang_da_so_sinh
+- AI::Nhi_khoa::Nhiem_khuan_so_sinh
+- AI::Nhi_khoa::Co_giat
+- AI::Nhi_khoa::Viem_mang_nao
+- AI::Nhi_khoa::Suy_ho_hap
+- AI::Nhi_khoa::Soc
+- AI::Nhi_khoa::Tay_chan_mieng
+
+QUY TẮC BẮT BUỘC:
+- Trích xuất Tag vào trường "tags" (cách nhau bởi dấu phẩy).
+- Nếu nội dung thẻ thuộc chủ đề nào trên đây, trả về đúng nguyên văn Tag đó.
+- Nếu thẻ đặc thù khác hoặc KHÔNG chắc chắn, BẮT BUỘC trả về Tag mặc định: \`AI::Nhi_khoa::0_xac_dinh\`.
+`,
+  "Noi_khoa": `
+DANH SÁCH TAG ĐƯỢC PHÉP SỬ DỤNG:
+# Tim mạch
+- AI::Noi_khoa::Tim_mach::Hoi_chung_vanh_cap
+- AI::Noi_khoa::Tim_mach::Hoi_chung_vanh_man
+- AI::Noi_khoa::Tim_mach::Tang_huyet_ap
+- AI::Noi_khoa::Tim_mach::Suy_tim 
+- AI::Noi_khoa::Tim_mach::Rung_nhi
+# Tiêu hoá
+- AI::Noi_khoa::Tieu_hoa::Viem_tuy_cap
+- AI::Noi_khoa::Tieu_hoa::Xuat_huyet_tieu_hoa_tren 
+- AI::Noi_khoa::Tieu_hoa::Xo_gan 
+# Hô hấp
+- AI::Noi_khoa::Ho_hap::Viem_phoi 
+- AI::Noi_khoa::Ho_hap::COPD
+- AI::Noi_khoa::Ho_hap::Hen_phe_quan
+- AI::Noi_khoa::Ho_hap::Phu_thanh_quan_do_choang_phan_ve
+# Thận
+- AI::Noi_khoa::Than::Ton_thuong_than_cap
+- AI::Noi_khoa::Than::Benh_than_man
+
+QUY TẮC BẮT BUỘC:
+- Trích xuất Tag vào trường "tags" (cách nhau bởi dấu phẩy).
+- Nếu không có trong danh sách, dùng \`AI::Noi_khoa::{He_Co_Quan}::0_xac_dinh\` hoặc \`AI::Noi_khoa::0_xac_dinh\`.
+`,
+  "Sinh_ly": `
+DANH SÁCH TAG:
+- AI::Sinh_ly::He_mau
+- AI::Sinh_ly::He_tuan_hoan
+- AI::Sinh_ly::He_ho_hap
+- AI::Sinh_ly::He_tiet_nieu
+- AI::Sinh_ly::He_tieu_hoa
+- AI::Sinh_ly::He_noi_tiet
+- AI::Sinh_ly::He_than_kinh
+
+QUY TẮC: Trả về đúng nguyên văn Tag vào trường "tags". Nếu không rõ dùng \`AI::Sinh_ly::0_xac_dinh\`.
+`,
+  "Hoa_sinh": `
+DANH SÁCH TAG:
+- AI::Hoa_sinh::Chu_trinh_acid_citric_phosphoryl_hoa_oxi_hoa
+- AI::Hoa_sinh::Chuyen_hoa_glucid
+- AI::Hoa_sinh::Chuyen_hoa_lipid
+- AI::Hoa_sinh::Chuyen_hoa_protid
+- AI::Hoa_sinh::Chuyen_hoa_hemoglobin
+- AI::Hoa_sinh::Chuyen_hoa_nucleotid
+- AI::Hoa_sinh::Hoa_sinh_gan_mat
+- AI::Hoa_sinh::Hoa_sinh_than
+
+QUY TẮC: Trả về đúng nguyên văn Tag vào trường "tags". Nếu không rõ dùng \`AI::Hoa_sinh::0_xac_dinh\`.
+`,
+  "Giai_phau": `
+DANH SÁCH TAG:
+- AI::Giai_phau::Tim_mach::Tim
+- AI::Giai_phau::Tim_mach::Dong_mach_chu_va_cac_nhanh_dong_mach_chu
+- AI::Giai_phau::Co_xuong_khop::Chi_tren
+- AI::Giai_phau::Co_xuong_khop::Chi_duoi
+- AI::Giai_phau::Tieu_hoa::Da_day
+- AI::Giai_phau::Tieu_hoa::Gan
+
+QUY TẮC: Trả về đúng nguyên văn Tag vào trường "tags". Nếu không rõ dùng \`AI::Giai_phau::0_xac_dinh\`.
+`,
+  "San_phu_khoa": `
+DANH SÁCH TAG: AI::San_phu_khoa::San_khoa, AI::San_phu_khoa::Phu_khoa, AI::San_phu_khoa::U_xo_tu_cung, AI::San_phu_khoa::Thai_benh_ly...
+`,
+  "Ngoai_khoa": `
+DANH SÁCH TAG: AI::Ngoai_khoa::Ngoai_tieu_hoa, AI::Ngoai_khoa::Ngoai_chan_thuong, AI::Ngoai_khoa::Ngoai_long_nguc_tim_mach...
+`,
+  "Truyen_nhiem": `
+DANH SÁCH TAG: AI::Truyen_nhiem::Sot_xuat_huyet, AI::Truyen_nhiem::Lao, AI::Truyen_nhiem::HIV_AIDS, AI::Truyen_nhiem::Sot_ret...
+`,
+  "Hoi_suc_cap_cuu": `
+DANH SÁCH TAG: AI::Hoi_suc_cap_cuu::Soc, AI::Hoi_suc_cap_cuu::Suy_ho_hap, AI::Hoi_suc_cap_cuu::Ngo_doc...
+`,
+  "Y_hoc_co_truyen": `
+DANH SÁCH TAG: AI::YHCT::Ly_luan_co_ban, AI::YHCT::Bat_cuong, AI::YHCT::Tang_phu, AI::YHCT::Kinh_lac...
+`
+};
+
 // --- Normalization Helper ---
 const normalizeToMarkdown = async (ai: any, files: UploadedFile[], onProgress?: ProgressCallback): Promise<string | null> => {
   try {
@@ -216,32 +351,33 @@ const normalizeToMarkdown = async (ai: any, files: UploadedFile[], onProgress?: 
 
     if (onProgress) onProgress("Đang số hóa tài liệu (Bước 1: OCR & Normalizing)...", 0);
 
-    const contents: any[] = files.map(file => {
-      if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
-        return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
-      }
-      return { text: `FILE: ${file.name}\n${file.content}\n` };
-    });
-
-    const result = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: [{ role: 'user', parts: [...contents, { text: "Hãy chuyển đổi tài liệu này thành Markdown sạch, trích xuất chính xác 100% nội dung chữ." }] }],
-      config: { systemInstruction: SYSTEM_INSTRUCTION_NORMALIZE }
-    });
-
-    const text = result.text;
-
-    if (text) {
-      await db.saveMarkdown({
-        id: hash,
-        content: text,
-        createdAt: Date.now()
+    return await executeWithUserRotation(async (apiKey) => {
+      const aiInstance = new GoogleGenAI({ apiKey });
+      const contents: any[] = files.map(file => {
+        if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+          return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
+        }
+        return { text: `FILE: ${file.name}\n${file.content}\n` };
       });
-      return text;
-    }
-    return null;
-  } catch (e) {
-    console.warn("⚠️ Normalization failed:", e);
+
+      const chat = aiInstance.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_NORMALIZE, undefined, "gemini-2.0-flash"));
+      const result = await chat.sendMessage({
+        message: [...contents, { text: "Hãy chuyển đổi tài liệu này thành Markdown sạch, trích xuất chính xác 100% nội dung chữ." }]
+      });
+
+      const text = result.text;
+      if (text) {
+        await db.saveMarkdown({
+          id: hash,
+          content: text,
+          createdAt: Date.now()
+        });
+        return text;
+      }
+      return null;
+    });
+  } catch (e: any) {
+    console.warn("⚠️ Normalization failed permanently:", e);
     return null;
   }
 };
@@ -250,18 +386,24 @@ const normalizeToMarkdown = async (ai: any, files: UploadedFile[], onProgress?: 
 class UserKeyRotator {
   private keys: string[] = [];
   private currentIndex: number = 0;
+  private blockedUntilMap: Map<number, number> = new Map();
 
   constructor() { }
 
   init(apiKeyString: string) {
     if (!apiKeyString) {
       this.keys = [];
+      this.blockedUntilMap.clear();
       return;
     }
     let parts = apiKeyString.split(/[,;\n]+/);
-    this.keys = parts.map(k => k.trim()).filter(k => k.length > 10);
+    let rawKeys = parts.map(k => k.trim()).filter(k => k.length > 10);
+    
+    // Shuffle keys on init for better distribution
+    this.keys = rawKeys.sort(() => Math.random() - 0.5);
     this.currentIndex = 0;
-    console.log(`🔑 Loaded ${this.keys.length} API Keys.`);
+    this.blockedUntilMap.clear();
+    console.log(`🔑 Loaded & Shuffled ${this.keys.length} API Keys.`);
   }
 
   getCurrentKey(): string {
@@ -271,11 +413,46 @@ class UserKeyRotator {
     return this.keys[this.currentIndex];
   }
 
+  markKeyBlocked(index: number, durationMs: number = 60000) {
+    this.blockedUntilMap.set(index, Date.now() + durationMs);
+    console.warn(`🚫 Key #${index + 1} quarantined for ${Math.round(durationMs/1000)}s.`);
+  }
+
+  isKeyBlocked(index: number): boolean {
+    const blockedUntil = this.blockedUntilMap.get(index);
+    if (!blockedUntil) return false;
+    if (Date.now() > blockedUntil) {
+      this.blockedUntilMap.delete(index);
+      return false;
+    }
+    return true;
+  }
+
   rotate(): string {
     if (this.keys.length <= 1) return this.getCurrentKey();
-    this.currentIndex = (this.currentIndex + 1) % this.keys.length;
-    console.log(`🔄 Rotating to API Key #${this.currentIndex + 1}`);
+    
+    // Find next non-blocked key
+    let nextIndex = (this.currentIndex + 1) % this.keys.length;
+    let checkedCount = 0;
+    
+    while (this.isKeyBlocked(nextIndex) && checkedCount < this.keys.length) {
+      nextIndex = (nextIndex + 1) % this.keys.length;
+      checkedCount++;
+    }
+
+    this.currentIndex = nextIndex;
+    console.log(`🔄 Rotating to API Key #${this.currentIndex + 1}${this.isKeyBlocked(this.currentIndex) ? ' (STILL BLOCKED)' : ''}`);
     return this.keys[this.currentIndex];
+  }
+
+  getAvailableKeyCount(): number {
+    return this.keys.filter((_, i) => !this.isKeyBlocked(i)).length;
+  }
+
+  getEarliestUnblockTime(): number {
+    const times = Array.from(this.blockedUntilMap.values());
+    if (times.length === 0) return 0;
+    return Math.max(0, Math.min(...times) - Date.now());
   }
 
   get keyCount(): number {
@@ -469,20 +646,42 @@ async function executeWithUserRotation<T>(
     const currentKey = userKeyRotator.getCurrentKey();
 
     try {
-      return await operation(currentKey);
+      const result = await operation(currentKey);
+      // If we got here, currentKey is WORKING. 
+      // We keep the currentIndex as is so the next parallel call starts from this "Proven Good" key.
+      return result;
     } catch (error: any) {
       const msg = error.message?.toLowerCase() || "";
       const isRateLimit = msg.includes("429") || msg.includes("quota exceeded") || msg.includes("resource exhausted") || msg.includes("timeout") || msg.includes("econnreset");
+      const isServerBusy = msg.includes("503") || msg.includes("service unavailable") || msg.includes("overloaded") || msg.includes("high demand") || msg.includes("unavailable");
       const isKeyError = msg.includes("api key") && (msg.includes("invalid") || msg.includes("not found") || msg.includes("expired"));
 
-      if (isRateLimit || isKeyError) {
-        const reason = isRateLimit ? "Rate Limit/Timeout" : "Invalid/Expired Key";
-        console.warn(`⚠️ ${reason} on Key #${userKeyRotator.getKeyIndex() + 1}. Rotating... (Attempt ${attempts})`);
+      if (isRateLimit || isServerBusy || isKeyError) {
+        let reason = isServerBusy ? "Server Busy (503)" : isKeyError ? "Invalid Key" : "Rate Limit/Timeout";
+        const currentIndex = userKeyRotator.getKeyIndex();
         
-        // Exponential backoff & jitter logic for rate limits
-        const backoffMs = isRateLimit 
-             ? Math.min(15000, 1000 * Math.pow(1.5, attempts) + Math.random() * 1000) 
-             : 500;
+        // Quarantining the key for 1 minute for 429/503 errors
+        userKeyRotator.markKeyBlocked(currentIndex, 60000);
+
+        const availableCount = userKeyRotator.getAvailableKeyCount();
+        let backoffMs: number;
+
+        if (availableCount > 0) {
+          // If we still have fresh keys, just rotate and try immediately (0.5s jitter)
+          backoffMs = 500;
+          console.warn(`⚠️ ${reason} on Key #${currentIndex + 1}. Skipping to next available key...`);
+        } else {
+          // GLOBAL EXHAUSTION: All keys are in quarantine.
+          // Wait for the exact time until the NEXT key becomes available.
+          const waitNeeded = userKeyRotator.getEarliestUnblockTime();
+          backoffMs = Math.max(2000, waitNeeded + 1000); // Wait + 1s safety buffer
+          
+          console.warn(`🛑 TẤT CẢ KEY ĐỀU ĐÃ KIỆT SỨC: Hệ thống tạm dừng ${Math.round(backoffMs/1000)}s để "nguội" bớt...`);
+          toast.info(`Hệ thống đang tạm nghỉ ${Math.round(backoffMs/1000)}s để chờ các Key hồi phục...`, { 
+            duration: 5000,
+            id: 'global-cooldown' 
+          });
+        }
 
         userKeyRotator.rotate();
         await new Promise(r => setTimeout(r, backoffMs));
@@ -520,8 +719,8 @@ export const generateQuestions = async (
     if (cleanMarkdown) {
       if (onProgress) onProgress("Đã số hóa tài liệu. Đang chuẩn bị trích xuất câu hỏi...", 0);
       // Process from Markdown (Efficient Text-based Chunking)
-      const MAX_CHARS = 15000; 
-      const OVERLAP = 1500;
+      const MAX_CHARS = 28000; 
+      const OVERLAP = 2000;
       let offset = 0;
       let partIdx = 1;
       while (offset < cleanMarkdown.length) {
@@ -598,9 +797,10 @@ export const generateQuestions = async (
               },
               source: { type: Type.STRING },
               difficulty: { type: Type.STRING },
-              depthAnalysis: { type: Type.STRING }
+              depthAnalysis: { type: Type.STRING },
+              tags: { type: Type.STRING }
             },
-            required: ["question", "options", "correctAnswer", "explanation", "source", "difficulty", "depthAnalysis"]
+            required: ["question", "options", "correctAnswer", "explanation", "source", "difficulty", "depthAnalysis", "tags"]
           }
         }
       }
@@ -630,6 +830,10 @@ export const generateQuestions = async (
 
     const processBatch = async (part: any, index: number) => {
       try {
+        // Add random jitter before starting cada batch to spread demand
+        const jitterDelay = index > 0 ? (Math.random() * 3000) : 0;
+        if (jitterDelay > 0) await new Promise(r => setTimeout(r, jitterDelay));
+
         if (onProgress) onProgress(`Đang quét song song: Batch ${index + 1}/${totalBatches}...`, allQuestions.length);
         await new Promise(r => setTimeout(r, Math.random() * 1000));
 
@@ -642,9 +846,15 @@ export const generateQuestions = async (
         const text = await executeWithUserRotation(async (currentKey) => {
           const ai = new GoogleGenAI({ apiKey: currentKey });
           
-          const finalInstruction = settings.customPrompt 
+          let finalInstruction = settings.customPrompt 
             ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}`
             : SYSTEM_INSTRUCTION_EXTRACT;
+
+          if (settings.specialty && SPECIALTY_TAG_PROMPTS[settings.specialty]) {
+            finalInstruction += `\n\n[QUY TẮC GẮN TAG CHO CHUYÊN KHOA ${settings.specialty}]\n${SPECIALTY_TAG_PROMPTS[settings.specialty]}`;
+          } else {
+            finalInstruction += `\n\nTrường "tags" hãy để trống hoặc điền các tag chung liên quan đến nội dung.`;
+          }
 
           // Resolve cache for THIS specific key (thread-safe within session)
           const keyHash = hashApiKey(currentKey);
@@ -750,57 +960,38 @@ export const generateQuestions = async (
 
 
 export const analyzeDocument = async (files: UploadedFile[], settings: AppSettings): Promise<AnalysisResult> => {
-  let attempts = 0;
-  const MaxAttempts = 3;
-
   userKeyRotator.init(settings.apiKey);
 
-  while (attempts < MaxAttempts) {
-    try {
-      const apiKey = userKeyRotator.getCurrentKey();
-      const ai = new GoogleGenAI({ apiKey });
+  return await executeWithUserRotation(async (apiKey) => {
+    const aiInstance = new GoogleGenAI({ apiKey });
 
-      const parts: any[] = files.map(file => {
-        if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
-          return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
-        }
-        return { text: `FILE: ${file.name}\n${file.content}\n` };
-      });
-
-      const schema = {
-        type: Type.OBJECT,
-        properties: {
-          topic: { type: Type.STRING },
-          estimatedCount: { type: Type.INTEGER },
-          questionRange: { type: Type.STRING },
-          confidence: { type: Type.STRING }
-        },
-        required: ["topic", "estimatedCount", "questionRange"]
-      };
-
-      const chat = ai.chats.create(getModelConfig(apiKey, "Phân tích số câu hỏi trắc nghiệm trong tài liệu Y khoa.", schema, settings.model));
-      const res = await chat.sendMessage({ message: [...parts, { text: "Quét tài liệu và ước tính tổng số câu hỏi MCQ có mặt." }] });
-      const text = res.text;
-
-      if (!text) throw new Error("Empty response");
-
-      const result = JSON.parse(extractJson(text)) as AnalysisResult;
-      return result;
-
-    } catch (error: any) {
-      console.warn(`Analysis failed (Attempt ${attempts + 1}/${MaxAttempts}):`, error);
-      const isRateLimit = error.message?.includes("429") || error.message?.includes("Quota exceeded");
-      if (isRateLimit || attempts < MaxAttempts - 1) {
-        console.log("Rotating key and retrying analysis...");
-        userKeyRotator.rotate();
-        attempts++;
-        await new Promise(r => setTimeout(r, 2000));
-        continue;
+    const parts: any[] = files.map(file => {
+      if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+        return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
       }
-      throw error;
-    }
-  }
-  throw new Error("Analysis failed after multiple attempts");
+      return { text: `FILE: ${file.name}\n${file.content}\n` };
+    });
+
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        topic: { type: Type.STRING },
+        estimatedCount: { type: Type.INTEGER },
+        questionRange: { type: Type.STRING },
+        confidence: { type: Type.STRING }
+      },
+      required: ["topic", "estimatedCount", "questionRange"]
+    };
+
+    const chat = aiInstance.chats.create(getModelConfig(apiKey, "Phân tích số câu hỏi trắc nghiệm trong tài liệu Y khoa.", schema, settings.model));
+    const res = await chat.sendMessage({ message: [...parts, { text: "Quét tài liệu và ước tính tổng số câu hỏi MCQ có mặt." }] });
+    const text = res.text;
+
+    if (!text) throw new Error("Empty response");
+
+    const result = JSON.parse(extractJson(text)) as AnalysisResult;
+    return result;
+  });
 };
 
 export const auditMissingQuestions = async (files: UploadedFile[], count: number, settings: AppSettings): Promise<AuditResult> => {

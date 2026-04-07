@@ -134,6 +134,17 @@ const MCQCard = React.memo(({
           ))}
         </div>
 
+        {/* Chèn sau phần hiển thị Options trong Review Mode */}
+        {data.tags && (
+          <div className="mt-4 flex flex-wrap gap-2 ml-14">
+            {data.tags.split(',').map((tag, i) => (
+              <span key={i} className="px-2 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold rounded-lg border border-indigo-100 dark:border-indigo-800">
+                #{tag.trim()}
+              </span>
+            ))}
+          </div>
+        )}
+
         <div className="pt-6 border-t border-slate-100 dark:border-slate-800">
           <span className="text-[10px] font-black text-slate-400 tracking-widest uppercase mb-4 block">Giao diện Anki</span>
           <div dangerouslySetInnerHTML={{ __html: htmlContent }} className="p-6 bg-slate-50 dark:bg-slate-950/50 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-inner" />
@@ -243,6 +254,20 @@ const MCQCard = React.memo(({
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 block">Bằng chứng tài liệu</label>
               <textarea className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl p-4 focus:ring-2 focus:ring-slate-400" rows={2} value={data.explanation.evidence} onChange={e => onExplanationChange('evidence', e.target.value)} />
             </div>
+            {/* Thêm trường chỉnh sửa Tags */}
+            <div className="mt-4">
+              <label className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 block">
+                Thẻ phân loại (Tags)
+                <span className="px-1 py-0.5 bg-amber-50 dark:bg-amber-900/10 text-amber-600 dark:text-amber-400 text-[8px] font-black uppercase tracking-tighter rounded-sm border border-amber-100 dark:border-amber-800">Beta</span>
+              </label>
+              <input 
+                type="text"
+                className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-2xl p-4 focus:ring-2 focus:ring-slate-400 text-sm font-medium"
+                placeholder="AI::Chuyên_khoa::Chủ_đề, ..."
+                value={data.tags || ""}
+                onChange={e => onChange('tags', e.target.value)}
+              />
+            </div>
             <div className="flex gap-3 justify-end pt-4">
               <button onClick={onEditCancel} className="px-6 py-2.5 text-slate-500 font-bold text-xs bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-slate-200 transition-all">Hủy bỏ</button>
               <button onClick={onEditSave} className="px-8 py-2.5 text-white font-bold text-xs pro-gradient rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none hover:scale-105 transition-all">Lưu thay đổi</button>
@@ -260,6 +285,12 @@ const MCQCard = React.memo(({
                 <FileText size={10} className="text-slate-400" />
                 <span className="text-[9px] font-black text-slate-500 dark:text-slate-400 tracking-wider uppercase">Nguồn: {mcq.source}</span>
               </div>
+              {mcq.tags && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 rounded-full border border-indigo-100 dark:border-indigo-800">
+                  <Target size={10} className="text-indigo-500" />
+                  <span className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 tracking-wider uppercase">Tags: {mcq.tags}</span>
+                </div>
+              )}
             </div>
           </>
         )}

@@ -60,7 +60,6 @@ const App: React.FC = () => {
         if (persistedSettings) {
           // Migration: gemini-3-flash -> gemini-3.1-flash-lite-preview
           if (persistedSettings.model === 'gemini-3-flash' || persistedSettings.model === 'gemini-3-flash-preview') persistedSettings.model = 'gemini-3.1-flash-lite-preview';
-          if (persistedSettings.model === 'gemini-3-pro') persistedSettings.model = 'gemini-3-pro-preview';
           setSettings(persistedSettings);
         }
 

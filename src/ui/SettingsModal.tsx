@@ -65,7 +65,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                             className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                         >
                             <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash-Lite (Khuyên dùng - Siêu tốc & Tiết kiệm)</option>
-                            <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Flagship - Tư duy Y khoa sâu & Agentic)</option>
                             <option value="gemini-2.5-pro">Gemini 2.5 Pro (Thế hệ 2.5 - Ổn định & Chất lượng)</option>
                             <option value="gemini-2.5-flash">Gemini 2.5 Flash (Thế hệ 2.5 - Cân bằng tốc độ)</option>
                             <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite (Thế hệ 2.5 - Xử lý khối lượng lớn)</option>

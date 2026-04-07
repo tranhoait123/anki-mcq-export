@@ -340,7 +340,7 @@ DANH SÁCH TAG: AI::YHCT::Ly_luan_co_ban, AI::YHCT::Bat_cuong, AI::YHCT::Tang_ph
 };
 
 // --- Normalization Helper ---
-const normalizeToMarkdown = async (ai: any, files: UploadedFile[], onProgress?: ProgressCallback): Promise<string | null> => {
+const normalizeToMarkdown = async (ai: any, files: UploadedFile[], modelName: string, onProgress?: ProgressCallback): Promise<string | null> => {
   try {
     const hash = await hashFiles(files);
     const cached = await db.getMarkdown(hash);
@@ -360,7 +360,7 @@ const normalizeToMarkdown = async (ai: any, files: UploadedFile[], onProgress?: 
         return { text: `FILE: ${file.name}\n${file.content}\n` };
       });
 
-      const chat = aiInstance.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_NORMALIZE, undefined, "gemini-2.0-flash"));
+      const chat = aiInstance.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_NORMALIZE, undefined, modelName));
       const result = await chat.sendMessage({
         message: [...contents, { text: "Hãy chuyển đổi tài liệu này thành Markdown sạch, trích xuất chính xác 100% nội dung chữ." }]
       });
@@ -620,7 +620,7 @@ const checkDuplicate = (newQ: any, existingQuestions: any[]): { isDup: boolean; 
   return { isDup: false };
 };
 
-const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any, modelName: string = 'gemini-2.0-flash', cachedContent?: string) => {
+const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any, modelName: string = 'gemini-2.5-flash', cachedContent?: string) => {
   return {
     model: modelName,
     config: {
@@ -714,7 +714,7 @@ export const generateQuestions = async (
     if (onProgress) onProgress("Đang phân tích định dạng tài liệu...", 0);
 
     // [New Double-Pass Strategy]
-    const cleanMarkdown = await normalizeToMarkdown(ai, files, onProgress);
+    const cleanMarkdown = await normalizeToMarkdown(ai, files, settings.model, onProgress);
     
     if (cleanMarkdown) {
       if (onProgress) onProgress("Đã số hóa tài liệu. Đang chuẩn bị trích xuất câu hỏi...", 0);

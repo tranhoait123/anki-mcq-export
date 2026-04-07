@@ -4,11 +4,11 @@ import FileUploader from './ui/FileUploader';
 import MCQDisplay from './ui/MCQDisplay';
 import SettingsModal from './ui/SettingsModal';
 import AuditPanel from './ui/AuditPanel';
-import DuplicatesPanel from './ui/DuplicatesPanel';
+import DuplicatesReviewModal from './ui/DuplicatesReviewModal';
 import { generateQuestions, analyzeDocument, auditMissingQuestions } from './core/brain';
 // @ts-ignore
 import { db } from './core/db';
-import { BrainCircuit, Loader2, Download, CheckCircle2, AlertTriangle, ScanText, Moon, Sun, Settings as SettingsIcon, Columns, FileText, DownloadCloud, Sparkles, Filter, Trash2, Copy } from 'lucide-react';
+import { BrainCircuit, Loader2, Download, CheckCircle2, AlertTriangle, ScanText, Moon, Sun, Settings as SettingsIcon, Columns, FileText, DownloadCloud, Sparkles, Filter, Trash2, Copy, RotateCcw, Info } from 'lucide-react';
 import { extractTextWithTesseract } from './core/vision';
 import { buildAnkiHtml, formatRichText } from './core/anki';
 import { isOptionCorrect } from './utils/text';
@@ -211,6 +211,12 @@ const App: React.FC = () => {
           return file; // Keep original if failed
         }
       }
+      if (file.name.toLowerCase().endsWith('.csv')) {
+        return {
+          ...file,
+          content: `FILE: ${file.name} (FORMAT: CSV - Each row is a record)\n${file.content}\n`
+        };
+      }
       return file;
     }));
 
@@ -347,6 +353,32 @@ const App: React.FC = () => {
 
     // Remove from duplicates list by ID
     setDuplicates(prev => prev.filter(d => d.id !== dupId));
+    toast.success("Đã khôi phục câu hỏi");
+  };
+
+  const handleSkipDuplicate = (dupId: string) => {
+    setDuplicates(prev => prev.filter(d => d.id !== dupId));
+    toast.info("Đã loại bỏ câu trùng");
+  };
+
+  const handleReplaceDuplicate = (originalId: string, newMcq: MCQ, dupId: string) => {
+    // Replace in main list
+    setMcqs(prev => prev.map(m => m.id === originalId ? { ...newMcq, id: originalId } : m));
+    // Remove from duplicates
+    setDuplicates(prev => prev.filter(d => d.id !== dupId));
+    toast.success("Đã thay thế câu cũ bằng nội dung mới");
+  };
+
+  const handleKeepAllDuplicates = () => {
+    const toRestore = duplicates.filter(d => d.fullData).map((d, i) => ({
+      ...d.fullData,
+      id: `restored-bulk-${Date.now()}-${i}`
+    }));
+
+    setMcqs(prev => [...prev, ...toRestore]);
+    setDuplicates([]);
+    setShowDuplicates(false);
+    toast.success(`Đã khôi phục toàn bộ ${toRestore.length} câu hỏi bị loại`);
   };
 
   const handleUpdateMCQ = (updatedMCQ: MCQ) => {
@@ -640,15 +672,30 @@ const App: React.FC = () => {
             <AuditPanel audit={audit} showAudit={showAudit} setShowAudit={setShowAudit} />
           )}
 
-          {/* Duplicates Display Section */}
-          {/* Duplicates Display Section */}
+          {/* Duplicates Review Trigger */}
           {duplicates.length > 0 && (
-            <DuplicatesPanel
-              duplicates={duplicates}
-              showDuplicates={showDuplicates}
-              setShowDuplicates={setShowDuplicates}
-              onRestore={restoreDuplicate}
-            />
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-orange-200 overflow-hidden relative group">
+              <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+                <RotateCcw size={48} className="text-orange-600 rotate-12" />
+              </div>
+              <div className="relative z-10">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 bg-orange-100 text-orange-600 rounded-xl flex items-center justify-center shadow-inner">
+                    <Info size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-slate-800 text-sm leading-none uppercase tracking-tighter">Phát hiện trùng lặp</h3>
+                    <span className="text-xs font-bold text-orange-600 mt-1 block">Có {duplicates.length} câu tương đồng cao</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowDuplicates(true)}
+                  className="w-full py-3 bg-white dark:bg-slate-800 border-2 border-orange-200 text-orange-700 font-black text-[10px] uppercase tracking-widest rounded-xl hover:bg-orange-600 hover:text-white hover:border-orange-600 transition-all shadow-sm flex items-center justify-center gap-2"
+                >
+                  <ScanText size={14} /> Kiểm tra ngay
+                </button>
+              </div>
+            </div>
           )}
         </div>
 
@@ -737,6 +784,15 @@ const App: React.FC = () => {
         onClose={() => setShowSettings(false)}
         settings={settings}
         setSettings={setSettings}
+      />
+      <DuplicatesReviewModal
+        show={showDuplicates}
+        onClose={() => setShowDuplicates(false)}
+        duplicates={duplicates}
+        onRestore={restoreDuplicate}
+        onSkip={handleSkipDuplicate}
+        onReplace={handleReplaceDuplicate}
+        onKeepAll={handleKeepAllDuplicates}
       />
     </div>
   );

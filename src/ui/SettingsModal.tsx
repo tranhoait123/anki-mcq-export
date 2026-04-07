@@ -1,6 +1,8 @@
 import React from 'react';
-import { Settings as SettingsIcon } from 'lucide-react';
+import { Settings as SettingsIcon, Trash2 } from 'lucide-react';
 import { AppSettings } from '../types';
+import { db } from '../core/db';
+import { toast } from 'sonner';
 
 interface SettingsModalProps {
     show: boolean;
@@ -11,6 +13,13 @@ interface SettingsModalProps {
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, setSettings }) => {
     if (!show) return null;
+
+    const handleClearCaches = async () => {
+        if (confirm("Bạn có chắc chắn muốn xóa toàn bộ bộ nhớ đệm (Context Caches)? Việc này giúp làm mới dữ liệu nhưng sẽ làm AI xử lý chậm hơn và tốn phí hơn ở lần chạy tiếp theo.")) {
+            await db.clearAll(); // Clears MCQs and Caches
+            toast.success("Đã xóa sạch bộ nhớ đệm.");
+        }
+    };
 
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
@@ -93,8 +102,21 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                             rows={4}
                             className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-none dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
                         />
-                        <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">
-                            Thay đổi vai trò để phù hợp môn học khác (VD: "Giáo viên Tiếng Anh", "Luật sư"). Để trống để dùng mặc định.
+                    </div>
+
+                    {/* Cache Management Section */}
+                    <div>
+                         <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+                            Quản lý bộ nhớ AI
+                        </label>
+                        <button
+                            onClick={handleClearCaches}
+                            className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-red-600 border border-red-100 hover:bg-red-50 rounded-lg transition-colors dark:border-red-900/30 dark:hover:bg-red-900/20"
+                        >
+                            <Trash2 size={14} /> Xóa bộ nhớ đệm (Clear Caches)
+                        </button>
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-2">
+                           Lưu ý: Xóa bộ nhớ đệm sẽ buộc AI phải quét lại tài liệu từ đầu ở lần chạy tiếp theo (tốn phí/quota và chậm hơn).
                         </p>
                     </div>
                 </div>

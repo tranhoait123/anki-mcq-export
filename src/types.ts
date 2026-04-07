@@ -45,6 +45,7 @@ export interface DuplicateInfo {
     difficulty: string;
     depthAnalysis: string;
   };
+  matchedData?: MCQ; // The existing MCQ that it matched with
 }
 
 export interface AnalysisResult {

@@ -1,6 +1,82 @@
 import { PDFDocument } from 'pdf-lib';
 import { GoogleGenAI, Type } from "@google/genai";
 import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings } from "../types";
+import { db } from './db';
+
+// Helper: Hashing for cache identification
+const hashFiles = async (files: UploadedFile[]): Promise<string> => {
+  const sortedFiles = [...files].sort((a, b) => a.name.localeCompare(b.name));
+  const combined = sortedFiles.map(f => `${f.name}:${f.content}`).join('|');
+  const msgUint8 = new TextEncoder().encode(combined);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+// Helper: Hash for API Key identification (to scope caches per project/key)
+const hashApiKey = (key: string): string => {
+  if (!key) return "no-key";
+  return key.substring(0, 8) + key.substring(key.length - 8); // Simple suffix/prefix hash
+};
+
+// Helper: Cache Management
+const getOrSetContextCache = async (ai: any, files: UploadedFile[], modelName: string, systemInstruction: string, apiKey: string): Promise<string | null> => {
+  try {
+    const fileHash = await hashFiles(files);
+    const keyHash = hashApiKey(apiKey);
+    const instrHash = systemInstruction.length.toString(); // Simple length-based check to trigger refresh
+    const cacheId = `${fileHash}_${modelName}_${keyHash}_${instrHash}`;
+    const existing = await db.getCache(cacheId);
+
+    // If existing and not expired, return it
+    if (existing && existing.expiresAt > Date.now()) {
+      console.log(`🎯 Cache Hit (Key: ${keyHash}): ${existing.cacheName}`);
+      return existing.cacheName;
+    }
+
+    // Prepare contents for caching
+    const parts: any[] = files.map(file => {
+      if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+        return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
+      }
+      return { text: `FILE: ${file.name}\n${file.content}\n` };
+    });
+
+    // Estimate tokens (rough estimate: 4 chars per token)
+    const estimatedTokens = parts.reduce((acc, p) => acc + (p.text?.length || p.inlineData?.data?.length || 0), 0) / 4;
+    
+    // Google requires minimum ~2048 tokens for explicit caching in many models
+    if (estimatedTokens < 2000) {
+      console.log("⚡ Document too small for explicit caching (< 2000 estimated tokens). Using standard request.");
+      return null;
+    }
+
+    console.log(`💎 Creating new Context Cache for ${modelName}...`);
+    const ttlSeconds = 7200; // 2 hours
+    const cache = await ai.caches.create({
+      model: modelName,
+      config: {
+        contents: [{ role: 'user', parts }],
+        systemInstruction,
+        ttl: `${ttlSeconds}s`,
+      },
+    });
+
+    const expiresAt = Date.now() + (ttlSeconds * 1000);
+    await db.saveCache({
+      id: cacheId,
+      cacheName: cache.name,
+      expiresAt,
+      modelName
+    });
+
+    console.log(`✅ Cache Created: ${cache.name}`);
+    return cache.name;
+  } catch (err) {
+    console.warn("⚠️ Context Caching failed (possibly not supported by key/model):", err);
+    return null;
+  }
+};
 
 // Helper: Split PDF into chunks (client-side, no worker needed)
 // Helper: Split PDF into chunks (client-side) with OVERLAP support
@@ -48,6 +124,11 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
    - Sửa lỗi chính tả OCR (VD: "p" thành "ư", "o" thành "ô") để đảm bảo thuật ngữ Y khoa chuẩn 100%.
 3. **KHÔI PHỤC CẤU TRÚC (DE-FRAGMENTATION)**:
    - Nếu câu hỏi bị ngắt dòng, ngắt trang hoặc bị che khuất một phần bởi ngón tay: Hãy nối các đoạn lại và dùng logic lâm sàng để phục hồi nội dung bị mất.
+4. **ƯU TIÊN BẢNG BIỂU & CSV (TABLE/CSV INTELLIGENCE)**:
+   - Nếu dữ liệu có dạng lưới (Grid) hoặc bảng: Phân tích kỹ lưỡng nội dung theo từng hàng.
+      + Thường thì Cột 1 là Câu hỏi, các cột tiếp theo là Phương án (A, B, C, D) và Đáp án đúng.
+      + Nếu văn bản có các ký tự \`|\` hoặc dấu phẩy \`,\` ngăn cách: Hãy coi đó là ranh giới giữa các trường dữ liệu và không được gộp chúng lại.
+      + Luôn đảm bảo nội dung của một ô trong bảng được giữ nguyên vẹn, không bị dính vào ô bên cạnh.
 
 📋 **QUY TẮC TRÍCH XUẤT (HANDLING FORMATS)**:
 1. **FULL CONTENT**: Luôn trích xuất đầy đủ Câu hỏi + 5 Lựa chọn (A, B, C, D, E) nếu có.
@@ -65,24 +146,50 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
      + Ví dụ: Nếu tài liệu có "Bệnh nhân nam 68 tuổi..." rồi Câu 1, Câu 2, Câu 3 → cả 3 câu đều phải bắt đầu bằng đoạn "Bệnh nhân nam 68 tuổi...".
 
 🩺 **BIỆN LUẬN LÂM SÀNG (BẮT BUỘC FORMAT CHI TIẾT SAU ĐÂY)**:
-- **core** (🎯 ĐÁP ÁN CỐT LÕI): Đáp án đúng + lý do chọn ngắn gọn.
-- **evidence** (📚 BẰNG CHỨNG): Bảng phân loại, tiêu chuẩn chẩn đoán, guideline liên quan. (Bắt buộc dùng bảng Markdown khi có nhiều tính chất/bệnh lý).
-- **analysis** (💡 PHÂN TÍCH SÂU): Bảng loại trừ từng đáp án sai + bảng xét nghiệm/đặc điểm phân biệt. Trả lời chi tiết, có hệ thống, dùng Markdown table để so sánh. 
-- **warning** (⚠️ CẢNH BÁO LÂM SÀNG): Lưu ý xử trí, theo dõi, tác dụng phụ, hoặc sai lầm thường gặp trên lâm sàng/thi cử.
-- **difficulty** (📊 ĐỘ KHÓ): Chỉ trả về một từ: Easy / Medium / Hard.
-- **depthAnalysis** (🧠 TƯ DUY): Key points dạng blockquote (🔑), bẫy thường gặp trong thi cử. Nhấn mạnh tư duy loại trừ.
+1. **core** (🎯 ĐÁP ÁN CỐT LÕI): Đáp án đúng + lý do chọn ngắn gọn.
+2. **evidence** (📚 BẰNG CHỨNG): Bảng phân loại, tiêu chuẩn chẩn đoán, guideline liên quan. (Bắt buộc dùng bảng Markdown khi có nhiều tính chất/bệnh lý).
+3. **analysis** (💡 PHÂN TÍCH SÂU): Bảng loại trừ từng đáp án sai + bảng xét nghiệm/đặc điểm phân biệt. Trả lời chi tiết, có hệ thống, dùng Markdown table để so sánh. 
+4. **warning** (⚠️ CẢNH BÁO LÂM SÀNG): Lưu ý xử trí, theo dõi, tác dụng phụ, hoặc sai lầm thường gặp trên lâm sàng/thi cử.
+5. **difficulty** (📊 ĐỘ KHÓ): Chỉ trả về một từ: Easy / Medium / Hard.
+6. **depthAnalysis** (🧠 TƯ DUY): Key points dạng blockquote (🔑), bẫy thường gặp trong thi cử. Nhấn mạnh tư duy loại trừ.
+7. **source** (📁 NGUỒN): Tên tài liệu hoặc ngữ cảnh trang hiện tại.
 
 ⛔ **HÀNG RÀO AN TOÀN (SAFETY PROTOCOL)**:
 - Tuyệt đối không sử dụng văn bản giả hoặc ghi chú chung chung (Placeholder).
 - Không được bịa đặt (hallucinate) các tình huống lâm sàng không có trong văn bản.
 - Nếu một câu hỏi bị che khuất hoàn toàn (>70%) và không có cách nào suy luận logic, hãy bỏ qua câu đó.
 
-🎯 **CHỈ THỊ CUỐI CÙNG (FINAL COMMAND)**:
-- Chỉ trả về duy nhất mảng JSON. Không giải thích thêm bên ngoài JSON.
-- Đảm bảo các trường "evidence" và "analysis" luôn có nội dung học thuật, không để trống.
-- Nếu câu hỏi có nhiều đáp án có vẻ đúng, hãy chọn đáp án "Đúng nhất" theo tiêu chuẩn lâm sàng hiện hành.
+1. **questions**: Mảng chứa danh sách các câu hỏi. Mỗi câu hỏi trong mảng PHẢI có đầy đủ các trường sau:
+   - **question**: Nội dung câu hỏi (kèm Case lâm sàng nếu có).
+   - **options**: Mảng 4-5 lựa chọn (VD: ["A. ...", "B. ..."]).
+   - **correctAnswer**: Đáp án đúng (VD: "A").
+   - **explanation**: Đối tượng chi tiết gồm:
+     - **core**: Giải thích cốt lõi.
+     - **evidence**: Bằng chứng y khoa (Markdown Table).
+     - **analysis**: Phân tích loại trừ (Markdown Table).
+     - **warning**: Cảnh báo lâm sàng.
+   - **source**: Nguồn trích dẫn (Tên tài liệu/Trang).
+   - **difficulty**: Độ khó (Easy/Medium/Hard).
+   - **depthAnalysis**: Tư duy lâm sàng chuyên sâu.
 
-OUTPUT FORMAT: JSON array.
+🎯 **CHỈ THỊ CUỐI CÙNG (FINAL COMMAND)**:
+- Chỉ trả về duy nhất một đối tượng JSON có khóa "questions". KHÔNG giải thích thêm.
+- TUYỆT ĐỐI không để trống các trường bắt buộc. Nếu không có dữ liệu, hãy điền "Thông tin đang cập nhật" thay vì để trống.
+
+OUTPUT FORMAT: JSON Object with "questions" array.
+`;
+
+const SYSTEM_INSTRUCTION_NORMALIZE = `
+Bạn là Chuyên gia Số hóa Tài liệu Y khoa. 
+Nhiệm vụ: Chuyển đổi toàn bộ nội dung trong ảnh/PDF thành văn bản Markdown MIÊU TẢ CHI TIẾT VÀ CHÍNH XÁC.
+- **BẮT BUỘC DỰNG LẠI BẢNG**: Nếu tài liệu có bảng biểu (tables), hãy sử dụng định dạng Markdown Table (\`| Question | Option A | Option B | ... |\`) để giữ nguyên cấu trúc hàng/cột.
+- **NGĂN CÁCH TUYỆT ĐỐI**: Đảm bảo nội dung trong các ô khác nhau không bị dính vào nhau. Sử dụng các ký tự phân cách rõ ràng.
+- Giữ nguyên cấu trúc: Tiêu đề, đoạn văn, danh sách.
+- Đặc biệt lưu ý: Các câu hỏi trắc nghiệm phải được trích xuất ĐẦY ĐỦ (Câu hỏi, các lựa chọn A/B/C/D).
+- Nếu có Case lâm sàng (Tình huống dài), hãy trích xuất toàn bộ văn bản để tránh mất ngữ cảnh.
+- Không được tóm tắt. Cần trích xuất "Word-by-word" (từng chữ một) ở mức độ cao nhất.
+- Bỏ qua: Số trang, Header, Footer lặp lại.
+- Output: Văn bản Markdown sạch, cấu trúc bảng biểu hoàn hảo.
 `;
 
 const SYSTEM_INSTRUCTION_AUDIT = `
@@ -96,6 +203,48 @@ Hãy tìm các nguyên nhân cụ thể:
 
 Đưa ra lời khuyên cụ thể để người dùng chụp lại tốt hơn (VD: "Cần chụp thẳng góc", "Tránh để ngón tay che chữ").
 `;
+
+// --- Normalization Helper ---
+const normalizeToMarkdown = async (ai: any, files: UploadedFile[], onProgress?: ProgressCallback): Promise<string | null> => {
+  try {
+    const hash = await hashFiles(files);
+    const cached = await db.getMarkdown(hash);
+    if (cached) {
+      console.log("🎯 Markdown Cache Hit!");
+      return cached.content;
+    }
+
+    if (onProgress) onProgress("Đang số hóa tài liệu (Bước 1: OCR & Normalizing)...", 0);
+
+    const contents: any[] = files.map(file => {
+      if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+        return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
+      }
+      return { text: `FILE: ${file.name}\n${file.content}\n` };
+    });
+
+    const result = await ai.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: [{ role: 'user', parts: [...contents, { text: "Hãy chuyển đổi tài liệu này thành Markdown sạch, trích xuất chính xác 100% nội dung chữ." }] }],
+      config: { systemInstruction: SYSTEM_INSTRUCTION_NORMALIZE }
+    });
+
+    const text = result.text;
+
+    if (text) {
+      await db.saveMarkdown({
+        id: hash,
+        content: text,
+        createdAt: Date.now()
+      });
+      return text;
+    }
+    return null;
+  } catch (e) {
+    console.warn("⚠️ Normalization failed:", e);
+    return null;
+  }
+};
 
 // --- Key Management ---
 class UserKeyRotator {
@@ -144,10 +293,27 @@ const userKeyRotator = new UserKeyRotator();
 
 const extractJson = (text: string): string => {
   if (!text) return "";
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1 || start >= end) return text;
-  return text.substring(start, end + 1);
+  
+  // Xử lý khối mã Markdown: ```json ... ``` hoặc ``` ... ```
+  let cleanText = text;
+  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch) {
+    cleanText = codeBlockMatch[1];
+  }
+
+  const start = cleanText.indexOf('{');
+  const end = cleanText.lastIndexOf('}');
+  
+  if (start === -1 || end === -1 || start >= end) {
+    // Nếu không tìm thấy { }, kiểm tra xem có phải mảng [ ] không
+    const aStart = cleanText.indexOf('[');
+    const aEnd = cleanText.lastIndexOf(']');
+    if (aStart !== -1 && aEnd !== -1 && aStart < aEnd) {
+      return cleanText.substring(aStart, aEnd + 1);
+    }
+    return cleanText.trim();
+  }
+  return cleanText.substring(start, end + 1);
 };
 
 // --- Deduplication Helpers ---
@@ -161,6 +327,7 @@ const normalizeText = (text: string): string => {
 };
 
 const extractQuestionNumber = (text: string): number | null => {
+  if (!text || typeof text !== 'string') return null;
   const patterns = [
     /câu\s*(?:số\s*)?(\d+)/i,
     /question\s*(\d+)/i,
@@ -182,7 +349,15 @@ const calculateSimilarity = (str1: string, str2: string): number => {
 
   if (s1 === s2) return 1;
   if (s1.length === 0 || s2.length === 0) return 0;
-  if (s1.includes(s2) || s2.includes(s1)) return 0.95;
+  
+  // Logic Flip Detection (Bẫy phủ định)
+  // Nếu một câu có chữ "không" mà câu kia không có -> Giảm mạnh tương đồng
+  const negativeKeywords = ['không', 'ngoại trừ', 'ngoài trừ', 'not', 'except', 'un-'];
+  for (const kw of negativeKeywords) {
+    const has1 = s1.includes(` ${kw} `) || s1.startsWith(`${kw} `);
+    const has2 = s2.includes(` ${kw} `) || s2.startsWith(`${kw} `);
+    if (has1 !== has2) return 0.2; // Rất thấp vì logic ngược nhau
+  }
 
   const words1 = s1.split(' ').filter(w => w.length > 2);
   const words2 = s2.split(' ').filter(w => w.length > 2);
@@ -190,7 +365,6 @@ const calculateSimilarity = (str1: string, str2: string): number => {
   if (words1.length === 0 || words2.length === 0) return 0;
 
   // Detect shared case stem (common prefix by words)
-  // Case-based MCQs share a long clinical vignette prefix
   let commonPrefixLen = 0;
   const minLen = Math.min(words1.length, words2.length);
   for (let i = 0; i < minLen; i++) {
@@ -203,8 +377,7 @@ const calculateSimilarity = (str1: string, str2: string): number => {
 
   const maxLen = Math.max(words1.length, words2.length);
 
-  // If >40% of words are a shared prefix (case stem),
-  // compare only the unique suffix (the actual question part)
+  // If >40% of words are a shared prefix (case stem), compare suffixes
   if (commonPrefixLen > 5 && commonPrefixLen / maxLen > 0.4) {
     const suffix1 = words1.slice(commonPrefixLen);
     const suffix2 = words2.slice(commonPrefixLen);
@@ -212,7 +385,6 @@ const calculateSimilarity = (str1: string, str2: string): number => {
     if (suffix1.length === 0 && suffix2.length === 0) return 1;
     if (suffix1.length === 0 || suffix2.length === 0) return 0.5;
 
-    // Compare only the unique question parts
     const suffixSet1 = new Set(suffix1);
     const suffixSet2 = new Set(suffix2);
     let suffixOverlap = 0;
@@ -220,7 +392,6 @@ const calculateSimilarity = (str1: string, str2: string): number => {
     return suffixOverlap / Math.max(suffixSet1.size, suffixSet2.size);
   }
 
-  // Default: original word overlap comparison
   const set1 = new Set(words1);
   const set2 = new Set(words2);
   let overlap = 0;
@@ -229,27 +400,42 @@ const calculateSimilarity = (str1: string, str2: string): number => {
   return overlap / Math.max(set1.size, set2.size);
 };
 
-const checkDuplicate = (newQ: string, existingQuestions: any[]): { isDup: boolean; reason?: string; matchedWith?: string } => {
-  const SIMILARITY_THRESHOLD = 0.70;
+const checkDuplicate = (newQ: any, existingQuestions: any[]): { isDup: boolean; reason?: string; matchedWith?: string; matchedData?: any } => {
+  const CONTENT_THRESHOLD = 0.95; // Nâng lên 95% để cực kỳ khắt khe
+  const NUMBER_MATCH_THRESHOLD = 0.90; // Nâng lên 90% thay vì 80%
 
-  const newNumber = extractQuestionNumber(newQ);
+  const newNumber = extractQuestionNumber(newQ.question);
+  const newText = newQ.question;
+  const newOpts = (newQ.options || []).join(' ');
 
   for (const existing of existingQuestions) {
     const existingNumber = extractQuestionNumber(existing.question);
+    const qSim = calculateSimilarity(newText, existing.question);
+    const optSim = calculateSimilarity(newOpts, (existing.options || []).join(' '));
+    
+    // Tổng hợp độ tương đồng (70% câu hỏi, 30% đáp án)
+    const totalSim = (qSim * 0.7) + (optSim * 0.3);
+
+    // Trường hợp 1: Trùng số câu hỏi (Câu 1, Câu 1...)
+    // Chỉ coi là trùng nếu nội dung cũng cực kỳ giống nhau (> 90%)
     if (newNumber !== null && existingNumber !== null && newNumber === existingNumber) {
-      return {
-        isDup: true,
-        reason: `Trùng số câu hỏi: Câu ${newNumber}`,
-        matchedWith: existing.question.substring(0, 60)
-      };
+      if (totalSim >= NUMBER_MATCH_THRESHOLD) {
+        return {
+          isDup: true,
+          reason: `Trùng số (${newNumber}) & Nội dung (~${Math.round(totalSim * 100)}%)`,
+          matchedWith: existing.question.substring(0, 60),
+          matchedData: existing
+        };
+      }
     }
 
-    const similarity = calculateSimilarity(newQ, existing.question);
-    if (similarity >= SIMILARITY_THRESHOLD) {
+    // Trường hợp 2: Không trùng số hoặc số khác nhau nhưng nội dung giống hệt (> 95%)
+    if (totalSim >= CONTENT_THRESHOLD) {
       return {
         isDup: true,
-        reason: `Độ tương đồng ${Math.round(similarity * 100)}%`,
-        matchedWith: existing.question.substring(0, 60)
+        reason: `Nội dung tương đồng rất cao (${Math.round(totalSim * 100)}%)`,
+        matchedWith: existing.question.substring(0, 60),
+        matchedData: existing
       };
     }
   }
@@ -257,14 +443,15 @@ const checkDuplicate = (newQ: string, existingQuestions: any[]): { isDup: boolea
   return { isDup: false };
 };
 
-const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any, modelName: string = 'gemini-3-flash') => {
+const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any, modelName: string = 'gemini-2.0-flash', cachedContent?: string) => {
   return {
     model: modelName,
     config: {
       systemInstruction,
       temperature: 0.3,
       responseMimeType: "application/json",
-      responseSchema: schema
+      responseSchema: schema,
+      cachedContent
     }
   };
 };
@@ -318,71 +505,68 @@ export const generateQuestions = async (
 ): Promise<GeneratedResponse> => {
   try {
     userKeyRotator.init(settings.apiKey);
-    userKeyRotator.getCurrentKey();
+    const apiKey = userKeyRotator.getCurrentKey();
+    const ai = new GoogleGenAI({ apiKey });
 
-    // --- STEP 1: PRE-PROCESS ---
+    // --- STEP 1: PRE-PROCESS & NORMALIZE ---
     let allParts: any[] = [];
+    const sessionCache: Record<string, Promise<string | null>> = {};
 
     if (onProgress) onProgress("Đang phân tích định dạng tài liệu...", 0);
 
-    for (const file of files) {
-      if (file.type === 'application/pdf') {
-        if (onProgress) onProgress(`Đang cắt nhỏ PDF "${file.name}" để quét sâu...`, 0);
-
-        // SPLIT STRATEGY (Quantity Fix + Overlap):
-        // Split PDF into 3-page chunks with 1 PAGE OVERLAP.
-        // Chunks: [1-3], [3-5], [5-7]...
-        // This ensures questions cut across pages are never lost.
-        try {
-          const rawBase64 = file.content.includes(',') ? file.content.split(',')[1] : file.content;
-          const title = file.name;
-
-          const pdfChunks = await splitPdf(rawBase64, 3, 1); // 3 pages, 1 overlap
-          console.log(`✂️ Split PDF into ${pdfChunks.length} chunks (w/ overlap).`);
-
-          pdfChunks.forEach((chunkBase64) => {
-            allParts.push({
-              inlineData: {
-                mimeType: 'application/pdf',
-                data: chunkBase64
-              }
-            });
-          });
-        } catch (splitError) {
-          console.error("PDF Split failed, fallback to whole doc:", splitError);
-          allParts.push({
-            inlineData: {
-              mimeType: 'application/pdf',
-              data: file.content.includes(',') ? file.content.split(',')[1] : file.content
+    // [New Double-Pass Strategy]
+    const cleanMarkdown = await normalizeToMarkdown(ai, files, onProgress);
+    
+    if (cleanMarkdown) {
+      if (onProgress) onProgress("Đã số hóa tài liệu. Đang chuẩn bị trích xuất câu hỏi...", 0);
+      // Process from Markdown (Efficient Text-based Chunking)
+      const MAX_CHARS = 15000; 
+      const OVERLAP = 1500;
+      let offset = 0;
+      let partIdx = 1;
+      while (offset < cleanMarkdown.length) {
+         allParts.push({ 
+            text: `[TRÍCH XUẤT TỪ TÀI LIỆU SỐ HÓA (Phần ${partIdx++})]\n\n` + cleanMarkdown.substring(offset, offset + MAX_CHARS) 
+         });
+         offset += (MAX_CHARS - OVERLAP);
+         if (offset >= cleanMarkdown.length - OVERLAP) {
+            if (offset < cleanMarkdown.length) {
+               allParts.push({ text: `[TRÍCH XUẤT TỪ TÀI LIỆU SỐ HÓA (Phần cuối)]\n\n` + cleanMarkdown.substring(offset, cleanMarkdown.length) });
             }
-          });
-        }
-
-      } else if (file.type.startsWith('image/')) {
-        allParts.push({
-          inlineData: {
-            mimeType: file.type,
-            data: file.content.includes(',') ? file.content.split(',')[1] : file.content
+            break;
+         }
+      }
+    } else {
+      // [FALLBACK] Original PDF/Image Splitting 
+      if (onProgress) onProgress("Đang sử dụng chế độ quét sâu hình ảnh (Dự phòng)...", 0);
+      for (const file of files) {
+        if (file.type === 'application/pdf') {
+          try {
+            const rawBase64 = file.content.includes(',') ? file.content.split(',')[1] : file.content;
+            const pdfChunks = await splitPdf(rawBase64, 3, 1); 
+            pdfChunks.forEach((chunkBase64) => {
+              allParts.push({ inlineData: { mimeType: 'application/pdf', data: chunkBase64 } });
+            });
+          } catch (splitError) {
+            allParts.push({ inlineData: { mimeType: 'application/pdf', data: file.content.includes(',') ? file.content.split(',')[1] : file.content } });
           }
-        });
-      } else {
-        // Xử lý text thô/word document đã extract.
-        // Chunking text để tránh làm AI bị ngợp và mất cấu trúc JSON khi file chữ quá dài.
-        const MAX_CHARS = 15000; // Khoảng ~3000 từ một chunk
-        const OVERLAP = 1000;
-        let offset = 0;
-        let partIdx = 1;
-        while (offset < file.content.length) {
-           allParts.push({ 
-              text: `[TÀI LIỆU: "${file.name}" (Phần ${partIdx++})]\n\n` + file.content.substring(offset, offset + MAX_CHARS) 
-           });
-           offset += (MAX_CHARS - OVERLAP);
-           if (offset >= file.content.length - OVERLAP) {
-              if (offset < file.content.length) {
-                 allParts.push({ text: `[TÀI LIỆU: "${file.name}" (Phần cuối)]\n\n` + file.content.substring(offset, file.content.length) });
-              }
-              break;
-           }
+        } else if (file.type.startsWith('image/')) {
+          allParts.push({ inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } });
+        } else {
+          const MAX_CHARS = 15000;
+          const OVERLAP = 1000;
+          let offset = 0;
+          let partIdx = 1;
+          while (offset < file.content.length) {
+             allParts.push({ text: `[TÀI LIỆU: "${file.name}" (Phần ${partIdx++})]\n\n` + file.content.substring(offset, offset + MAX_CHARS) });
+             offset += (MAX_CHARS - OVERLAP);
+             if (offset >= file.content.length - OVERLAP) {
+                if (offset < file.content.length) {
+                   allParts.push({ text: `[TÀI LIỆU: "${file.name}" (Phần cuối)]\n\n` + file.content.substring(offset, file.content.length) });
+                }
+                break;
+             }
+          }
         }
       }
     }
@@ -455,39 +639,72 @@ export const generateQuestions = async (
   Đừng lo về trùng lặp (hệ thống sẽ tự lọc).
             `;
 
-        const text = await executeWithUserRotation(async (apiKey) => {
-          const ai = new GoogleGenAI({ apiKey });
+        const text = await executeWithUserRotation(async (currentKey) => {
+          const ai = new GoogleGenAI({ apiKey: currentKey });
           
-          // Kết hợp Vai trò (Custom Prompt) và Format (System Instruction)
           const finalInstruction = settings.customPrompt 
             ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}`
             : SYSTEM_INSTRUCTION_EXTRACT;
 
-          const chat = ai.chats.create(getModelConfig(apiKey, finalInstruction, questionSchema, settings.model));
-          // Wrap part as inlineData or text object is already resolved!
+          // Resolve cache for THIS specific key (thread-safe within session)
+          const keyHash = hashApiKey(currentKey);
+          if (!sessionCache[keyHash]) {
+            sessionCache[keyHash] = getOrSetContextCache(ai, files, settings.model, finalInstruction, currentKey);
+          }
+          const kCacheName = await sessionCache[keyHash];
+
+          // If we have a cache for this key, use it
+          const config = getModelConfig(currentKey, finalInstruction, questionSchema, settings.model, kCacheName || undefined);
+          const chat = ai.chats.create(config);
+
+          const batchPrompt = kCacheName 
+            ? `Dựa trên tài liệu bạn đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${index + 1}/${totalBatches}. Tập trung vào nội dung mới được gửi đính kèm.`
+            : `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${index + 1}/${totalBatches}).`;
+
           const response = await chat.sendMessage({
-            message: [part, { text: promptText }]
+            message: [part, { text: batchPrompt }]
           });
           return response.text;
         });
 
         if (text) {
-          const parsed = JSON.parse(extractJson(text)) as GeneratedResponse;
-          const rawNewQs = parsed.questions || [];
+          console.log(`📡 Batch ${index + 1} Raw (Length: ${text.length}):`, text.substring(0, 500) + (text.length > 500 ? "..." : ""));
+          const jsonStr = extractJson(text);
+          let parsed: any;
+          try {
+            parsed = JSON.parse(jsonStr);
+          } catch (pe) {
+            console.error(`❌ Batch ${index + 1} JSON Parse Error:`, pe.message);
+            console.log("Faulty JSON:", jsonStr);
+            return;
+          }
+
+          // Fallback: Nếu AI trả về mảng trực tiếp, bọc lại vào đối tượng
+          let rawNewQs = [];
+          if (Array.isArray(parsed)) {
+            console.log(`⚠️ Batch ${index + 1}: AI returned an ARRAY instead of object. Using fallback.`);
+            rawNewQs = parsed;
+          } else if (parsed && parsed.questions) {
+            rawNewQs = parsed.questions;
+          }
+
           const newQs = [];
 
           for (const q of rawNewQs) {
-            const result = checkDuplicate(q.question, allQuestions);
+            const result = checkDuplicate(q, allQuestions);
             if (result.isDup) {
               duplicateCounter++;
               allDuplicates.push({
                 id: `dup-${Date.now()}-${duplicateCounter}`,
                 question: q.question.substring(0, 50),
-                reason: `Duplicate found`,
+                reason: result.reason || 'Duplicate found',
                 matchedWith: result.matchedWith,
-                fullData: q
+                fullData: q,
+                matchedData: result.matchedData
               });
             } else {
+              // Gán ID duy nhất để có thể lưu vào IndexedDB (Sửa lỗi DataError)
+              q.id = `mcq-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
               newQs.push(q);
             }
           }

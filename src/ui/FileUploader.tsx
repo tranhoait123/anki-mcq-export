@@ -121,7 +121,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
         }
 
         updateFileProgress(file.name, 95);
-        const result = await mammoth.extractRawText({ arrayBuffer: fullBuffer.buffer });
+        const result = await mammoth.convertToHtml({ arrayBuffer: fullBuffer.buffer });
         content = result.value;
         if (!content.trim()) throw new Error("Không tìm thấy văn bản trong file Word");
 

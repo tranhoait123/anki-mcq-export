@@ -64,38 +64,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                             onChange={e => setSettings({ ...settings, model: e.target.value })}
                             className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                         >
-                            <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash-Lite (Khuyên dùng - Siêu tốc & Tiết kiệm)</option>
-                            <option value="gemini-2.5-pro">Gemini 2.5 Pro (Thế hệ 2.5 - Ổn định & Chất lượng)</option>
-                            <option value="gemini-2.5-flash">Gemini 2.5 Flash (Thế hệ 2.5 - Cân bằng tốc độ)</option>
-                            <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite (Thế hệ 2.5 - Xử lý khối lượng lớn)</option>
-                            <option value="gemini-2.0-flash">Gemini 2.0 Flash (Cực nhanh - Sắp bị khai tử 06/2026)</option>
-                        </select>
-                    </div>
-
-                    {/* Specialty Selection */}
-                    <div>
-                        <label className="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">
-                            Chuyên khoa (Gắn Tag tự động)
-                            <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 text-[9px] font-black uppercase tracking-widest rounded border border-amber-200 dark:border-amber-800">
-                                Beta
-                            </span>
-                        </label>
-                        <select
-                            value={settings.specialty || ""}
-                            onChange={e => setSettings({ ...settings, specialty: e.target.value })}
-                            className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-                        >
-                            <option value="">Không (Mặc định)</option>
-                            <option value="Nhi_khoa">Nhi khoa</option>
-                            <option value="Noi_khoa">Nội khoa</option>
-                            <option value="Sinh_ly">Sinh lý</option>
-                            <option value="Hoa_sinh">Hóa sinh</option>
-                            <option value="Giai_phau">Giải phẫu</option>
-                            <option value="San_phu_khoa">Sản phụ khoa</option>
-                            <option value="Ngoai_khoa">Ngoại khoa</option>
-                            <option value="Truyen_nhiem">Truyền nhiễm</option>
-                            <option value="Hoi_suc_cap_cuu">Hồi sức cấp cứu</option>
-                            <option value="Y_hoc_co_truyen">Y học cổ truyền</option>
+                            <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash-Lite (Khuyên dùng - Nhanh & Mượt)</option>
+                            <option value="gemini-2.5-flash">Gemini 2.5 Flash (Sắp xếp dự phòng - Tương thích)</option>
+                            <option value="gemini-3-flash-preview">Gemini 3 Flash (Nhanh & Thông minh)</option>
+                            <option value="gemini-3-pro-preview">Gemini 3 Pro (Mạnh nhất - Tư duy Y khoa sâu)</option>
+                            <option value="gemini-2.5-pro">Gemini 2.5 Pro (Ổn định - Tương thích cao)</option>
+                            <option value="gemini-2.0-flash">Gemini 2.0 Flash (Cực nhanh)</option>
                         </select>
                     </div>
 

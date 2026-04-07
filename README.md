@@ -10,22 +10,15 @@
 ## 📑 Mục Lục
 
 1. [Giới thiệu](#-giới-thiệu)
-2. [🏗️ Kiến Trúc Hệ Thống](#️-kiến-trúc-hệ-thống)
-3. [⚡ Dùng Online — Không Cần Cài Đặt](#-dùng-online--không-cần-cài-đặt)
-4. [🎬 Video Hướng Dẫn & File Mẫu](#-video-hướng-dẫn--file-mẫu)
-5. [🔑 Lấy Google Gemini API Key (Miễn phí)](#-lấy-google-gemini-api-key-miễn-phí)
-6. [🌐 Hướng dẫn sử dụng chi tiết](#-hướng-dẫn-sử-dụng-chi-tiết)
-7. [🧠 Deep Dive: Công Nghệ Trích Xuất 3.0](#-deep-dive-công-nghệ-trích-xuất-30)
-8. [📲 Import CSV vào Anki](#-import-csv-vào-anki)
-9. [💻 Cài đặt chạy trên máy (Tùy chọn)](#-cài-đặt-chạy-trên-máy-tùy-chọn)
-10. [🛠️ Công Nghệ Sử Dụng (Tech Stack)](#️-công-nghệ-sử-dụng-tech-stack)
-11. [🛡️ Bảo Mật & Quyền Riêng Tư](#️-bảo-mật--quyền-riêng-tư)
-12. [🚀 Lộ Trình Phát Triển (Roadmap)](#-lộ-trình-phát-triển-roadmap)
-13. [🤝 Đóng Góp (Contributing)](#-đóng-góp-contributing)
-14. [🎯 Mẹo nâng cao & Xử lý lỗi](#-mẹo-nâng-cao--xử-lý-lỗi)
-15. [❓ Câu hỏi thường gặp (FAQ)](#-câu-hỏi-thường-gặp-faq)
-16. [📜 Nhật Ký Cập Nhật](#-nhật-ký-cập-nhật)
-17. [💳 Giấy Phép (License)](#-giấy-phép-license)
+2. [⚡ Dùng Online — Không Cần Cài Đặt](#-dùng-online--không-cần-cài-đặt)
+3. [🎬 Video Hướng Dẫn & File Mẫu](#-video-hướng-dẫn--file-mẫu)
+4. [🔑 Lấy Google Gemini API Key (Miễn phí)](#-lấy-google-gemini-api-key-miễn-phí)
+5. [🌐 Hướng dẫn sử dụng chi tiết](#-hướng-dẫn-sử-dụng-chi-tiết)
+6. [📲 Import CSV vào Anki](#-import-csv-vào-anki)
+7. [💻 Cài đặt chạy trên máy (Tùy chọn)](#-cài-đặt-chạy-trên-máy-tùy-chọn)
+8. [🐍 Phiên bản Streamlit (Python)](#-phiên-bản-streamlit-python)
+9. [🎯 Mẹo nâng cao & Xử lý lỗi](#-mẹo-nâng-cao--xử-lý-lỗi)
+10. [❓ Câu hỏi thường gặp (FAQ)](#-câu-hỏi-thường-gặp-faq)
 
 ---
 
@@ -37,28 +30,15 @@
 |:---|:---|
 | 🤖 **Trích xuất MCQ 3.0** | Công cụ AI thế hệ mới, tự động sửa lỗi quét mờ, gối đầu trang và xử lý JSON cực kỳ ổn định |
 | 🩺 **Giải thích như Giáo sư Y khoa** | Mỗi câu hỏi đều kèm: đáp án cốt lõi, phân tích sâu, bằng chứng y văn, cảnh báo lâm sàng |
-| 💾 **Pro Storage (Safe)** | Dữ liệu được lưu an toàn với ID duy nhất — không lo mất dữ liệu khi reload hay lỗi trình duyệt |
+| 💾 **Pro Storage (IndexedDB)** | Dữ liệu được lưu an toàn với ID duy nhất — không lo mất dữ liệu khi reload hay lỗi trình duyệt |
 | 🔄 **Lọc trùng Y khoa (95%)** | Thuật toán so sánh nội dung đạt độ chính xác 95%, nhận diện logic phủ định (KHÔNG/NGOẠI TRỪ) |
 | 🌙 **Dark Mode & Split View** | Học đêm không mỏi mắt, đối chiếu tài liệu gốc và kết quả song song |
 
----
+**Có 3 cách sử dụng:**
 
-## 🏗️ Kiến Trúc Hệ Thống
-
-Dữ liệu của bạn được xử lý qua quy trình khép kín đảm bảo tính toàn vẹn và độ chính xác:
-
-```mermaid
-graph TD
-    A[📄 Tài liệu: PDF/Ảnh/Word] --> B[🛰️ Scan nội dung bằng Gemini Flash]
-    B --> C[📝 Markdown Normalization]
-    C --> D[✂️ Smart Chunking & Overlap]
-    D --> E[✨ Trích xuất MCQ 3.0]
-    E --> F{🔄 Lọc trùng 95%}
-    F -- Trùng --> G[📋 Review Modal]
-    F -- Mới --> H[💾 IndexedDB Storage]
-    H --> I[📥 Xuất CSV / Copy Clipboard]
-    G -- Giữ lại --> H
-```
+1. **⚡ Truy cập Online** — Nhanh nhất, không cần cài đặt gì cả *(khuyên dùng)*
+2. **💻 Cài đặt trên máy (Node.js)** — Chạy offline, toàn quyền kiểm soát
+3. **🐍 Streamlit App (Python)** — Giao diện đơn giản hơn, chạy nhanh qua Python
 
 ---
 
@@ -70,7 +50,7 @@ graph TD
 
 Ứng dụng đã được deploy online, bạn có thể sử dụng **ngay lập tức** trên mọi thiết bị (PC, Mac, điện thoại, tablet) mà **không cần cài đặt bất cứ thứ gì**.
 
-### Chỉ cần 3 bước
+### Chỉ cần 3 bước:
 
 ```
  ┌──────────────────────────────────────────────────────────────┐
@@ -101,7 +81,7 @@ graph TD
 
 Xem video demo toàn bộ quy trình từ tải file → trích xuất → xuất CSV → import Anki:
 
-<https://github.com/user-attachments/assets/huong-dan-su-dung.mov>
+https://github.com/user-attachments/assets/huong-dan-su-dung.mov
 
 > 📹 File video có sẵn trong repo: [`Hướng dẫn sử dụng.mov`](./Hướng%20dẫn%20sử%20dụng.mov)
 
@@ -122,7 +102,7 @@ Muốn xem kết quả thực tế trước khi bắt đầu? Import file demo v
 
 API Key là "chìa khóa" để ứng dụng giao tiếp với AI của Google. Bạn được sử dụng **hoàn toàn miễn phí** trong giới hạn cá nhân.
 
-### Các bước thực hiện
+### Các bước thực hiện:
 
 **Bước 1:** Truy cập [Google AI Studio](https://aistudio.google.com/app/apikey)
 
@@ -140,7 +120,7 @@ API Key là "chìa khóa" để ứng dụng giao tiếp với AI của Google. 
 
 Mỗi API Key thuộc một **Google Cloud Project**, và mỗi Project có **quota miễn phí riêng biệt**. Bằng cách tạo nhiều Key từ nhiều Project khác nhau, bạn sẽ **nhân bội** lượng sử dụng miễn phí!
 
-#### Cách tạo nhiều Key
+#### Cách tạo nhiều Key:
 
 **Bước 1:** Vào [Google AI Studio → API Keys](https://aistudio.google.com/app/apikey)
 
@@ -153,14 +133,13 @@ Mỗi API Key thuộc một **Google Cloud Project**, và mỗi Project có **qu
 **Bước 5:** Lặp lại Bước 2-4 để tạo thêm Key từ các Project khác nhau
 
 > 💡 **Mỗi Project = 1 quota miễn phí riêng.** Ví dụ:
->
 > - Project 1 → Key `AIzaSyA...` (quota riêng)
 > - Project 2 → Key `AIzaSyB...` (quota riêng)
 > - Project 3 → Key `AIzaSyC...` (quota riêng)
 >
 > **3 Project = gấp 3 lần quota miễn phí!** Bạn có thể tạo thoải mái nhiều Project.
 
-#### Cách nhập nhiều Key vào ứng dụng
+#### Cách nhập nhiều Key vào ứng dụng:
 
 Vào **⚙️ Cài đặt → Google Gemini API Key**, dán tất cả Key cách nhau bằng **dấu phẩy** `,`:
 
@@ -187,23 +166,9 @@ Hệ thống sẽ **tự động xoay vòng** — khi Key nào hết quota (lỗ
 | **Mô hình AI (Model)** | Chọn model phù hợp. **Khuyên dùng: `Gemini 3.1 Flash-Lite`** — nhanh và chính xác nhất. |
 | **Vai trò AI** | Chọn vai trò cho AI theo môn học: **Y Khoa**, **Tiếng Anh**, **Luật**, **CNTT** — hoặc tự viết vai trò riêng. |
 
-1. Nhấn **"Đã Xong"** để lưu.
-
-2. Nhấn **"Đã Xong"** để lưu.
-
-### 🎭 Giải mã các Vai trò AI (AI Roles)
-
-Việc chọn đúng vai trò giúp AI "kích hoạt" đúng vùng kiến thức chuyên biệt:
-
-| Vai trò | Điểm đặc biệt |
-|:---|:---|
-| 🩺 **Y Khoa** | Tập trung vào triệu chứng, chẩn đoán, điều trị và bằng chứng y văn (Evidence-based). |
-| 🔠 **Tiếng Anh** | Chú trọng ngữ pháp, từ vựng, ngữ cảnh sử dụng và ví dụ minh họa. |
-| ⚖️ **Luật** | Trích dẫn chính xác điều luật, khoản, mục và phân tích tình huống pháp lý. |
-| 💻 **CNTT** | Trích xuất code, giải thích thuật toán và kiến thức hệ thống. |
+3. Nhấn **"Đã Xong"** để lưu.
 
 > 💡 **Mẹo chọn Model:**
->
 > - **Gemini 3.1 Flash-Lite** — Nhanh nhất, phù hợp phần lớn trường hợp *(khuyên dùng)*
 > - **Gemini 3 Pro** — Tư duy Y khoa sâu nhất, nhưng chậm hơn
 > - **Gemini 2.5 Flash** — Dự phòng ổn định nếu các model mới bị lỗi
@@ -224,7 +189,6 @@ Việc chọn đúng vai trò giúp AI "kích hoạt" đúng vùng kiến thức
 4. Sau khi tải xong, mỗi file hiển thị trạng thái **"Đã sẵn sàng"**
 
 > ⚠️ **Với file scan/ảnh chụp đề thi**: Để đạt kết quả tốt nhất, hãy:
->
 > - Chụp **thẳng góc**, đủ sáng, không bị mờ
 > - Tránh để **ngón tay che chữ**
 > - Nếu chữ viết tay đè nhiều, AI sẽ cố "nhìn xuyên qua" nhưng độ chính xác có thể giảm
@@ -281,7 +245,6 @@ Sau khi trích xuất xong, kết quả hiển thị ở **panel bên phải**:
 #### 🔀 Chế độ Split View (So sánh)
 
 Nhấn nút **📊 (Columns)** ở Header để bật **Split View**:
-
 - **Bên trái**: Hiển thị tài liệu gốc (PDF/Ảnh)
 - **Bên phải**: Hiển thị câu hỏi đã trích xuất
 - Giúp bạn **đối chiếu** xem AI có trích xuất đúng không
@@ -298,7 +261,6 @@ Khi đã hài lòng với kết quả:
 | **📥 Xuất CSV Anki** | Tải file `.csv` về máy, sẵn sàng import vào Anki |
 
 File CSV có các cột:
-
 ```
 Question | A | B | C | D | E | CorrectAnswer | ExplanationHTML | Source | Difficulty
 ```
@@ -314,27 +276,6 @@ Question | A | B | C | D | E | CorrectAnswer | ExplanationHTML | Source | Diffic
 | **Trung tâm Trùng lặp** | Giao diện Review chuyên nghiệp để đối chiếu và quyết định Giữ lại/Bỏ qua/Ghi đè câu hỏi trùng |
 | **Cài đặt PWA** | Nếu trình duyệt hỗ trợ, nút **"📲 Tải App"** xuất hiện — cài app về máy như ứng dụng native |
 | **Xoay tua API Key** | Tự động đổi Key khi gặp lỗi 429 để quá trình trích xuất không bị gián đoạn |
-
----
-
-## 🧠 Deep Dive: Công Nghệ Trích Xuất 3.0
-
-Phiên bản **Ultima (v5.2)** tập trung vào độ tin cậy tuyệt đối cho dữ liệu Y khoa:
-
-### 🔬 Thuật toán so sánh vân tay (Fingerprinting)
-
-Thay vì so sánh toàn bộ văn bản, hệ thống tạo ra một "vân tay" của câu hỏi sau khi đã:
-- Loại bỏ số thứ tự (Câu 1, Question 2...)
-- Chuẩn hóa khoảng trắng và viết hoa.
-- Sử dụng khoảng cách **Levenshtein** để tính độ tương đồng.
-- **Ngưỡng 95%**: Đảm bảo chỉ những câu thực sự trùng mới bị gom nhóm, tránh mất các ca lâm sàng có bối cảnh gần giống nhau nhưng câu hỏi khác nhau.
-
-### 🛡️ Cơ chế "Pháp y tài liệu"
-
-AI không chỉ trích xuất, nó còn **khôi phục** dữ liệu:
-- Tự nối lại các câu hỏi bị ngắt quãng giữa hai trang PDF.
-- Sửa lỗi sai chính tả do OCR (Bệnh viện ➡️ Bệnh viện).
-- Định dạng lại bảng biểu vào cột `Explanation` dưới dạng Markdown table chuẩn.
 
 ---
 
@@ -421,30 +362,7 @@ npm install
 npm run dev
 ```
 
-Mở trình duyệt → truy cập **<http://localhost:5173>** → Sử dụng giống hệt bản online!
-
----
-
-## 🛠️ Công Nghệ Sử Dụng (Tech Stack)
-
-- **Frontend**: React 18, Vite (Siêu nhanh ⚡)
-- **State Management**: Zustand (Cực nhẹ & Ổn định)
-- **Styling**: Tailwind CSS với hiệu ứng Glassmorphism
-- **Icons**: Lucide React
-- **Notifications**: Sonner (Toast chuẩn Apple 🍎)
-- **Storage**: IndexedDB (Local persistence)
-- **AI Engine**: Google Generative AI v1.2 (Gemini SDK)
-- **PDF Core**: PDF.js (Mozilla)
-
----
-
-## 🛡️ Bảo Mật & Quyền Riêng Tư
-
-Chúng tôi coi trọng dữ liệu của bạn hơn bất cứ điều gì:
-
-1. **Local-First**: Mọi xử lý file, lưu trữ database diễn ra ngay trên trình duyệt của bạn.
-2. **Zero Server**: Không có server trung gian nào lưu trữ API Key hay tài liệu của bạn.
-3. **API Direct**: Ứng dụng kết nối trực tiếp từ máy của bạn đến máy chủ Google Gemini.
+Mở trình duyệt → truy cập **http://localhost:5173** → Sử dụng giống hệt bản online!
 
 ---
 
@@ -460,7 +378,7 @@ pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-Trình duyệt sẽ tự mở tại **<http://localhost:8501>**
+Trình duyệt sẽ tự mở tại **http://localhost:8501**
 
 1. **Sidebar:** Nhập **Gemini API Key** + Chọn **Model**
 2. **Control Center:** Tải file lên → Nhấn **"🚀 BẮT ĐẦU TRÍCH XUẤT"**
@@ -493,32 +411,29 @@ Trình duyệt sẽ tự mở tại **<http://localhost:8501>**
 ## ❓ Câu Hỏi Thường Gặp (FAQ)
 
 ### 🗨️ "Ứng dụng có miễn phí không?"
-
 **Có, hoàn toàn miễn phí.** Mã nguồn mở trên GitHub. Bạn chỉ cần tạo Google Gemini API Key (miễn phí).
 
 ### 🗨️ "Dữ liệu của tôi có bị gửi đi đâu không?"
-
 Tài liệu của bạn được gửi đến **Google Gemini API** để xử lý. Ứng dụng **không lưu trữ dữ liệu trên server** — mọi thứ xử lý trên trình duyệt của bạn.
 
 ### 🗨️ "File scan quá mờ, AI có đọc được không?"
-
 AI được huấn luyện với vai trò **"Chuyên gia Pháp y Tài liệu"** — đọc xuyên chữ viết tay, sửa lỗi OCR thông minh, khôi phục câu hỏi bị ngắt trang. Nếu file **quá mờ (>70% bị che)**, AI sẽ bỏ qua câu đó thay vì bịa.
 
 ### 🗨️ "Tôi có thể dùng cho môn khác ngoài Y khoa không?"
-
 **Có!** Trong phần Cài đặt, chọn vai trò: Y Khoa | Tiếng Anh | Luật | CNTT — hoặc tự viết vai trò tùy chỉnh.
 
-### 🗨️ "Sự khác biệt giữa 3 phiên bản?"
+### 🗨️ "Sự khác biệt giữa 3 cách sử dụng?"
 
-| Tính năng | ⚡ Online (Khuyên dùng) | 💻 Cài trên máy (Node.js) | 🐍 Streamlit (Python) |
+| | ⚡ Online (Khuyên dùng) | 💻 Cài trên máy (Node.js) | 🐍 Streamlit (Python) |
 |:---|:---|:---|:---|
-| **Truy cập** | [mcqankigen.drponz.com](https://mcqankigen.drponz.com/) | `localhost:5173` | `localhost:8501` |
-| **Yêu cầu** | ❌ Không cần cài gì | Cần Node.js + npm | Cần Python + pip |
-| **Giao diện** | Cao cấp, Dark Mode | Giống hệt bản online | Cơ bản |
-| **Lưu trữ** | IndexedDB (Bền vững) | IndexedDB (Bền vững) | Mất khi load lại |
-| **Lọc trùng** | ✅ Có (95%) | ✅ Có (95%) | ❌ Không |
-| **Tính riêng tư** | Local-first (An toàn) | Local-only (Tối đa) | Local-only |
-| **Internet** | Bắt buộc | Chỉ cần cho API AI | Chỉ cần cho API AI |
+| **Link** | [mcqankigen.drponz.com](https://mcqankigen.drponz.com/) | localhost:5173 | localhost:8501 |
+| **Cài đặt** | ❌ Không cần | Cần Node.js + npm | Cần Python + pip |
+| **Giao diện** | Premium, Dark Mode, Split View | Giống hệt bản online | Đơn giản |
+| **Lưu trữ** | IndexedDB (vĩnh viễn) | IndexedDB (vĩnh viễn) | Mất khi reload |
+| **Chống trùng** | ✅ Có | ✅ Có | ❌ Không |
+| **Xoay vòng Key** | ✅ Tự động | ✅ Tự động | ❌ Không |
+| **PWA** | ✅ Cài đặt như app | ✅ Cài đặt như app | ❌ Không |
+| **Chạy Offline** | ❌ Cần internet | ✅ Có thể | ✅ Có thể |
 
 ---
 
@@ -554,11 +469,4 @@ AI được huấn luyện với vai trò **"Chuyên gia Pháp y Tài liệu"** 
 ---
 
 *Dự án mã nguồn mở phục vụ cộng đồng sinh viên Y khoa.*
-
-## 💳 Giấy Phép (License)
-
-Dự án được phát hành dưới giấy phép **MIT**. Bạn có toàn quyền sử dụng, sửa đổi và phân phối lại cho mục đích phi thương mại.
-
----
-
 **Phát triển bởi [PonZ](https://github.com/tranhoait123)** 🩺

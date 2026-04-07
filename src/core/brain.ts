@@ -2,7 +2,6 @@ import { PDFDocument } from 'pdf-lib';
 import { GoogleGenAI, Type } from "@google/genai";
 import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings } from "../types";
 import { db } from './db';
-import { toast } from 'sonner';
 
 // Helper: Hashing for cache identification
 const hashFiles = async (files: UploadedFile[]): Promise<string> => {
@@ -20,12 +19,8 @@ const hashApiKey = (key: string): string => {
   return key.substring(0, 8) + key.substring(key.length - 8); // Simple suffix/prefix hash
 };
 
-// --- Caching Support ---
-let stopCachingInSession = false;
-
 // Helper: Cache Management
 const getOrSetContextCache = async (ai: any, files: UploadedFile[], modelName: string, systemInstruction: string, apiKey: string): Promise<string | null> => {
-  if (stopCachingInSession) return null;
   try {
     const fileHash = await hashFiles(files);
     const keyHash = hashApiKey(apiKey);
@@ -77,14 +72,8 @@ const getOrSetContextCache = async (ai: any, files: UploadedFile[], modelName: s
 
     console.log(`✅ Cache Created: ${cache.name}`);
     return cache.name;
-  } catch (err: any) {
-    const errorMsg = err.message?.toLowerCase() || "";
-    if (errorMsg.includes("429") || errorMsg.includes("quota exceeded")) {
-      console.warn("⚠️ Context Caching failed (Quota 0 on Free Tier). Disabling cache for this session.");
-      stopCachingInSession = true;
-    } else {
-      console.warn("⚠️ Context Caching failed (Not supported by key/model):", err);
-    }
+  } catch (err) {
+    console.warn("⚠️ Context Caching failed (possibly not supported by key/model):", err);
     return null;
   }
 };
@@ -215,132 +204,8 @@ Hãy tìm các nguyên nhân cụ thể:
 Đưa ra lời khuyên cụ thể để người dùng chụp lại tốt hơn (VD: "Cần chụp thẳng góc", "Tránh để ngón tay che chữ").
 `;
 
-// --- Specialty Tag Prompts ---
-export const SPECIALTY_TAG_PROMPTS: Record<string, string> = {
-  "Nhi_khoa": `
-DANH SÁCH TAG ĐƯỢC PHÉP SỬ DỤNG (Chọn 1-3 tag đúng nhất):
-- AI::Nhi_khoa::He_tieu_hoa
-- AI::Nhi_khoa::He_than_tiet_nieu
-- AI::Nhi_khoa::He_ho_hap
-- AI::Nhi_khoa::He_tuan_hoan_tim_mach
-- AI::Nhi_khoa::He_than_kinh_truyen_nhiem
-- AI::Nhi_khoa::He_noi_tiet
-- AI::Nhi_khoa::He_huyet_hoc
-- AI::Nhi_khoa::He_so_sinh
-- AI::Nhi_khoa::Nhi_khoa_tong_quat
-- AI::Nhi_khoa::Hoi_suc_cap_cuu
-- AI::Nhi_khoa::Tiem_chung
-- AI::Nhi_khoa::Viem_phoi
-- AI::Nhi_khoa::Cac_thoi_ki_tuoi_tre
-- AI::Nhi_khoa::Su_tang_truong_the_chat
-- AI::Nhi_khoa::Su_phat_trien_tam_than_van_dong
-- AI::Nhi_khoa::Viem_cau_than
-- AI::Nhi_khoa::Kho_khe
-- AI::Nhi_khoa::Nhu_cau_dinh_duong_danh_gia_va_phan_loai_dinh_duong
-- AI::Nhi_khoa::Thieu_vitamin
-- AI::Nhi_khoa::Tieu_chay
-- AI::Nhi_khoa::Hoi_chung_thieu_mau
-- AI::Nhi_khoa::Hoi_chung_xuat_huyet
-- AI::Nhi_khoa::Hoi_chung_than_hu
-- AI::Nhi_khoa::Nhiem_trung_tieu
-- AI::Nhi_khoa::Suy_tim
-- AI::Nhi_khoa::Tang_huy_et_ap
-- AI::Nhi_khoa::Tim_bam_sinh
-- AI::Nhi_khoa::Tu_chung_fallot
-- AI::Nhi_khoa::Kawasaki
-- AI::Nhi_khoa::Vang_da_so_sinh
-- AI::Nhi_khoa::Nhiem_khuan_so_sinh
-- AI::Nhi_khoa::Co_giat
-- AI::Nhi_khoa::Viem_mang_nao
-- AI::Nhi_khoa::Suy_ho_hap
-- AI::Nhi_khoa::Soc
-- AI::Nhi_khoa::Tay_chan_mieng
-
-QUY TẮC BẮT BUỘC:
-- Trích xuất Tag vào trường "tags" (cách nhau bởi dấu phẩy).
-- Nếu nội dung thẻ thuộc chủ đề nào trên đây, trả về đúng nguyên văn Tag đó.
-- Nếu thẻ đặc thù khác hoặc KHÔNG chắc chắn, BẮT BUỘC trả về Tag mặc định: \`AI::Nhi_khoa::0_xac_dinh\`.
-`,
-  "Noi_khoa": `
-DANH SÁCH TAG ĐƯỢC PHÉP SỬ DỤNG:
-# Tim mạch
-- AI::Noi_khoa::Tim_mach::Hoi_chung_vanh_cap
-- AI::Noi_khoa::Tim_mach::Hoi_chung_vanh_man
-- AI::Noi_khoa::Tim_mach::Tang_huyet_ap
-- AI::Noi_khoa::Tim_mach::Suy_tim 
-- AI::Noi_khoa::Tim_mach::Rung_nhi
-# Tiêu hoá
-- AI::Noi_khoa::Tieu_hoa::Viem_tuy_cap
-- AI::Noi_khoa::Tieu_hoa::Xuat_huyet_tieu_hoa_tren 
-- AI::Noi_khoa::Tieu_hoa::Xo_gan 
-# Hô hấp
-- AI::Noi_khoa::Ho_hap::Viem_phoi 
-- AI::Noi_khoa::Ho_hap::COPD
-- AI::Noi_khoa::Ho_hap::Hen_phe_quan
-- AI::Noi_khoa::Ho_hap::Phu_thanh_quan_do_choang_phan_ve
-# Thận
-- AI::Noi_khoa::Than::Ton_thuong_than_cap
-- AI::Noi_khoa::Than::Benh_than_man
-
-QUY TẮC BẮT BUỘC:
-- Trích xuất Tag vào trường "tags" (cách nhau bởi dấu phẩy).
-- Nếu không có trong danh sách, dùng \`AI::Noi_khoa::{He_Co_Quan}::0_xac_dinh\` hoặc \`AI::Noi_khoa::0_xac_dinh\`.
-`,
-  "Sinh_ly": `
-DANH SÁCH TAG:
-- AI::Sinh_ly::He_mau
-- AI::Sinh_ly::He_tuan_hoan
-- AI::Sinh_ly::He_ho_hap
-- AI::Sinh_ly::He_tiet_nieu
-- AI::Sinh_ly::He_tieu_hoa
-- AI::Sinh_ly::He_noi_tiet
-- AI::Sinh_ly::He_than_kinh
-
-QUY TẮC: Trả về đúng nguyên văn Tag vào trường "tags". Nếu không rõ dùng \`AI::Sinh_ly::0_xac_dinh\`.
-`,
-  "Hoa_sinh": `
-DANH SÁCH TAG:
-- AI::Hoa_sinh::Chu_trinh_acid_citric_phosphoryl_hoa_oxi_hoa
-- AI::Hoa_sinh::Chuyen_hoa_glucid
-- AI::Hoa_sinh::Chuyen_hoa_lipid
-- AI::Hoa_sinh::Chuyen_hoa_protid
-- AI::Hoa_sinh::Chuyen_hoa_hemoglobin
-- AI::Hoa_sinh::Chuyen_hoa_nucleotid
-- AI::Hoa_sinh::Hoa_sinh_gan_mat
-- AI::Hoa_sinh::Hoa_sinh_than
-
-QUY TẮC: Trả về đúng nguyên văn Tag vào trường "tags". Nếu không rõ dùng \`AI::Hoa_sinh::0_xac_dinh\`.
-`,
-  "Giai_phau": `
-DANH SÁCH TAG:
-- AI::Giai_phau::Tim_mach::Tim
-- AI::Giai_phau::Tim_mach::Dong_mach_chu_va_cac_nhanh_dong_mach_chu
-- AI::Giai_phau::Co_xuong_khop::Chi_tren
-- AI::Giai_phau::Co_xuong_khop::Chi_duoi
-- AI::Giai_phau::Tieu_hoa::Da_day
-- AI::Giai_phau::Tieu_hoa::Gan
-
-QUY TẮC: Trả về đúng nguyên văn Tag vào trường "tags". Nếu không rõ dùng \`AI::Giai_phau::0_xac_dinh\`.
-`,
-  "San_phu_khoa": `
-DANH SÁCH TAG: AI::San_phu_khoa::San_khoa, AI::San_phu_khoa::Phu_khoa, AI::San_phu_khoa::U_xo_tu_cung, AI::San_phu_khoa::Thai_benh_ly...
-`,
-  "Ngoai_khoa": `
-DANH SÁCH TAG: AI::Ngoai_khoa::Ngoai_tieu_hoa, AI::Ngoai_khoa::Ngoai_chan_thuong, AI::Ngoai_khoa::Ngoai_long_nguc_tim_mach...
-`,
-  "Truyen_nhiem": `
-DANH SÁCH TAG: AI::Truyen_nhiem::Sot_xuat_huyet, AI::Truyen_nhiem::Lao, AI::Truyen_nhiem::HIV_AIDS, AI::Truyen_nhiem::Sot_ret...
-`,
-  "Hoi_suc_cap_cuu": `
-DANH SÁCH TAG: AI::Hoi_suc_cap_cuu::Soc, AI::Hoi_suc_cap_cuu::Suy_ho_hap, AI::Hoi_suc_cap_cuu::Ngo_doc...
-`,
-  "Y_hoc_co_truyen": `
-DANH SÁCH TAG: AI::YHCT::Ly_luan_co_ban, AI::YHCT::Bat_cuong, AI::YHCT::Tang_phu, AI::YHCT::Kinh_lac...
-`
-};
-
 // --- Normalization Helper ---
-const normalizeToMarkdown = async (ai: any, files: UploadedFile[], modelName: string, onProgress?: ProgressCallback): Promise<string | null> => {
+const normalizeToMarkdown = async (ai: any, files: UploadedFile[], onProgress?: ProgressCallback): Promise<string | null> => {
   try {
     const hash = await hashFiles(files);
     const cached = await db.getMarkdown(hash);
@@ -351,33 +216,32 @@ const normalizeToMarkdown = async (ai: any, files: UploadedFile[], modelName: st
 
     if (onProgress) onProgress("Đang số hóa tài liệu (Bước 1: OCR & Normalizing)...", 0);
 
-    return await executeWithUserRotation(async (apiKey) => {
-      const aiInstance = new GoogleGenAI({ apiKey });
-      const contents: any[] = files.map(file => {
-        if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
-          return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
-        }
-        return { text: `FILE: ${file.name}\n${file.content}\n` };
-      });
-
-      const chat = aiInstance.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_NORMALIZE, undefined, modelName));
-      const result = await chat.sendMessage({
-        message: [...contents, { text: "Hãy chuyển đổi tài liệu này thành Markdown sạch, trích xuất chính xác 100% nội dung chữ." }]
-      });
-
-      const text = result.text;
-      if (text) {
-        await db.saveMarkdown({
-          id: hash,
-          content: text,
-          createdAt: Date.now()
-        });
-        return text;
+    const contents: any[] = files.map(file => {
+      if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+        return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
       }
-      return null;
+      return { text: `FILE: ${file.name}\n${file.content}\n` };
     });
-  } catch (e: any) {
-    console.warn("⚠️ Normalization failed permanently:", e);
+
+    const result = await ai.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: [{ role: 'user', parts: [...contents, { text: "Hãy chuyển đổi tài liệu này thành Markdown sạch, trích xuất chính xác 100% nội dung chữ." }] }],
+      config: { systemInstruction: SYSTEM_INSTRUCTION_NORMALIZE }
+    });
+
+    const text = result.text;
+
+    if (text) {
+      await db.saveMarkdown({
+        id: hash,
+        content: text,
+        createdAt: Date.now()
+      });
+      return text;
+    }
+    return null;
+  } catch (e) {
+    console.warn("⚠️ Normalization failed:", e);
     return null;
   }
 };
@@ -386,24 +250,18 @@ const normalizeToMarkdown = async (ai: any, files: UploadedFile[], modelName: st
 class UserKeyRotator {
   private keys: string[] = [];
   private currentIndex: number = 0;
-  private blockedUntilMap: Map<number, number> = new Map();
 
   constructor() { }
 
   init(apiKeyString: string) {
     if (!apiKeyString) {
       this.keys = [];
-      this.blockedUntilMap.clear();
       return;
     }
     let parts = apiKeyString.split(/[,;\n]+/);
-    let rawKeys = parts.map(k => k.trim()).filter(k => k.length > 10);
-    
-    // Shuffle keys on init for better distribution
-    this.keys = rawKeys.sort(() => Math.random() - 0.5);
+    this.keys = parts.map(k => k.trim()).filter(k => k.length > 10);
     this.currentIndex = 0;
-    this.blockedUntilMap.clear();
-    console.log(`🔑 Loaded & Shuffled ${this.keys.length} API Keys.`);
+    console.log(`🔑 Loaded ${this.keys.length} API Keys.`);
   }
 
   getCurrentKey(): string {
@@ -413,46 +271,11 @@ class UserKeyRotator {
     return this.keys[this.currentIndex];
   }
 
-  markKeyBlocked(index: number, durationMs: number = 60000) {
-    this.blockedUntilMap.set(index, Date.now() + durationMs);
-    console.warn(`🚫 Key #${index + 1} quarantined for ${Math.round(durationMs/1000)}s.`);
-  }
-
-  isKeyBlocked(index: number): boolean {
-    const blockedUntil = this.blockedUntilMap.get(index);
-    if (!blockedUntil) return false;
-    if (Date.now() > blockedUntil) {
-      this.blockedUntilMap.delete(index);
-      return false;
-    }
-    return true;
-  }
-
   rotate(): string {
     if (this.keys.length <= 1) return this.getCurrentKey();
-    
-    // Find next non-blocked key
-    let nextIndex = (this.currentIndex + 1) % this.keys.length;
-    let checkedCount = 0;
-    
-    while (this.isKeyBlocked(nextIndex) && checkedCount < this.keys.length) {
-      nextIndex = (nextIndex + 1) % this.keys.length;
-      checkedCount++;
-    }
-
-    this.currentIndex = nextIndex;
-    console.log(`🔄 Rotating to API Key #${this.currentIndex + 1}${this.isKeyBlocked(this.currentIndex) ? ' (STILL BLOCKED)' : ''}`);
+    this.currentIndex = (this.currentIndex + 1) % this.keys.length;
+    console.log(`🔄 Rotating to API Key #${this.currentIndex + 1}`);
     return this.keys[this.currentIndex];
-  }
-
-  getAvailableKeyCount(): number {
-    return this.keys.filter((_, i) => !this.isKeyBlocked(i)).length;
-  }
-
-  getEarliestUnblockTime(): number {
-    const times = Array.from(this.blockedUntilMap.values());
-    if (times.length === 0) return 0;
-    return Math.max(0, Math.min(...times) - Date.now());
   }
 
   get keyCount(): number {
@@ -620,7 +443,7 @@ const checkDuplicate = (newQ: any, existingQuestions: any[]): { isDup: boolean; 
   return { isDup: false };
 };
 
-const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any, modelName: string = 'gemini-2.5-flash', cachedContent?: string) => {
+const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any, modelName: string = 'gemini-2.0-flash', cachedContent?: string) => {
   return {
     model: modelName,
     config: {
@@ -638,53 +461,28 @@ const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any,
 async function executeWithUserRotation<T>(
   operation: (apiKey: string) => Promise<T>
 ): Promise<T> {
-  const ATTEMPTS_LIMIT = 20; // Increased attempts for elite reliability
+  const ATTEMPTS_LIMIT = 15;
   let attempts = 0;
-  let consecutiveGlobalFails = 0;
 
   while (attempts < ATTEMPTS_LIMIT) {
     attempts++;
     const currentKey = userKeyRotator.getCurrentKey();
 
     try {
-      const result = await operation(currentKey);
-      consecutiveGlobalFails = 0; // Reset on success
-      return result;
+      return await operation(currentKey);
     } catch (error: any) {
       const msg = error.message?.toLowerCase() || "";
       const isRateLimit = msg.includes("429") || msg.includes("quota exceeded") || msg.includes("resource exhausted") || msg.includes("timeout") || msg.includes("econnreset");
-      const isServerBusy = msg.includes("503") || msg.includes("service unavailable") || msg.includes("overloaded") || msg.includes("high demand") || msg.includes("unavailable");
       const isKeyError = msg.includes("api key") && (msg.includes("invalid") || msg.includes("not found") || msg.includes("expired"));
 
-      if (isRateLimit || isServerBusy || isKeyError) {
-        let reason = isServerBusy ? "Server Busy (503)" : isKeyError ? "Invalid Key" : "Rate Limit/Timeout";
-        const currentIndex = userKeyRotator.getKeyIndex();
+      if (isRateLimit || isKeyError) {
+        const reason = isRateLimit ? "Rate Limit/Timeout" : "Invalid/Expired Key";
+        console.warn(`⚠️ ${reason} on Key #${userKeyRotator.getKeyIndex() + 1}. Rotating... (Attempt ${attempts})`);
         
-        // Quarantining the key for 1 minute for 429/503 errors
-        userKeyRotator.markKeyBlocked(currentIndex, 60000);
-
-        const availableCount = userKeyRotator.getAvailableKeyCount();
-        let backoffMs: number;
-
-        if (availableCount > 0) {
-          backoffMs = 500 + (Math.random() * 500); // 0.5s - 1s jitter
-          console.warn(`⚠️ ${reason} on Key #${currentIndex + 1}. Skipping to next available key...`);
-        } else {
-          // GLOBAL EXHAUSTION: Exponential Backoff with Jitter
-          consecutiveGlobalFails++;
-          const waitNeeded = userKeyRotator.getEarliestUnblockTime();
-          
-          // Formula: Base 2s * 2^fails + jitter (capped at 60s)
-          const expWait = Math.min(60000, 2000 * Math.pow(2, consecutiveGlobalFails - 1));
-          const jitter = Math.random() * 2000;
-          backoffMs = Math.max(expWait + jitter, waitNeeded + 1000);
-          
-          console.warn(`🛑 CẠN KIỆT TOÀN CỤC (Lần ${consecutiveGlobalFails}): Nghỉ ${Math.round(backoffMs/1000)}s...`);
-          toast.info(`Hệ thống đang tạm nghỉ ${Math.round(backoffMs/1000)}s để chờ các Key hồi phục...`, { 
-            duration: 5000,
-            id: 'global-cooldown' 
-          });
-        }
+        // Exponential backoff & jitter logic for rate limits
+        const backoffMs = isRateLimit 
+             ? Math.min(15000, 1000 * Math.pow(1.5, attempts) + Math.random() * 1000) 
+             : 500;
 
         userKeyRotator.rotate();
         await new Promise(r => setTimeout(r, backoffMs));
@@ -693,7 +491,7 @@ async function executeWithUserRotation<T>(
       throw error;
     }
   }
-  throw new Error(`Đã thử luân phiên tất cả ${userKeyRotator.keyCount} Keys nhưng đều quá tải sau ${ATTEMPTS_LIMIT} lần thử. Hệ thống đã bảo vệ dữ liệu, hãy thử lại sau ít phút.`);
+  throw new Error(`Đã thử luân phiên tất cả ${userKeyRotator.keyCount} Keys nhưng đều quá tải (đã thử ${ATTEMPTS_LIMIT} lần). Vui lòng chờ 1-2 phút rồi thử lại.`);
 }
 
 
@@ -717,13 +515,13 @@ export const generateQuestions = async (
     if (onProgress) onProgress("Đang phân tích định dạng tài liệu...", 0);
 
     // [New Double-Pass Strategy]
-    const cleanMarkdown = await normalizeToMarkdown(ai, files, settings.model, onProgress);
+    const cleanMarkdown = await normalizeToMarkdown(ai, files, onProgress);
     
     if (cleanMarkdown) {
       if (onProgress) onProgress("Đã số hóa tài liệu. Đang chuẩn bị trích xuất câu hỏi...", 0);
       // Process from Markdown (Efficient Text-based Chunking)
-      const MAX_CHARS = 28000; 
-      const OVERLAP = 2000;
+      const MAX_CHARS = 15000; 
+      const OVERLAP = 1500;
       let offset = 0;
       let partIdx = 1;
       while (offset < cleanMarkdown.length) {
@@ -800,10 +598,9 @@ export const generateQuestions = async (
               },
               source: { type: Type.STRING },
               difficulty: { type: Type.STRING },
-              depthAnalysis: { type: Type.STRING },
-              tags: { type: Type.STRING }
+              depthAnalysis: { type: Type.STRING }
             },
-            required: ["question", "options", "correctAnswer", "explanation", "source", "difficulty", "depthAnalysis", "tags"]
+            required: ["question", "options", "correctAnswer", "explanation", "source", "difficulty", "depthAnalysis"]
           }
         }
       }
@@ -827,22 +624,13 @@ export const generateQuestions = async (
     // But to match "Rolling Window", we can adjust splitPdf loop step.
     // Ideally, we process these PDF chunks in parallel.
 
+    const CONCURRENCY_LIMIT = 2;
     const totalBatches = allParts.length;
-    let completedBatchesCount = 0;
-    let currentConcurrency = 2; // Initial concurrency
-    let pendingIndices = allParts.map((_, i) => i);
-    let passCount = 0;
-    const MAX_PASSES = 5;
+    let completedBatches = 0;
 
-    const processBatch = async (part: any, index: number, isRetry: boolean = false): Promise<boolean> => {
+    const processBatch = async (part: any, index: number) => {
       try {
-        // Add random jitter before starting cada batch to spread demand
-        const jitterBase = isRetry ? 8000 : 3000;
-        const jitterDelay = index > 0 ? (Math.random() * jitterBase) : 0;
-        if (jitterDelay > 0) await new Promise(r => setTimeout(r, jitterDelay));
-
-        const statusPrefix = isRetry ? `🔄 Đang hồi phục Batch ${index + 1} (Lần ${passCount})...` : `Đang quét: Batch ${index + 1}/${totalBatches}...`;
-        if (onProgress) onProgress(statusPrefix, allQuestions.length);
+        if (onProgress) onProgress(`Đang quét song song: Batch ${index + 1}/${totalBatches}...`, allQuestions.length);
         await new Promise(r => setTimeout(r, Math.random() * 1000));
 
         const promptText = `
@@ -854,15 +642,9 @@ export const generateQuestions = async (
         const text = await executeWithUserRotation(async (currentKey) => {
           const ai = new GoogleGenAI({ apiKey: currentKey });
           
-          let finalInstruction = settings.customPrompt 
+          const finalInstruction = settings.customPrompt 
             ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}`
             : SYSTEM_INSTRUCTION_EXTRACT;
-
-          if (settings.specialty && SPECIALTY_TAG_PROMPTS[settings.specialty]) {
-            finalInstruction += `\n\n[QUY TẮC GẮN TAG CHO CHUYÊN KHOA ${settings.specialty}]\n${SPECIALTY_TAG_PROMPTS[settings.specialty]}`;
-          } else {
-            finalInstruction += `\n\nTrường "tags" hãy để trống hoặc điền các tag chung liên quan đến nội dung.`;
-          }
 
           // Resolve cache for THIS specific key (thread-safe within session)
           const keyHash = hashApiKey(currentKey);
@@ -891,10 +673,10 @@ export const generateQuestions = async (
           let parsed: any;
           try {
             parsed = JSON.parse(jsonStr);
-          } catch (pe: any) {
+          } catch (pe) {
             console.error(`❌ Batch ${index + 1} JSON Parse Error:`, pe.message);
             console.log("Faulty JSON:", jsonStr);
-            return false;
+            return;
           }
 
           // Fallback: Nếu AI trả về mảng trực tiếp, bọc lại vào đối tượng
@@ -932,69 +714,25 @@ export const generateQuestions = async (
             if (onBatchComplete) onBatchComplete(newQs);
             console.log(`✅ Batch ${index + 1}: Found ${newQs.length} questions.`);
           }
-          return true;
         }
-        return false;
       } catch (e) {
         console.error(`Error in Batch ${index + 1}:`, e);
-        return false;
       } finally {
-        if (!isRetry) {
-          completedBatchesCount++;
-          if (onProgress) onProgress(`Tiến trình: ${completedBatchesCount}/${totalBatches} phần. Đã tìm thấy ${allQuestions.length} câu...`, allQuestions.length);
-        }
+        completedBatches++;
+        if (onProgress) onProgress(`Hoàn thành batch ${index + 1}/${totalBatches}. Tổng: ${allQuestions.length} câu...`, allQuestions.length);
       }
     };
 
-    // --- ELITE MULTI-PASS LOOP ---
-    while (pendingIndices.length > 0 && passCount < MAX_PASSES) {
-      passCount++;
-      const currentPassIndices = [...pendingIndices];
-      pendingIndices = []; // Reset for next pass
-
-      console.log(`🚀 STARTING PASS ${passCount} for ${currentPassIndices.length} batches (Concurrency: ${currentConcurrency})`);
-
-      const activePromises: { p: Promise<boolean>, i: number }[] = [];
-      
-      for (const i of currentPassIndices) {
-        const p = processBatch(allParts[i], i, passCount > 1);
-        activePromises.push({ p, i });
-        
-        if (activePromises.length >= currentConcurrency) {
-          const finishedIndexInActive = await Promise.race(activePromises.map((item, idx) => item.p.then(() => idx)));
-          const { p: finishedP, i: batchIdx } = activePromises.splice(finishedIndexInActive, 1)[0];
-          const success = await finishedP;
-          
-          if (!success) {
-            pendingIndices.push(batchIdx);
-            // ADAPTIVE: Drop concurrency on failure
-            if (currentConcurrency > 1) {
-               currentConcurrency = 1;
-               console.warn("🐢 Rate limiting detected. Scaling down to sequential processing...");
-               if (onProgress) onProgress("Giảm tốc độ để đảm bảo ổn định (Adaptive Mode)...", allQuestions.length);
-            }
-          }
-        }
-      }
-      
-      const remainingResults = await Promise.all(activePromises.map(item => item.p.then(res => ({ success: res, i: item.i }))));
-      remainingResults.forEach(r => { 
-        if (!r.success) {
-          pendingIndices.push(r.i);
-          currentConcurrency = 1;
-        }
-      });
-
-      if (pendingIndices.length > 0) {
-        console.warn(`⚠️ Pass ${passCount} finished with ${pendingIndices.length} failures. Waiting for retry pass...`);
-        await new Promise(r => setTimeout(r, 5000)); // Cool down between passes
+    const activePromises: Promise<void>[] = [];
+    for (let i = 0; i < allParts.length; i++) {
+      const p = processBatch(allParts[i], i);
+      activePromises.push(p);
+      if (activePromises.length >= CONCURRENCY_LIMIT) {
+        const finishedIndex = await Promise.race(activePromises.map((p, idx) => p.then(() => idx)));
+        activePromises.splice(finishedIndex, 1);
       }
     }
-
-    if (pendingIndices.length > 0) {
-       console.error(`❌ Permanent failure after ${MAX_PASSES} passes: Batch indices [${pendingIndices.join(', ')}]`);
-       toast.error(`Không thể xử lý hoàn toàn ${pendingIndices.length} đoạn tài liệu do quá tải API cực độ.`);
-    }
+    await Promise.all(activePromises);
 
     allQuestions.sort((a, b) => {
       const numA = extractQuestionNumber(a.question) || 999999;
@@ -1012,38 +750,57 @@ export const generateQuestions = async (
 
 
 export const analyzeDocument = async (files: UploadedFile[], settings: AppSettings): Promise<AnalysisResult> => {
+  let attempts = 0;
+  const MaxAttempts = 3;
+
   userKeyRotator.init(settings.apiKey);
 
-  return await executeWithUserRotation(async (apiKey) => {
-    const aiInstance = new GoogleGenAI({ apiKey });
+  while (attempts < MaxAttempts) {
+    try {
+      const apiKey = userKeyRotator.getCurrentKey();
+      const ai = new GoogleGenAI({ apiKey });
 
-    const parts: any[] = files.map(file => {
-      if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
-        return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
+      const parts: any[] = files.map(file => {
+        if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+          return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
+        }
+        return { text: `FILE: ${file.name}\n${file.content}\n` };
+      });
+
+      const schema = {
+        type: Type.OBJECT,
+        properties: {
+          topic: { type: Type.STRING },
+          estimatedCount: { type: Type.INTEGER },
+          questionRange: { type: Type.STRING },
+          confidence: { type: Type.STRING }
+        },
+        required: ["topic", "estimatedCount", "questionRange"]
+      };
+
+      const chat = ai.chats.create(getModelConfig(apiKey, "Phân tích số câu hỏi trắc nghiệm trong tài liệu Y khoa.", schema, settings.model));
+      const res = await chat.sendMessage({ message: [...parts, { text: "Quét tài liệu và ước tính tổng số câu hỏi MCQ có mặt." }] });
+      const text = res.text;
+
+      if (!text) throw new Error("Empty response");
+
+      const result = JSON.parse(extractJson(text)) as AnalysisResult;
+      return result;
+
+    } catch (error: any) {
+      console.warn(`Analysis failed (Attempt ${attempts + 1}/${MaxAttempts}):`, error);
+      const isRateLimit = error.message?.includes("429") || error.message?.includes("Quota exceeded");
+      if (isRateLimit || attempts < MaxAttempts - 1) {
+        console.log("Rotating key and retrying analysis...");
+        userKeyRotator.rotate();
+        attempts++;
+        await new Promise(r => setTimeout(r, 2000));
+        continue;
       }
-      return { text: `FILE: ${file.name}\n${file.content}\n` };
-    });
-
-    const schema = {
-      type: Type.OBJECT,
-      properties: {
-        topic: { type: Type.STRING },
-        estimatedCount: { type: Type.INTEGER },
-        questionRange: { type: Type.STRING },
-        confidence: { type: Type.STRING }
-      },
-      required: ["topic", "estimatedCount", "questionRange"]
-    };
-
-    const chat = aiInstance.chats.create(getModelConfig(apiKey, "Phân tích số câu hỏi trắc nghiệm trong tài liệu Y khoa.", schema, settings.model));
-    const res = await chat.sendMessage({ message: [...parts, { text: "Quét tài liệu và ước tính tổng số câu hỏi MCQ có mặt." }] });
-    const text = res.text;
-
-    if (!text) throw new Error("Empty response");
-
-    const result = JSON.parse(extractJson(text)) as AnalysisResult;
-    return result;
-  });
+      throw error;
+    }
+  }
+  throw new Error("Analysis failed after multiple attempts");
 };
 
 export const auditMissingQuestions = async (files: UploadedFile[], count: number, settings: AppSettings): Promise<AuditResult> => {

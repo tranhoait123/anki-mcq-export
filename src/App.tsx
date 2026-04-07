@@ -37,8 +37,7 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>({
     apiKey: '',
     model: 'gemini-3.1-flash-lite-preview',
-    customPrompt: '',
-    specialty: ''
+    customPrompt: ''
   });
 
   // Initialization & Migration: Load from DB or Migration from localStorage
@@ -60,6 +59,7 @@ const App: React.FC = () => {
         if (persistedSettings) {
           // Migration: gemini-3-flash -> gemini-3.1-flash-lite-preview
           if (persistedSettings.model === 'gemini-3-flash' || persistedSettings.model === 'gemini-3-flash-preview') persistedSettings.model = 'gemini-3.1-flash-lite-preview';
+          if (persistedSettings.model === 'gemini-3-pro') persistedSettings.model = 'gemini-3-pro-preview';
           setSettings(persistedSettings);
         }
 
@@ -397,7 +397,7 @@ const App: React.FC = () => {
   const handleCopyCSV = () => {
     if (mcqs.length === 0) return;
 
-    const headers = ["Question", "A", "B", "C", "D", "E", "CorrectAnswer", "ExplanationHTML", "Source", "Difficulty", "Tags"];
+    const headers = ["Question", "A", "B", "C", "D", "E", "CorrectAnswer", "ExplanationHTML", "Source", "Difficulty"];
     const rows = mcqs.map(m => {
       const esc = (t: string) => `"${(t || "").replace(new RegExp('"', 'g'), '""')}"`;
 
@@ -419,8 +419,7 @@ const App: React.FC = () => {
         esc(correctLetter),
         esc(buildAnkiHtml(m.explanation, m.difficulty, m.depthAnalysis)),
         esc(m.source),
-        esc(m.difficulty),
-        esc(m.tags || "")
+        esc(m.difficulty)
       ].join(",");
     });
 
@@ -433,7 +432,7 @@ const App: React.FC = () => {
   const downloadCSV = () => {
     if (mcqs.length === 0) return;
 
-    const headers = ["Question", "A", "B", "C", "D", "E", "CorrectAnswer", "ExplanationHTML", "Source", "Difficulty", "Tags"];
+    const headers = ["Question", "A", "B", "C", "D", "E", "CorrectAnswer", "ExplanationHTML", "Source", "Difficulty"];
     const rows = mcqs.map(m => {
       const esc = (t: string) => `"${(t || "").replace(new RegExp('"', 'g'), '""')}"`;
 
@@ -456,8 +455,7 @@ const App: React.FC = () => {
         esc(correctLetter), // Normalize to A/B/C/D
         esc(buildAnkiHtml(m.explanation, m.difficulty, m.depthAnalysis)),
         esc(m.source),
-        esc(m.difficulty),
-        esc(m.tags || "")
+        esc(m.difficulty)
       ].join(",");
     });
     const csv = "\uFEFF" + [headers.join(","), ...rows].join("\n");

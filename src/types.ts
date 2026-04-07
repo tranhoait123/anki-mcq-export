@@ -15,7 +15,6 @@ export interface MCQ {
   source: string;
   difficulty: string;
   depthAnalysis: string;
-  tags?: string;
 }
 
 export interface GeneratedResponse {
@@ -27,7 +26,6 @@ export interface GeneratedResponse {
     source: string;
     difficulty: string;
     depthAnalysis: string;
-    tags?: string;
   }[];
   duplicates?: DuplicateInfo[];
 }
@@ -80,5 +78,4 @@ export interface AppSettings {
   apiKey: string;
   model: string;
   customPrompt: string;
-  specialty?: string;
 }

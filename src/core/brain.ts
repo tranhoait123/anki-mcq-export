@@ -473,10 +473,11 @@ async function executeWithUserRotation<T>(
     } catch (error: any) {
       const msg = error.message?.toLowerCase() || "";
       const isRateLimit = msg.includes("429") || msg.includes("quota exceeded") || msg.includes("resource exhausted") || msg.includes("timeout") || msg.includes("econnreset");
+      const isServerBusy = msg.includes("503") || msg.includes("unavailable") || msg.includes("overloaded");
       const isKeyError = msg.includes("api key") && (msg.includes("invalid") || msg.includes("not found") || msg.includes("expired"));
 
-      if (isRateLimit || isKeyError) {
-        const reason = isRateLimit ? "Rate Limit/Timeout" : "Invalid/Expired Key";
+      if (isRateLimit || isServerBusy || isKeyError) {
+        const reason = isRateLimit ? "Hết hạn mức/Timeout" : (isServerBusy ? "Server quá tải (503)" : "Lỗi Key");
         console.warn(`⚠️ ${reason} on Key #${userKeyRotator.getKeyIndex() + 1}. Rotating... (Attempt ${attempts})`);
         
         // Exponential backoff & jitter logic for rate limits
@@ -512,34 +513,10 @@ export const generateQuestions = async (
     let allParts: any[] = [];
     const sessionCache: Record<string, Promise<string | null>> = {};
 
-    if (onProgress) onProgress("Đang phân tích định dạng tài liệu...", 0);
+    if (onProgress) onProgress("Đang tính toán số lượng Batch và chuẩn bị quét dữ liệu...", 0);
 
-    // [New Double-Pass Strategy]
-    const cleanMarkdown = await normalizeToMarkdown(ai, files, onProgress);
-    
-    if (cleanMarkdown) {
-      if (onProgress) onProgress("Đã số hóa tài liệu. Đang chuẩn bị trích xuất câu hỏi...", 0);
-      // Process from Markdown (Efficient Text-based Chunking)
-      const MAX_CHARS = 15000; 
-      const OVERLAP = 1500;
-      let offset = 0;
-      let partIdx = 1;
-      while (offset < cleanMarkdown.length) {
-         allParts.push({ 
-            text: `[TRÍCH XUẤT TỪ TÀI LIỆU SỐ HÓA (Phần ${partIdx++})]\n\n` + cleanMarkdown.substring(offset, offset + MAX_CHARS) 
-         });
-         offset += (MAX_CHARS - OVERLAP);
-         if (offset >= cleanMarkdown.length - OVERLAP) {
-            if (offset < cleanMarkdown.length) {
-               allParts.push({ text: `[TRÍCH XUẤT TỪ TÀI LIỆU SỐ HÓA (Phần cuối)]\n\n` + cleanMarkdown.substring(offset, cleanMarkdown.length) });
-            }
-            break;
-         }
-      }
-    } else {
-      // [FALLBACK] Original PDF/Image Splitting 
-      if (onProgress) onProgress("Đang sử dụng chế độ quét sâu hình ảnh (Dự phòng)...", 0);
-      for (const file of files) {
+    // [Step 1: Splitting Logic]
+    for (const file of files) {
         if (file.type === 'application/pdf') {
           try {
             const rawBase64 = file.content.includes(',') ? file.content.split(',')[1] : file.content;
@@ -567,7 +544,6 @@ export const generateQuestions = async (
                 break;
              }
           }
-        }
       }
     }
 
@@ -624,7 +600,7 @@ export const generateQuestions = async (
     // But to match "Rolling Window", we can adjust splitPdf loop step.
     // Ideally, we process these PDF chunks in parallel.
 
-    const CONCURRENCY_LIMIT = 2;
+    const CONCURRENCY_LIMIT = 1;
     const totalBatches = allParts.length;
     let completedBatches = 0;
 
@@ -716,7 +692,9 @@ export const generateQuestions = async (
           }
         }
       } catch (e) {
-        console.error(`Error in Batch ${index + 1}:`, e);
+        console.error(`❌ Batch ${index + 1} FAILED after all retries:`, e);
+        // Throwing here will stop the entire generation to prevent silent data loss
+        throw new Error(`Batch ${index + 1} thất bại do Server bận (503/429). Vui lòng thử lại sau ít phút.`);
       } finally {
         completedBatches++;
         if (onProgress) onProgress(`Hoàn thành batch ${index + 1}/${totalBatches}. Tổng: ${allQuestions.length} câu...`, allQuestions.length);
@@ -750,57 +728,38 @@ export const generateQuestions = async (
 
 
 export const analyzeDocument = async (files: UploadedFile[], settings: AppSettings): Promise<AnalysisResult> => {
-  let attempts = 0;
-  const MaxAttempts = 3;
-
   userKeyRotator.init(settings.apiKey);
 
-  while (attempts < MaxAttempts) {
-    try {
-      const apiKey = userKeyRotator.getCurrentKey();
-      const ai = new GoogleGenAI({ apiKey });
+  return await executeWithUserRotation(async (apiKey) => {
+    const ai = new GoogleGenAI({ apiKey });
 
-      const parts: any[] = files.map(file => {
-        if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
-          return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
-        }
-        return { text: `FILE: ${file.name}\n${file.content}\n` };
-      });
-
-      const schema = {
-        type: Type.OBJECT,
-        properties: {
-          topic: { type: Type.STRING },
-          estimatedCount: { type: Type.INTEGER },
-          questionRange: { type: Type.STRING },
-          confidence: { type: Type.STRING }
-        },
-        required: ["topic", "estimatedCount", "questionRange"]
-      };
-
-      const chat = ai.chats.create(getModelConfig(apiKey, "Phân tích số câu hỏi trắc nghiệm trong tài liệu Y khoa.", schema, settings.model));
-      const res = await chat.sendMessage({ message: [...parts, { text: "Quét tài liệu và ước tính tổng số câu hỏi MCQ có mặt." }] });
-      const text = res.text;
-
-      if (!text) throw new Error("Empty response");
-
-      const result = JSON.parse(extractJson(text)) as AnalysisResult;
-      return result;
-
-    } catch (error: any) {
-      console.warn(`Analysis failed (Attempt ${attempts + 1}/${MaxAttempts}):`, error);
-      const isRateLimit = error.message?.includes("429") || error.message?.includes("Quota exceeded");
-      if (isRateLimit || attempts < MaxAttempts - 1) {
-        console.log("Rotating key and retrying analysis...");
-        userKeyRotator.rotate();
-        attempts++;
-        await new Promise(r => setTimeout(r, 2000));
-        continue;
+    const parts: any[] = files.map(file => {
+      if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+        return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
       }
-      throw error;
-    }
-  }
-  throw new Error("Analysis failed after multiple attempts");
+      return { text: `FILE: ${file.name}\n${file.content}\n` };
+    });
+
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        topic: { type: Type.STRING },
+        estimatedCount: { type: Type.INTEGER },
+        questionRange: { type: Type.STRING },
+        confidence: { type: Type.STRING }
+      },
+      required: ["topic", "estimatedCount", "questionRange"]
+    };
+
+    const chat = ai.chats.create(getModelConfig(apiKey, "Phân tích số câu hỏi trắc nghiệm trong tài liệu Y khoa.", schema, settings.model));
+    const res = await chat.sendMessage({ message: [...parts, { text: "Quét tài liệu và ước tính tổng số câu hỏi MCQ có mặt." }] });
+    const text = res.text;
+
+    if (!text) throw new Error("Empty response from AI");
+
+    const result = JSON.parse(extractJson(text)) as AnalysisResult;
+    return result;
+  });
 };
 
 export const auditMissingQuestions = async (files: UploadedFile[], count: number, settings: AppSettings): Promise<AuditResult> => {

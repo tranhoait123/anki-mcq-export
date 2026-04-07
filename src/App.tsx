@@ -57,9 +57,18 @@ const App: React.FC = () => {
           }
         }
         if (persistedSettings) {
-          // Migration: gemini-3-flash -> gemini-3.1-flash-lite-preview
-          if (persistedSettings.model === 'gemini-3-flash' || persistedSettings.model === 'gemini-3-flash-preview') persistedSettings.model = 'gemini-3.1-flash-lite-preview';
-          if (persistedSettings.model === 'gemini-3-pro') persistedSettings.model = 'gemini-3-pro-preview';
+          // Migration to April 2026 Lineup
+          if (persistedSettings.model?.includes('gemini-1.5')) persistedSettings.model = 'gemini-2.5-flash';
+          if (persistedSettings.model === 'gemini-3-flash' || persistedSettings.model === 'gemini-3-flash-preview') persistedSettings.model = 'gemini-3-flash-preview';
+          if (persistedSettings.model === 'gemini-3-pro' || persistedSettings.model === 'gemini-3-pro-preview') persistedSettings.model = 'gemini-3.1-pro-preview';
+          if (persistedSettings.model === 'gemini-3.1-flash-lite') persistedSettings.model = 'gemini-3.1-flash-lite-preview';
+          
+          // SAFETY: If the model is an invalid "experimental" one (like deepseek), reset it
+          if (persistedSettings.model?.includes('deepseek') || !persistedSettings.model) {
+            console.warn("🛡️ Detected invalid or experimental model. Resetting to Gemini 3.1 Flash-Lite.");
+            persistedSettings.model = 'gemini-3.1-flash-lite-preview';
+          }
+          
           setSettings(persistedSettings);
         }
 

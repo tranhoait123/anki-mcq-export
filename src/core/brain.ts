@@ -638,8 +638,9 @@ const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any,
 async function executeWithUserRotation<T>(
   operation: (apiKey: string) => Promise<T>
 ): Promise<T> {
-  const ATTEMPTS_LIMIT = 15;
+  const ATTEMPTS_LIMIT = 20; // Increased attempts for elite reliability
   let attempts = 0;
+  let consecutiveGlobalFails = 0;
 
   while (attempts < ATTEMPTS_LIMIT) {
     attempts++;
@@ -647,8 +648,7 @@ async function executeWithUserRotation<T>(
 
     try {
       const result = await operation(currentKey);
-      // If we got here, currentKey is WORKING. 
-      // We keep the currentIndex as is so the next parallel call starts from this "Proven Good" key.
+      consecutiveGlobalFails = 0; // Reset on success
       return result;
     } catch (error: any) {
       const msg = error.message?.toLowerCase() || "";
@@ -667,16 +667,19 @@ async function executeWithUserRotation<T>(
         let backoffMs: number;
 
         if (availableCount > 0) {
-          // If we still have fresh keys, just rotate and try immediately (0.5s jitter)
-          backoffMs = 500;
+          backoffMs = 500 + (Math.random() * 500); // 0.5s - 1s jitter
           console.warn(`⚠️ ${reason} on Key #${currentIndex + 1}. Skipping to next available key...`);
         } else {
-          // GLOBAL EXHAUSTION: All keys are in quarantine.
-          // Wait for the exact time until the NEXT key becomes available.
+          // GLOBAL EXHAUSTION: Exponential Backoff with Jitter
+          consecutiveGlobalFails++;
           const waitNeeded = userKeyRotator.getEarliestUnblockTime();
-          backoffMs = Math.max(2000, waitNeeded + 1000); // Wait + 1s safety buffer
           
-          console.warn(`🛑 TẤT CẢ KEY ĐỀU ĐÃ KIỆT SỨC: Hệ thống tạm dừng ${Math.round(backoffMs/1000)}s để "nguội" bớt...`);
+          // Formula: Base 2s * 2^fails + jitter (capped at 60s)
+          const expWait = Math.min(60000, 2000 * Math.pow(2, consecutiveGlobalFails - 1));
+          const jitter = Math.random() * 2000;
+          backoffMs = Math.max(expWait + jitter, waitNeeded + 1000);
+          
+          console.warn(`🛑 CẠN KIỆT TOÀN CỤC (Lần ${consecutiveGlobalFails}): Nghỉ ${Math.round(backoffMs/1000)}s...`);
           toast.info(`Hệ thống đang tạm nghỉ ${Math.round(backoffMs/1000)}s để chờ các Key hồi phục...`, { 
             duration: 5000,
             id: 'global-cooldown' 
@@ -690,7 +693,7 @@ async function executeWithUserRotation<T>(
       throw error;
     }
   }
-  throw new Error(`Đã thử luân phiên tất cả ${userKeyRotator.keyCount} Keys nhưng đều quá tải (đã thử ${ATTEMPTS_LIMIT} lần). Vui lòng chờ 1-2 phút rồi thử lại.`);
+  throw new Error(`Đã thử luân phiên tất cả ${userKeyRotator.keyCount} Keys nhưng đều quá tải sau ${ATTEMPTS_LIMIT} lần thử. Hệ thống đã bảo vệ dữ liệu, hãy thử lại sau ít phút.`);
 }
 
 
@@ -824,17 +827,22 @@ export const generateQuestions = async (
     // But to match "Rolling Window", we can adjust splitPdf loop step.
     // Ideally, we process these PDF chunks in parallel.
 
-    const CONCURRENCY_LIMIT = 2;
     const totalBatches = allParts.length;
-    let completedBatches = 0;
+    let completedBatchesCount = 0;
+    let currentConcurrency = 2; // Initial concurrency
+    let pendingIndices = allParts.map((_, i) => i);
+    let passCount = 0;
+    const MAX_PASSES = 5;
 
-    const processBatch = async (part: any, index: number) => {
+    const processBatch = async (part: any, index: number, isRetry: boolean = false): Promise<boolean> => {
       try {
         // Add random jitter before starting cada batch to spread demand
-        const jitterDelay = index > 0 ? (Math.random() * 3000) : 0;
+        const jitterBase = isRetry ? 8000 : 3000;
+        const jitterDelay = index > 0 ? (Math.random() * jitterBase) : 0;
         if (jitterDelay > 0) await new Promise(r => setTimeout(r, jitterDelay));
 
-        if (onProgress) onProgress(`Đang quét song song: Batch ${index + 1}/${totalBatches}...`, allQuestions.length);
+        const statusPrefix = isRetry ? `🔄 Đang hồi phục Batch ${index + 1} (Lần ${passCount})...` : `Đang quét: Batch ${index + 1}/${totalBatches}...`;
+        if (onProgress) onProgress(statusPrefix, allQuestions.length);
         await new Promise(r => setTimeout(r, Math.random() * 1000));
 
         const promptText = `
@@ -883,10 +891,10 @@ export const generateQuestions = async (
           let parsed: any;
           try {
             parsed = JSON.parse(jsonStr);
-          } catch (pe) {
+          } catch (pe: any) {
             console.error(`❌ Batch ${index + 1} JSON Parse Error:`, pe.message);
             console.log("Faulty JSON:", jsonStr);
-            return;
+            return false;
           }
 
           // Fallback: Nếu AI trả về mảng trực tiếp, bọc lại vào đối tượng
@@ -924,25 +932,69 @@ export const generateQuestions = async (
             if (onBatchComplete) onBatchComplete(newQs);
             console.log(`✅ Batch ${index + 1}: Found ${newQs.length} questions.`);
           }
+          return true;
         }
+        return false;
       } catch (e) {
         console.error(`Error in Batch ${index + 1}:`, e);
+        return false;
       } finally {
-        completedBatches++;
-        if (onProgress) onProgress(`Hoàn thành batch ${index + 1}/${totalBatches}. Tổng: ${allQuestions.length} câu...`, allQuestions.length);
+        if (!isRetry) {
+          completedBatchesCount++;
+          if (onProgress) onProgress(`Tiến trình: ${completedBatchesCount}/${totalBatches} phần. Đã tìm thấy ${allQuestions.length} câu...`, allQuestions.length);
+        }
       }
     };
 
-    const activePromises: Promise<void>[] = [];
-    for (let i = 0; i < allParts.length; i++) {
-      const p = processBatch(allParts[i], i);
-      activePromises.push(p);
-      if (activePromises.length >= CONCURRENCY_LIMIT) {
-        const finishedIndex = await Promise.race(activePromises.map((p, idx) => p.then(() => idx)));
-        activePromises.splice(finishedIndex, 1);
+    // --- ELITE MULTI-PASS LOOP ---
+    while (pendingIndices.length > 0 && passCount < MAX_PASSES) {
+      passCount++;
+      const currentPassIndices = [...pendingIndices];
+      pendingIndices = []; // Reset for next pass
+
+      console.log(`🚀 STARTING PASS ${passCount} for ${currentPassIndices.length} batches (Concurrency: ${currentConcurrency})`);
+
+      const activePromises: { p: Promise<boolean>, i: number }[] = [];
+      
+      for (const i of currentPassIndices) {
+        const p = processBatch(allParts[i], i, passCount > 1);
+        activePromises.push({ p, i });
+        
+        if (activePromises.length >= currentConcurrency) {
+          const finishedIndexInActive = await Promise.race(activePromises.map((item, idx) => item.p.then(() => idx)));
+          const { p: finishedP, i: batchIdx } = activePromises.splice(finishedIndexInActive, 1)[0];
+          const success = await finishedP;
+          
+          if (!success) {
+            pendingIndices.push(batchIdx);
+            // ADAPTIVE: Drop concurrency on failure
+            if (currentConcurrency > 1) {
+               currentConcurrency = 1;
+               console.warn("🐢 Rate limiting detected. Scaling down to sequential processing...");
+               if (onProgress) onProgress("Giảm tốc độ để đảm bảo ổn định (Adaptive Mode)...", allQuestions.length);
+            }
+          }
+        }
+      }
+      
+      const remainingResults = await Promise.all(activePromises.map(item => item.p.then(res => ({ success: res, i: item.i }))));
+      remainingResults.forEach(r => { 
+        if (!r.success) {
+          pendingIndices.push(r.i);
+          currentConcurrency = 1;
+        }
+      });
+
+      if (pendingIndices.length > 0) {
+        console.warn(`⚠️ Pass ${passCount} finished with ${pendingIndices.length} failures. Waiting for retry pass...`);
+        await new Promise(r => setTimeout(r, 5000)); // Cool down between passes
       }
     }
-    await Promise.all(activePromises);
+
+    if (pendingIndices.length > 0) {
+       console.error(`❌ Permanent failure after ${MAX_PASSES} passes: Batch indices [${pendingIndices.join(', ')}]`);
+       toast.error(`Không thể xử lý hoàn toàn ${pendingIndices.length} đoạn tài liệu do quá tải API cực độ.`);
+    }
 
     allQuestions.sort((a, b) => {
       const numA = extractQuestionNumber(a.question) || 999999;

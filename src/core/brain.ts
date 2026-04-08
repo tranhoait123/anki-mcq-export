@@ -600,7 +600,7 @@ export const generateQuestions = async (
     // But to match "Rolling Window", we can adjust splitPdf loop step.
     // Ideally, we process these PDF chunks in parallel.
 
-    const CONCURRENCY_LIMIT = 1;
+    const CONCURRENCY_LIMIT = 2;
     const totalBatches = allParts.length;
     let completedBatches = 0;
 

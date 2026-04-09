@@ -207,8 +207,9 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
    - **depthAnalysis**: Tư duy lâm sàng chuyên sâu.
 
 🎯 **CHỈ THỊ CUỐI CÙNG (FINAL COMMAND - QUAN TRỌNG)**:
+- **TRƯỜNG HỢP KHÔNG CÓ CÂU HỎI**: Nếu đoạn văn được cung cấp hoàn toàn KHÔNG chứa câu hỏi trắc nghiệm nào, hãy trả về chính xác: {"questions": []}. Tuyệt đối không được giải thích, xin lỗi hay phản hồi bằng văn bản thường.
 - CHỈ trả về duy nhất một đối tượng JSON có khóa "questions". KHÔNG được có bất kỳ văn bản giải thích nào trước hoặc sau khối JSON.
-- ĐÂY LÀ GIỚI HẠN TÀI NGUYÊN: Nếu bạn sắp hết không gian trả về (Tokens), hãy kết thúc khối JSON hiện tại một cách sạch sẽ (đóng đầy đủ ngoặc \`}\` và \`]\`) thay vì để nó bị cắt cụt giữa chừng.
+- ĐÂY LÀ GIỚI HẠN TÀI NGUYÊN: Nếu bạn sắp hết không gian trả về (Tokens), hãy kết thúc khối JSON hiện tại một cách sạch sẽ (đóng đầy đủ ngoặc } và ]) thay vì để nó bị cắt cụt giữa chừng.
 - Đảm bảo tính nhất quán của cấu trúc: Mọi câu hỏi phải có đầy đủ các trường (question, options, correctAnswer, explanation, source, difficulty, depthAnalysis).
 - KHÔNG sử dụng các phương thức định dạng lạ khác ngoài chuẩn JSON.
 

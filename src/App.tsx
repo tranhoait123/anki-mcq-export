@@ -420,7 +420,7 @@ const App: React.FC = () => {
         settings, 
         0, 
         (status, count) => {
-          setProgressStatus(status);
+          setProgressStatus(`[CƠ CHẾ CHUYÊN GIA] ${status}`);
           setCurrentCount(count);
         }, 
         analysis?.estimatedCount || 0,
@@ -430,7 +430,8 @@ const App: React.FC = () => {
             return [...prev, ...uniqueNew].sort((a,b) => (extractQuestionNumber(a.question) || 0) - (extractQuestionNumber(b.question) || 0));
           });
         },
-        failedBatchIndices
+        failedBatchIndices,
+        true // Enable isAdvancedMode (Resilience 2.0)
       );
 
       if (res.failedBatches && res.failedBatches.length > 0) {

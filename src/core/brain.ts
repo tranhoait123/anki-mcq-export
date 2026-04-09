@@ -19,7 +19,34 @@ const hashApiKey = (key: string): string => {
   return key.substring(0, 8) + key.substring(key.length - 8); // Simple suffix/prefix hash
 };
 
-// executeWithRetry removed in favor of executeWithUserRotation unity
+// --- High-Level Execution Wrappers ---
+
+async function executeWithRetry<T>(fn: () => Promise<T>, retries: number = 3): Promise<T> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      const msg = error.message?.toLowerCase() || "";
+      const isFormatError = msg.includes("format") || msg.includes("json");
+      const isServerBusy = msg.includes("503") || msg.includes("overloaded") || msg.includes("429");
+
+      if (isFormatError || isServerBusy) {
+        const attempt = i + 1;
+        // Fast-fail cho lỗi định dạng ngay trong lượt quét đầu tiên
+        if (isFormatError && attempt >= 2) {
+          console.warn(`🚀 Standard Mode: Format error detected. Failing early to allow Advanced Retry...`);
+          throw new Error("Lỗi định dạng AI (Lượt đầu). Vui lòng dùng tính năng Quét lại để chia nhỏ tài liệu.");
+        }
+
+        console.warn(`⚠️ ${isFormatError ? 'Lỗi định dạng' : 'API Busy'} (Lượt đầu - Lần thử ${attempt}/${retries}). Retrying...`);
+        await new Promise(r => setTimeout(r, 2000 * Math.pow(2, i)));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("Dịch vụ đang trục trặc hoặc phản hồi sai định dạng sau nhiều lần thử. Vui lòng thử lại.");
+}
 
 // Helper: Cache Management
 const getOrSetContextCache = async (ai: any, files: UploadedFile[], modelName: string, systemInstruction: string, apiKey: string): Promise<string | null> => {
@@ -46,7 +73,7 @@ const getOrSetContextCache = async (ai: any, files: UploadedFile[], modelName: s
 
     // Estimate tokens (rough estimate: 4 chars per token)
     const estimatedTokens = parts.reduce((acc, p) => acc + (p.text?.length || p.inlineData?.data?.length || 0), 0) / 4;
-    
+
     // Google requires minimum ~2048 tokens for explicit caching in many models
     if (estimatedTokens < 2000) {
       console.log("⚡ Document too small for explicit caching (< 2000 estimated tokens). Using standard request.");
@@ -213,6 +240,14 @@ Hãy tìm các nguyên nhân cụ thể:
 Đưa ra lời khuyên cụ thể để người dùng chụp lại tốt hơn (VD: "Cần chụp thẳng góc", "Tránh để ngón tay che chữ").
 `;
 
+const SYSTEM_INSTRUCTION_ANALYZE = `
+Bạn là Chuyên gia Phân tích Tài liệu Y khoa.
+Nhiệm vụ: Ước tính tổng số câu hỏi trắc nghiệm có trong tài liệu này.
+- Chỉ đếm các câu hỏi có đầy đủ nội dung hoặc có thể suy luận được.
+- Phân tích sơ bộ chuyên khoa.
+- Trả về JSON theo đúng schema yêu cầu.
+`;
+
 // --- Normalization Helper ---
 const normalizeToMarkdown = async (ai: any, files: UploadedFile[], onProgress?: ProgressCallback): Promise<string | null> => {
   try {
@@ -276,7 +311,7 @@ class UserKeyRotator {
 
   getCurrentKey(): string {
     if (this.keys.length === 0) {
-      throw new Error("Vui lòng nhập Google API Key trong phần Cài đặt.");
+      return ""; // Trả về chuỗi rỗng, để logic operation xử lý hoặc validation UI đã kiểm tra
     }
     return this.keys[this.currentIndex];
   }
@@ -303,7 +338,7 @@ const userKeyRotator = new UserKeyRotator();
 
 const extractJson = (text: string): string => {
   if (!text) return "";
-  
+
   // 1. Xử lý khối mã Markdown: ```json ... ``` hoặc ``` ... ```
   let cleanText = text;
   const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -314,7 +349,7 @@ const extractJson = (text: string): string => {
   // 2. Tìm điểm bắt đầu thực sự của JSON
   const start = cleanText.indexOf('{');
   const aStart = cleanText.indexOf('[');
-  
+
   // Ưu tiên cái nào xuất hiện trước
   let actualStart = -1;
   if (start !== -1 && aStart !== -1) actualStart = Math.min(start, aStart);
@@ -348,37 +383,37 @@ const extractJson = (text: string): string => {
   const lastBrace = subText.lastIndexOf('}');
   const lastBracket = subText.lastIndexOf(']');
   const actualEnd = Math.max(lastBrace, lastBracket);
-  
+
   if (actualEnd !== -1) {
     let result = subText.substring(0, actualEnd + 1);
-    
+
     // Nếu AI cắt cụt giữa chừng một mảng câu hỏi
     // Chúng ta đóng các ngoặc còn thiếu để JSON.parse không bị lỗi hoàn toàn
     let tempBrace = braceCount;
     let tempBracket = bracketCount;
-    
+
     // Cố gắng đóng mảng/object lớn nhất có thể
     while (tempBrace > 0) { result += '}'; tempBrace--; }
     while (tempBracket > 0) { result += ']'; tempBracket--; }
-    
+
     try {
-        JSON.parse(result);
-        return result;
+      JSON.parse(result);
+      return result;
     } catch (e) {
-        // Nếu vẫn lỗi, thử lùi lại đến dấu ngăn cách gần nhất
-        const lastComma = result.lastIndexOf(',');
-        if (lastComma !== -1) {
-            let fixed = result.substring(0, lastComma);
-            // Re-closing logic
-            let rb = 0, rbr = 0;
-            for(const c of fixed) {
-                if(c === '{') rb++; else if(c === '}') rb--;
-                if(c === '[') rbr++; else if(c === ']') rbr--;
-            }
-            while (rb > 0) { fixed += '}'; rb--; }
-            while (rbr > 0) { fixed += ']'; rbr--; }
-            return fixed + ']'; // Giả định là mảng
+      // Nếu vẫn lỗi, thử lùi lại đến dấu ngăn cách gần nhất
+      const lastComma = result.lastIndexOf(',');
+      if (lastComma !== -1) {
+        let fixed = result.substring(0, lastComma);
+        // Re-closing logic
+        let rb = 0, rbr = 0;
+        for (const c of fixed) {
+          if (c === '{') rb++; else if (c === '}') rb--;
+          if (c === '[') rbr++; else if (c === ']') rbr--;
         }
+        while (rb > 0) { fixed += '}'; rb--; }
+        while (rbr > 0) { fixed += ']'; rbr--; }
+        return fixed + ']'; // Giả định là mảng
+      }
     }
     return result;
   }
@@ -419,7 +454,7 @@ const calculateSimilarity = (str1: string, str2: string): number => {
 
   if (s1 === s2) return 1;
   if (s1.length === 0 || s2.length === 0) return 0;
-  
+
   // Logic Flip Detection (Bẫy phủ định)
   // Nếu một câu có chữ "không" mà câu kia không có -> Giảm mạnh tương đồng
   const negativeKeywords = ['không', 'ngoại trừ', 'ngoài trừ', 'not', 'except', 'un-'];
@@ -482,7 +517,7 @@ const checkDuplicate = (newQ: any, existingQuestions: any[]): { isDup: boolean; 
     const existingNumber = extractQuestionNumber(existing.question);
     const qSim = calculateSimilarity(newText, existing.question);
     const optSim = calculateSimilarity(newOpts, (existing.options || []).join(' '));
-    
+
     // Trường hợp 1: Trùng số câu hỏi (Câu 1, Câu 1...)
     if (newNumber !== null && existingNumber !== null && newNumber === existingNumber) {
       if (qSim >= 0.85 && optSim >= 0.85) {
@@ -529,10 +564,10 @@ async function executeWithUserRotation<T>(
   initialModel: string,
   operation: (apiKey: string, modelName: string) => Promise<T>
 ): Promise<T> {
-  const ATTEMPTS_LIMIT = 15;
+  const ATTEMPTS_LIMIT = 8;
   let attempts = 0;
   let currentModel = initialModel;
-  const FALLBACK_MODEL = 'gemini-3-flash';
+  const FALLBACK_MODEL = 'gemini-2.5-flash';
 
   while (attempts < ATTEMPTS_LIMIT) {
     attempts++;
@@ -549,27 +584,31 @@ async function executeWithUserRotation<T>(
       return await operation(currentKey, currentModel);
     } catch (error: any) {
       const msg = error.message?.toLowerCase() || "";
-      const isRateLimit = msg.includes("429") || msg.includes("quota exceeded") || msg.includes("resource exhausted") || msg.includes("timeout") || msg.includes("econnreset");
-      const isServerBusy = msg.includes("503") || msg.includes("unavailable") || msg.includes("overloaded");
+      // Mở rộng bộ lọc lỗi để nhận diện thêm các trường hợp đặc biệt của Google AI
+      const isRateLimit = msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || msg.includes("limit") || msg.includes("timeout") || msg.includes("econnreset");
+      const isServerBusy = msg.includes("503") || msg.includes("unavailable") || msg.includes("overloaded") || msg.includes("deadline") || msg.includes("servicedown");
       const isKeyError = msg.includes("api key") && (msg.includes("invalid") || msg.includes("not found") || msg.includes("expired"));
-      const isFormatError = msg.includes("json") || msg.includes("định dạng") || msg.includes("format");
+      const isFormatError = msg.includes("json") || msg.includes("định dạng") || msg.includes("format") || msg.includes("unexpected token");
 
       if (isRateLimit || isServerBusy || isKeyError || isFormatError) {
-        const reason = isFormatError ? "Lỗi định dạng AI" : (isRateLimit ? "Hết hạn mức/Timeout" : (isServerBusy ? "Server quá tải (503)" : "Lỗi Key"));
-        console.warn(`⚠️ ${reason} on Key #${userKeyRotator.getKeyIndex() + 1}. Rotating... (Attempt ${attempts})`);
-        
-        // Exponential backoff & jitter logic (Cải tiến 2026)
-        // Lỗi 503/429 cần kiên nhẫn hơn để server hồi phục
-        const baseDelay = isServerBusy ? 3000 : 1500; 
-        const multiplier = (isServerBusy || isFormatError) ? 2.0 : 1.5;
-        
-        const backoffMs = Math.min(
-          45000, // Tối đa 45 giây
-          baseDelay * Math.pow(multiplier, attempts - 1) + Math.random() * 2000
-        );
+        // Fast-Failure logic: Nếu là lỗi định dạng (do AI bị đứt đoạn), chỉ thử lại tối đa 2 lần rồi cho chia nhỏ ngay.
+        if (isFormatError && attempts >= 2) {
+          console.warn(`🚀 Detection: JSON Format Error confirmed after ${attempts} attempts. Failing fast to trigger Subdivision...`);
+          throw new Error("AI_FORMAT_ERROR_TRUNCATED");
+        }
 
-        console.log(`ℹ️ Đang chờ ${Math.round(backoffMs/1000)}s trước khi thử lại với Key mới...`);
-        userKeyRotator.rotate();
+        const reason = isFormatError ? "Lỗi định dạng AI" : (isRateLimit ? "Hết hạn mức/Timeout" : (isServerBusy ? "Server quá tải (503)" : "Lỗi Key"));
+        console.warn(`⚠️ ${reason} (Lần thử ${attempts}/${ATTEMPTS_LIMIT}). Đang xoay vòng/thử lại...`);
+
+        // Luôn xoay key nếu có nhiều hơn 1 key
+        if (userKeyRotator.keyCount > 1) {
+          userKeyRotator.rotate();
+        }
+
+        const baseDelay = isServerBusy ? 3500 : 2000;
+        const multiplier = (isServerBusy || isFormatError) ? 1.8 : 1.4;
+        const backoffMs = Math.min(60000, baseDelay * Math.pow(multiplier, attempts - 1) + Math.random() * 3000);
+
         await new Promise(r => setTimeout(r, backoffMs));
         continue;
       }
@@ -587,17 +626,18 @@ export const generateQuestions = async (
   onProgress?: ProgressCallback,
   expectedCount: number = 0,
   onBatchComplete?: BatchCallback,
-  retryIndices?: number[]
+  retryIndices?: number[],
+  isAdvancedMode: boolean = false
 ): Promise<{ questions: MCQ[], duplicates: DuplicateInfo[], failedBatches: number[] }> => {
   try {
+    userKeyRotator.init(settings.apiKey);
     let ai: any;
     if (settings.provider === 'shopaikey') {
-      ai = new GoogleGenAI({ 
+      ai = new GoogleGenAI({
         apiKey: settings.shopAIKeyKey,
         httpOptions: { baseUrl: 'https://api.shopaikey.com' }
       });
     } else {
-      userKeyRotator.init(settings.apiKey);
       const apiKey = userKeyRotator.getCurrentKey();
       ai = new GoogleGenAI({ apiKey });
     }
@@ -610,33 +650,33 @@ export const generateQuestions = async (
 
     // [Step 1: Splitting Logic]
     for (const file of files) {
-        if (file.type === 'application/pdf') {
-          try {
-            const rawBase64 = file.content.includes(',') ? file.content.split(',')[1] : file.content;
-            const pdfChunks = await splitPdf(rawBase64, 3, 1); 
-            pdfChunks.forEach((chunkBase64) => {
-              allParts.push({ inlineData: { mimeType: 'application/pdf', data: chunkBase64 } });
-            });
-          } catch (splitError) {
-            allParts.push({ inlineData: { mimeType: 'application/pdf', data: file.content.includes(',') ? file.content.split(',')[1] : file.content } });
+      if (file.type === 'application/pdf') {
+        try {
+          const rawBase64 = file.content.includes(',') ? file.content.split(',')[1] : file.content;
+          const pdfChunks = await splitPdf(rawBase64, 3, 1);
+          pdfChunks.forEach((chunkBase64) => {
+            allParts.push({ inlineData: { mimeType: 'application/pdf', data: chunkBase64 } });
+          });
+        } catch (splitError) {
+          allParts.push({ inlineData: { mimeType: 'application/pdf', data: file.content.includes(',') ? file.content.split(',')[1] : file.content } });
+        }
+      } else if (file.type.startsWith('image/')) {
+        allParts.push({ inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } });
+      } else {
+        const MAX_CHARS = 15000;
+        const OVERLAP = 1000;
+        let offset = 0;
+        let partIdx = 1;
+        while (offset < file.content.length) {
+          allParts.push({ text: `[TÀI LIỆU: "${file.name}" (Phần ${partIdx++})]\n\n` + file.content.substring(offset, offset + MAX_CHARS) });
+          offset += (MAX_CHARS - OVERLAP);
+          if (offset >= file.content.length - OVERLAP) {
+            if (offset < file.content.length) {
+              allParts.push({ text: `[TÀI LIỆU: "${file.name}" (Phần cuối)]\n\n` + file.content.substring(offset, file.content.length) });
+            }
+            break;
           }
-        } else if (file.type.startsWith('image/')) {
-          allParts.push({ inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } });
-        } else {
-          const MAX_CHARS = 15000;
-          const OVERLAP = 1000;
-          let offset = 0;
-          let partIdx = 1;
-          while (offset < file.content.length) {
-             allParts.push({ text: `[TÀI LIỆU: "${file.name}" (Phần ${partIdx++})]\n\n` + file.content.substring(offset, offset + MAX_CHARS) });
-             offset += (MAX_CHARS - OVERLAP);
-             if (offset >= file.content.length - OVERLAP) {
-                if (offset < file.content.length) {
-                   allParts.push({ text: `[TÀI LIỆU: "${file.name}" (Phần cuối)]\n\n` + file.content.substring(offset, file.content.length) });
-                }
-                break;
-             }
-          }
+        }
       }
     }
 
@@ -692,9 +732,9 @@ export const generateQuestions = async (
         // Cố gắng tự vá một số lỗi JSON phổ biến của AI trước khi parse
         // Vá lỗi thiếu dấu ngoặc đóng mảng/đối tượng
         if (jsonStr.trim().endsWith('}') && !jsonStr.includes(']')) {
-             // Maybe it was supposed to be an array but it's an object?
+          // Maybe it was supposed to be an array but it's an object?
         }
-        
+
         // Loại bỏ dấu phẩy thừa ở cuối mảng trước dấu đóng ] hoặc }
         jsonStr = jsonStr.replace(/,\s*([\]\}])/g, '$1');
 
@@ -709,85 +749,75 @@ export const generateQuestions = async (
     };
 
     const totalBatches = allParts.length;
-    
+
     // Hàm xử lý Batch chính có khả năng Đệ quy (Subdivision)
     const processBatch = async (part: any, index: number, depth: number = 0) => {
       const batchLabel = depth === 0 ? `${index + 1}` : `${index + 1}${String.fromCharCode(96 + depth)}`;
-      
+
       try {
         if (onProgress) onProgress(`Quét Batch ${batchLabel}/${totalBatches}${depth > 0 ? ' (Đang chia nhỏ)' : ''}...`, allQuestions.length);
         await new Promise(r => setTimeout(r, Math.random() * 800));
 
-        const rawNewQs = await (settings.provider === 'shopaikey' 
-          ? executeWithUserRotation(settings.model, async (dummyKey, activeModel) => {
-              // ShopAIKey doesn't really need rotation, but we use this wrapper for consistency & stability
-              const finalInstruction = settings.customPrompt 
-                ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}`
-                : SYSTEM_INSTRUCTION_EXTRACT;
-              
-              const messages = [
-                { role: "system", content: finalInstruction },
-                { 
-                  role: "user", 
-                  content: [
-                    { type: "text", text: `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).` },
-                    ...(part.inlineData ? [{
-                      type: "image_url",
-                      image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` }
-                    }] : [{ type: "text", text: part.text }])
-                  ]
-                }
-              ];
-
-              const response = await fetch("https://api.shopaikey.com/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                  "Authorization": `Bearer ${settings.shopAIKeyKey}`,
-                  "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                  model: activeModel,
-                  messages,
-                  temperature: 0.1,
-                  response_format: { type: "json_object" }
+        const rawNewQs = await (settings.provider === 'shopaikey'
+          ? (isAdvancedMode 
+              ? executeWithUserRotation('gemini-2.5-flash', async (dummyKey, activeModel) => {
+                  const finalInstruction = settings.customPrompt ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
+                  const messages = [
+                    { role: "system", content: isAdvancedMode ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction },
+                    { role: "user", content: [{ type: "text", text: `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).` }, ...(part.inlineData ? [{ type: "image_url", image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` } }] : [{ type: "text", text: part.text }])] }
+                  ];
+                  const response = await fetch("https://api.shopaikey.com/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Authorization": `Bearer ${settings.shopAIKeyKey}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({ model: activeModel, messages, temperature: 0.1, response_format: { type: "json_object" } })
+                  });
+                  if (!response.ok) throw new Error(`ShopAIKey API Error: ${response.status}`);
+                  const data = await response.json();
+                  return extractAndParseQuestions(data.choices[0].message.content, index);
                 })
-              });
-
-              if (!response.ok) {
-                const errText = await response.text();
-                throw new Error(`ShopAIKey API Error: ${response.status} - ${errText}`);
-              }
-              const data = await response.json();
-              const text = data.choices[0].message.content;
-              return extractAndParseQuestions(text, index);
-            })
-          : executeWithUserRotation(settings.model, async (currentKey, activeModel) => {
-              const aiInstance = new GoogleGenAI({ apiKey: currentKey });
-              const finalInstruction = settings.customPrompt 
-                ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}`
-                : SYSTEM_INSTRUCTION_EXTRACT;
-
-              const keyHash = hashApiKey(currentKey);
-              if (!sessionCache[keyHash]) {
-                sessionCache[keyHash] = (async () => {
-                  try { return await getOrSetContextCache(aiInstance, files, activeModel, finalInstruction, currentKey); } 
-                  catch (e) { return null; }
-                })();
-              }
-              const kCacheName = await sessionCache[keyHash];
-
-              const config = getModelConfig(currentKey, finalInstruction, questionSchema, activeModel, kCacheName || undefined);
-              const chat = aiInstance.chats.create(config);
-
-              const batchPrompt = kCacheName 
-                ? `Dựa trên tài liệu đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${batchLabel}.`
-                : `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
-
-              const response = await chat.sendMessage({
-                message: [part, { text: batchPrompt }]
-              });
-              return extractAndParseQuestions(response.text, index);
-            })
+              : executeWithRetry(async () => {
+                  const finalInstruction = settings.customPrompt ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
+                  const messages = [
+                    { role: "system", content: finalInstruction },
+                    { role: "user", content: [{ type: "text", text: `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).` }, ...(part.inlineData ? [{ type: "image_url", image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` } }] : [{ type: "text", text: part.text }])] }
+                  ];
+                  const response = await fetch("https://api.shopaikey.com/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Authorization": `Bearer ${settings.shopAIKeyKey}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({ model: settings.model, messages, temperature: 0.1, response_format: { type: "json_object" } })
+                  });
+                  if (!response.ok) throw new Error(`ShopAIKey API Error: ${response.status}`);
+                  const data = await response.json();
+                  return extractAndParseQuestions(data.choices[0].message.content, index);
+                })
+            )
+          : (isAdvancedMode
+              ? executeWithUserRotation('gemini-2.5-flash', async (currentKey, activeModel) => {
+                  const aiInstance = new GoogleGenAI({ apiKey: currentKey });
+                  const finalInstruction = settings.customPrompt ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
+                  const keyHash = hashApiKey(currentKey);
+                  if (!sessionCache[keyHash]) {
+                    sessionCache[keyHash] = (async () => {
+                      try { return await getOrSetContextCache(aiInstance, files, activeModel, finalInstruction, currentKey); } catch (e) { return null; }
+                    })();
+                  }
+                  const kCacheName = await sessionCache[keyHash];
+                  const config = getModelConfig(currentKey, finalInstruction, questionSchema, activeModel, kCacheName || undefined);
+                  const chat = aiInstance.chats.create(config);
+                  const batchPrompt = kCacheName ? `Dựa trên tài liệu đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${batchLabel}.` : `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
+                  const response = await chat.sendMessage({ message: [part, { text: batchPrompt }] });
+                  return extractAndParseQuestions(response.text, index);
+                })
+              : executeWithRetry(async () => {
+                  const apiKey = userKeyRotator.getCurrentKey();
+                  const aiInstance = new GoogleGenAI({ apiKey });
+                  const finalInstruction = settings.customPrompt ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
+                  const config = getModelConfig(apiKey, finalInstruction, questionSchema, settings.model);
+                  const chat = aiInstance.chats.create(config);
+                  const response = await chat.sendMessage({ message: [part, { text: `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).` }] });
+                  return extractAndParseQuestions(response.text, index);
+                })
+            )
         );
 
         if (rawNewQs && rawNewQs.length > 0) {
@@ -817,19 +847,33 @@ export const generateQuestions = async (
           }
         }
       } catch (e: any) {
-        // CHIẾN LƯỢC CỨU VÃN: Nếu thất bại sau 15 lần thử (depth < 2) và là văn bản, ta chia đôi.
-        if (depth < 2 && part.text && part.text.length > 600) {
-          console.warn(`🚀 Batch ${batchLabel} fail. Triggering SUBDIVISION (Depth ${depth + 1})...`);
-          const mid = Math.floor(part.text.length / 2);
-          // Tìm vị trí ngắt câu gần nhất để không làm hỏng dữ liệu
-          let splitPos = part.text.lastIndexOf('\n', mid + 100);
-          if (splitPos < mid - 200) splitPos = mid;
-
-          const partA = { ...part, text: part.text.substring(0, splitPos) };
-          const partB = { ...part, text: part.text.substring(splitPos) };
+        // CHIẾN LƯỢC CỨU VÃN: Nếu thất bại sau 2-15 lần thử (depth < 2) và là văn bản, ta chia nhỏ.
+        // Nâng cấp: Chia làm 4 phần thay vì 2 để đảm bảo AI xử lý mượt mà nhất.
+        if (depth < 2 && part.text && part.text.length > 500) {
+          console.warn(`🚀 Batch ${batchLabel} fail. Triggering QUARTER-SUBDIVISION (4 parts, Depth ${depth + 1})...`);
           
-          await processBatch(partA, index, depth + 1);
-          await processBatch(partB, index, depth + 1);
+          const textLength = part.text.length;
+          const segmentSize = Math.floor(textLength / 4);
+          
+          const getSplitPos = (start: number, end: number) => {
+            let pos = part.text.lastIndexOf('\n', end);
+            if (pos < start || pos > end) pos = end;
+            return pos;
+          };
+
+          const s1 = getSplitPos(0, segmentSize);
+          const s2 = getSplitPos(s1, s1 + segmentSize);
+          const s3 = getSplitPos(s2, s2 + segmentSize);
+
+          const parts = [
+            { ...part, text: part.text.substring(0, s1) },
+            { ...part, text: part.text.substring(s1, s2) },
+            { ...part, text: part.text.substring(s2, s3) },
+            { ...part, text: part.text.substring(s3) }
+          ].filter(p => p.text.trim().length > 0);
+
+          // Chạy song song cả 4 phần để tối ưu thời gian
+          await Promise.all(parts.map((p, i) => processBatch(p, index, depth + 1)));
           return;
         }
 
@@ -878,9 +922,8 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
   - Mô tả cấu trúc (vd: có đáp án đi kèm không).
   ${SYSTEM_INSTRUCTION_ANALYZE}`;
 
-  userKeyRotator.init(settings.apiKey);
-  return await executeWithUserRotation(settings.model, async (apiKey, activeModel) => {
-    if (settings.provider === 'shopaikey') {
+  if (settings.provider === 'shopaikey') {
+    return await executeWithRetry(async () => {
       const parts: any[] = files.map(file => {
         if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
           return {
@@ -898,7 +941,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: activeModel,
+          model: settings.model,
           messages: [
             { role: "system", content: finalPrompt },
             { role: "user", content: parts }
@@ -911,47 +954,47 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
       if (!response.ok) throw new Error(`ShopAIKey API Error: ${response.status}`);
       const data = await response.json();
       return JSON.parse(extractJson(data.choices[0].message.content));
-    } else {
-      const ai = new GoogleGenAI({ apiKey });
-      const parts: any[] = files.map(file => {
-        if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
-          return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
-        }
-        return { text: `FILE: ${file.name}\n${file.content}\n` };
-      });
+    });
+  }
 
-      const schema = {
-        type: Type.OBJECT,
-        properties: {
-          estimatedCount: { type: Type.NUMBER },
-          specialty: { type: Type.STRING },
-          confidence: { type: Type.NUMBER },
-          hasAnswers: { type: Type.BOOLEAN },
-          structureNote: { type: Type.STRING }
-        },
-        required: ["estimatedCount", "specialty", "confidence", "hasAnswers", "structureNote"]
-      };
+  userKeyRotator.init(settings.apiKey);
+  return await executeWithUserRotation(settings.model, async (apiKey, activeModel) => {
+    const ai = new GoogleGenAI({ apiKey });
+    const parts: any[] = files.map(file => {
+      if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+        return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
+      }
+      return { text: `FILE: ${file.name}\n${file.content}\n` };
+    });
 
-      const chat = ai.getGenerativeModel(getModelConfig(apiKey, finalPrompt, schema, activeModel));
-      const result = await chat.generateContent({ contents: [{ role: 'user', parts }] });
-      return JSON.parse(extractJson(result.response.text()));
-    }
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        estimatedCount: { type: Type.NUMBER },
+        specialty: { type: Type.STRING },
+        confidence: { type: Type.NUMBER },
+        hasAnswers: { type: Type.BOOLEAN },
+        structureNote: { type: Type.STRING }
+      },
+      required: ["estimatedCount", "specialty", "confidence", "hasAnswers", "structureNote"]
+    };
+
+    const chat = ai.chats.create(getModelConfig(apiKey, finalPrompt, schema, activeModel));
+    const result = await chat.sendMessage({ message: parts });
+    return JSON.parse(extractJson(result.text));
   });
 };
 
 export const auditMissingQuestions = async (files: UploadedFile[], count: number, settings: AppSettings): Promise<AuditResult> => {
-  userKeyRotator.init(settings.apiKey);
-  return await executeWithUserRotation(settings.model, async (apiKey, activeModel) => {
-    const parts: any[] = files.map(file => {
-       if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
-         return settings.provider === 'shopaikey' 
-           ? { type: "image_url", image_url: { url: `data:${file.type};base64,${file.content.includes(',') ? file.content.split(',')[1] : file.content}` } }
-           : { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
-       }
-       return { text: `FILE: ${file.name}\n${file.content}\n` };
-    });
+  if (settings.provider === 'shopaikey') {
+    return await executeWithRetry(async () => {
+      const parts: any[] = files.map(file => {
+        if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+          return { type: "image_url", image_url: { url: `data:${file.type};base64,${file.content.includes(',') ? file.content.split(',')[1] : file.content}` } };
+        }
+        return { text: `FILE: ${file.name}\n${file.content}\n` };
+      });
 
-    if (settings.provider === 'shopaikey') {
       const response = await fetch("https://api.shopaikey.com/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -959,11 +1002,11 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: activeModel,
+          model: settings.model,
           messages: [
             { role: "system", content: SYSTEM_INSTRUCTION_AUDIT },
-            { 
-              role: "user", 
+            {
+              role: "user",
               content: [
                 ...parts,
                 { type: "text", text: `Quá trình trích xuất chỉ lấy được ${count} câu hỏi. Hãy phân tích lý do.` }
@@ -978,31 +1021,38 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
       if (!response.ok) throw new Error(`ShopAIKey API Error: ${response.status}`);
       const data = await response.json();
       return JSON.parse(extractJson(data.choices[0].message.content)) as AuditResult;
-    } else {
-      const ai = new GoogleGenAI({ apiKey });
-      const schema = {
-        type: Type.OBJECT,
-        properties: {
-          status: { type: Type.STRING },
-          missingPercentage: { type: Type.NUMBER },
-          reasons: { type: Type.ARRAY, items: { type: Type.STRING } },
-          problematicSections: { type: Type.ARRAY, items: { type: Type.STRING } },
-          advice: { type: Type.STRING }
-        },
-        required: ["status", "reasons", "advice", "problematicSections"]
-      };
+    });
+  }
 
-      const chat = ai.getGenerativeModel(getModelConfig(apiKey, SYSTEM_INSTRUCTION_AUDIT, schema, activeModel));
-      const res = await chat.generateContent({
-        contents: [{
-          role: 'user',
-          parts: [
-            ...parts,
-            { text: `Quá trình trích xuất chỉ lấy được ${count} câu hỏi. Hãy phân tích lý do.` }
-          ]
-        }]
-      });
-      return JSON.parse(extractJson(res.response.text())) as AuditResult;
-    }
+  userKeyRotator.init(settings.apiKey);
+  return await executeWithUserRotation(settings.model, async (apiKey, activeModel) => {
+    const parts: any[] = files.map(file => {
+      if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+        return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
+      }
+      return { text: `FILE: ${file.name}\n${file.content}\n` };
+    });
+
+    const ai = new GoogleGenAI({ apiKey });
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        status: { type: Type.STRING },
+        missingPercentage: { type: Type.NUMBER },
+        reasons: { type: Type.ARRAY, items: { type: Type.STRING } },
+        problematicSections: { type: Type.ARRAY, items: { type: Type.STRING } },
+        advice: { type: Type.STRING }
+      },
+      required: ["status", "reasons", "advice", "problematicSections"]
+    };
+
+    const chat = ai.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_AUDIT, schema, activeModel));
+    const res = await chat.sendMessage({
+      message: [
+        ...parts,
+        { text: `Quá trình trích xuất chỉ lấy được ${count} câu hỏi. Hãy phân tích lý do.` }
+      ]
+    });
+    return JSON.parse(extractJson(res.text)) as AuditResult;
   });
 };

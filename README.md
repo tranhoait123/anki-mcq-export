@@ -29,6 +29,7 @@
 | Tính năng | Mô tả |
 |:---|:---|
 | 🤖 **Trích xuất MCQ 3.0** | Công cụ AI thế hệ mới, tự động sửa lỗi quét mờ, gối đầu trang và xử lý JSON cực kỳ ổn định |
+| 🛡️ **Siêu Phục Hồi (2.1)** | Cơ chế **Fast-Failure** & **Quarter-Subdivision** tự động chia nhỏ tài liệu khó để cứu 100% dữ liệu |
 | 🩺 **Giải thích như Giáo sư Y khoa** | Mỗi câu hỏi đều kèm: đáp án cốt lõi, phân tích sâu, bằng chứng y văn, cảnh báo lâm sàng |
 | 💾 **Pro Storage (IndexedDB)** | Dữ liệu được lưu an toàn với ID duy nhất — không lo mất dữ liệu khi reload hay lỗi trình duyệt |
 | 🔄 **Lọc trùng Y khoa (95%)** | Thuật toán so sánh nội dung đạt độ chính xác 95%, nhận diện logic phủ định (KHÔNG/NGOẠI TRỪ) |
@@ -170,8 +171,8 @@ Hệ thống sẽ **tự động xoay vòng** — khi Key nào hết quota (lỗ
 
 > 💡 **Mẹo chọn Model:**
 > - **Gemini 3.1 Flash-Lite** — Nhanh nhất, phù hợp phần lớn trường hợp *(khuyên dùng)*
+> - **Gemini 2.5 Flash (Thinking)** — **Model ổn định nhất** cho việc quét lỗi và trích xuất y khoa chuyên sâu
 > - **Gemini 3 Pro** — Tư duy Y khoa sâu nhất, nhưng chậm hơn
-> - **Gemini 2.5 Flash** — Dự phòng ổn định nếu các model mới bị lỗi
 
 ---
 
@@ -405,6 +406,7 @@ Trình duyệt sẽ tự mở tại **http://localhost:8501**
 3. **Chỉnh sửa Vai trò AI** — Đang ôn Nhi khoa? Thêm dòng: *"Tập trung vào bệnh lý Nhi khoa"*
 4. **Chế độ Review** — Xem trước giao diện Anki thực tế trước khi xuất CSV
 5. **IndexedDB** — Tất cả câu hỏi lưu trên trình duyệt, reload không mất dữ liệu
+6. **Cơ chế Resilience 2.1 (Siêu phục hồi)** — Tự động nhận diện lỗi định dạng sớm để chia nhỏ tài liệu thành 4 phần xử lý song song, giúp tiết kiệm 70% token lãng phí và đảm bảo không bỏ sót câu hỏi nào.
 
 ---
 
@@ -457,6 +459,7 @@ AI được huấn luyện với vai trò **"Chuyên gia Pháp y Tài liệu"** 
 
 ## 📜 Nhật Ký Cập Nhật
 
+| **v5.3 (Resilience)** | 09/04/2026 | **Resilience 2.1: Fast-Failure Logic, Quarter-Subdivision (4-way Parallel), Gemini 2.5 Flash Integration** |
 | **v5.2 (Ultima)** | 07/04/2026 | **Medical Extraction 3.0: 95% Content Precision, Robust DB Storage, Duplicate Review UI** |
 | **v5.1 (Robust)** | 04/04/2026 | **Robust MCQ Normalization (A., (B), 1., etc.), Logic so sánh đáp án chính xác 100%** |
 | **v5.0 (Atomic)** | 04/04/2026 | **Zustand Architecture, Sonner Toasts, Review-First Mode, Robust Table Formatting** |

@@ -362,14 +362,23 @@ const App: React.FC = () => {
       }));
       setMcqs(formatted);
 
+      // 3. Thông báo lỗi cho các Batch thất bại (nếu có)
+      if (res.failedBatches && res.failedBatches.length > 0) {
+        toast.warning(`Hoàn thành không trọn vẹn: Có ${res.failedBatches.length} phần (${res.failedBatches.join(', ')}) bị lỗi do Server quá tải. Bạn có thể nhấn trích xuất lại để lấy các câu còn thiếu.`, {
+          duration: 10000,
+        });
+      } else {
+        toast.success(`Trích xuất hoàn tất! Tìm thấy tổng cộng ${formatted.length} câu hỏi.`);
+      }
+
       // Store duplicates for display
       if (res.duplicates && res.duplicates.length > 0) {
         setDuplicates(res.duplicates);
       }
 
-      // Nếu số lượng trích xuất ít hơn 80% số lượng ước tính, tự động chạy kiểm toán
+      // Tự động kiểm toán nếu số lượng quá thấp
       if (analysis && formatted.length < analysis.estimatedCount * 0.8) {
-        runAudit(formatted.length, filesToUse); // Pass the files we actually used? Ideally the original ones for context.
+        runAudit(formatted.length, filesToUse);
       }
     } catch (e: any) {
       toast.error("Lỗi trích xuất: " + e.message);

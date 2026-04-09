@@ -201,9 +201,11 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
    - **difficulty**: Độ khó (Easy/Medium/Hard).
    - **depthAnalysis**: Tư duy lâm sàng chuyên sâu.
 
-🎯 **CHỈ THỊ CUỐI CÙNG (FINAL COMMAND)**:
-- Chỉ trả về duy nhất một đối tượng JSON có khóa "questions". KHÔNG giải thích thêm.
-- TUYỆT ĐỐI không để trống các trường bắt buộc. Nếu không có dữ liệu, hãy điền "Thông tin đang cập nhật" thay vì để trống.
+🎯 **CHỈ THỊ CUỐI CÙNG (FINAL COMMAND - QUAN TRỌNG)**:
+- CHỈ trả về duy nhất một đối tượng JSON có khóa "questions". KHÔNG được có bất kỳ văn bản giải thích nào trước hoặc sau khối JSON.
+- ĐÂY LÀ GIỚI HẠN TÀI NGUYÊN: Nếu bạn sắp hết không gian trả về (Tokens), hãy kết thúc khối JSON hiện tại một cách sạch sẽ (đóng đầy đủ ngoặc \`}\` và \`]\`) thay vì để nó bị cắt cụt giữa chừng.
+- Đảm bảo tính nhất quán của cấu trúc: Mọi câu hỏi phải có đầy đủ các trường (question, options, correctAnswer, explanation, source, difficulty, depthAnalysis).
+- KHÔNG sử dụng các phương thức định dạng lạ khác ngoài chuẩn JSON.
 
 OUTPUT FORMAT: JSON Object with "questions" array.
 `;
@@ -355,27 +357,51 @@ const extractJson = (text: string): string => {
     else if (char === '[') bracketCount++;
     else if (char === ']') bracketCount--;
 
-    // Nếu về 0 và chúng ta đã bắt đầu rồi, đánh dấu điểm kết thúc hợp lệ
     if (braceCount === 0 && bracketCount === 0) {
       lastValidEnd = i;
     }
   }
 
-  // Nếu chuỗi kết thúc mà vẫn còn ngoặc mở -> Cố gắng đóng lại
   if (lastValidEnd !== -1) {
     return subText.substring(0, lastValidEnd + 1);
   }
 
-  // Fallback: Nếu không tìm thấy điểm kết thúc cân bằng, cố gắng lấy đến dấu ngoặc cuối cùng
+  // --- Cải tiến 2026: Auto-repair cho JSON bị cắt cụt ---
   const lastBrace = subText.lastIndexOf('}');
   const lastBracket = subText.lastIndexOf(']');
   const actualEnd = Math.max(lastBrace, lastBracket);
   
   if (actualEnd !== -1) {
     let result = subText.substring(0, actualEnd + 1);
-    // Bổ sung ngoặc nếu thiếu để JSON.parse không tèo
-    while (braceCount > 0) { result += '}'; braceCount--; }
-    while (bracketCount > 0) { result += ']'; bracketCount--; }
+    
+    // Nếu AI cắt cụt giữa chừng một mảng câu hỏi
+    // Chúng ta đóng các ngoặc còn thiếu để JSON.parse không bị lỗi hoàn toàn
+    let tempBrace = braceCount;
+    let tempBracket = bracketCount;
+    
+    // Cố gắng đóng mảng/object lớn nhất có thể
+    while (tempBrace > 0) { result += '}'; tempBrace--; }
+    while (tempBracket > 0) { result += ']'; tempBracket--; }
+    
+    try {
+        JSON.parse(result);
+        return result;
+    } catch (e) {
+        // Nếu vẫn lỗi, thử lùi lại đến dấu ngăn cách gần nhất
+        const lastComma = result.lastIndexOf(',');
+        if (lastComma !== -1) {
+            let fixed = result.substring(0, lastComma);
+            // Re-closing logic
+            let rb = 0, rbr = 0;
+            for(const c of fixed) {
+                if(c === '{') rb++; else if(c === '}') rb--;
+                if(c === '[') rbr++; else if(c === ']') rbr--;
+            }
+            while (rb > 0) { fixed += '}'; rb--; }
+            while (rbr > 0) { fixed += ']'; rbr--; }
+            return fixed + ']'; // Giả định là mảng
+        }
+    }
     return result;
   }
 
@@ -544,12 +570,17 @@ async function executeWithUserRotation<T>(
         const reason = isFormatError ? "Lỗi định dạng AI" : (isRateLimit ? "Hết hạn mức/Timeout" : (isServerBusy ? "Server quá tải (503)" : "Lỗi Key"));
         console.warn(`⚠️ ${reason} on Key #${userKeyRotator.getKeyIndex() + 1}. Rotating... (Attempt ${attempts})`);
         
-        // Exponential backoff & jitter logic for rate limits
-        const multiplier = isFormatError ? 2.0 : 1.5; // Be more patient with format errors
-        const backoffMs = (isRateLimit || isFormatError)
-             ? Math.min(20000, 1000 * Math.pow(multiplier, attempts) + Math.random() * 1000) 
-             : 500;
+        // Exponential backoff & jitter logic (Cải tiến 2026)
+        // Lỗi 503/429 cần kiên nhẫn hơn để server hồi phục
+        const baseDelay = isServerBusy ? 3000 : 1500; 
+        const multiplier = (isServerBusy || isFormatError) ? 2.0 : 1.5;
+        
+        const backoffMs = Math.min(
+          45000, // Tối đa 45 giây
+          baseDelay * Math.pow(multiplier, attempts - 1) + Math.random() * 2000
+        );
 
+        console.log(`ℹ️ Đang chờ ${Math.round(backoffMs/1000)}s trước khi thử lại với Key mới...`);
         userKeyRotator.rotate();
         await new Promise(r => setTimeout(r, backoffMs));
         continue;
@@ -568,7 +599,7 @@ export const generateQuestions = async (
   onProgress?: ProgressCallback,
   expectedCount: number = 0,
   onBatchComplete?: BatchCallback
-): Promise<{ questions: MCQ[], duplicates: DuplicateInfo[] }> => {
+): Promise<{ questions: MCQ[], duplicates: DuplicateInfo[], failedBatches: number[] }> => {
   try {
     let ai: any;
     if (settings.provider === 'shopaikey') {
@@ -621,7 +652,7 @@ export const generateQuestions = async (
     }
 
     if (allParts.length === 0) {
-      return { questions: [], duplicates: [] };
+      return { questions: [], duplicates: [], failedBatches: [] };
     }
 
     const questionSchema = {
@@ -657,6 +688,7 @@ export const generateQuestions = async (
 
     let allQuestions: any[] = [];
     let allDuplicates: any[] = [];
+    let failedBatches: number[] = [];
     let duplicateCounter = 0;
 
     // --- STEP 2: BATCH PROCESSING ---
@@ -791,8 +823,8 @@ export const generateQuestions = async (
         }
       } catch (e) {
         console.error(`❌ Batch ${index + 1} FAILED after all retries:`, e);
-        // Throwing here will stop the entire generation to prevent silent data loss
-        throw new Error(`Batch ${index + 1} thất bại do Server bận (503/429). Vui lòng thử lại sau ít phút.`);
+        failedBatches.push(index + 1);
+        if (onProgress) onProgress(`⚠️ Phần ${index + 1} thất bại do Server bận. Đang tiếp tục các phần khác...`, allQuestions.length);
       } finally {
         completedBatches++;
         if (onProgress) onProgress(`Hoàn thành batch ${index + 1}/${totalBatches}. Tổng: ${allQuestions.length} câu...`, allQuestions.length);
@@ -816,8 +848,8 @@ export const generateQuestions = async (
       return numA - numB;
     });
 
-    console.log(`\n📊 FINAL: ${allQuestions.length} questions.`);
-    return { questions: allQuestions, duplicates: allDuplicates };
+    console.log(`\n📊 FINAL: ${allQuestions.length} questions. Failed Batches: ${failedBatches.join(', ') || 'None'}`);
+    return { questions: allQuestions, duplicates: allDuplicates, failedBatches };
 
   } catch (error: any) {
     throw new Error(error.message);

@@ -28,6 +28,7 @@ export interface GeneratedResponse {
     depthAnalysis: string;
   }[];
   duplicates?: DuplicateInfo[];
+  failedBatches?: number[];
 }
 
 export interface DuplicateInfo {

@@ -27,6 +27,7 @@ const App: React.FC = () => {
   const [showAudit, setShowAudit] = useState(false);
   const [ocrMode, setOcrMode] = useState<'gemini' | 'tesseract'>('gemini');
   const [duplicates, setDuplicates] = useState<DuplicateInfo[]>([]);
+  const [failedBatchIndices, setFailedBatchIndices] = useState<number[]>([]);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isSplitView, setIsSplitView] = useState(false);
@@ -150,6 +151,13 @@ const App: React.FC = () => {
 
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, []);
+
+  // Reset lỗi khi file thay đổi để tránh lệch Index
+  useEffect(() => {
+    if (files.length > 0) {
+      setFailedBatchIndices([]);
+    }
+  }, [files]);
 
   const handleInstallApp = async () => {
     if (!deferredPrompt) return;
@@ -295,6 +303,7 @@ const App: React.FC = () => {
 
     setLoading(true);
     setMcqs([]);
+    setFailedBatchIndices([]);
     setAudit(null);
     setShowAudit(false);
     setDuplicates([]);
@@ -364,10 +373,12 @@ const App: React.FC = () => {
 
       // 3. Thông báo lỗi cho các Batch thất bại (nếu có)
       if (res.failedBatches && res.failedBatches.length > 0) {
-        toast.warning(`Hoàn thành không trọn vẹn: Có ${res.failedBatches.length} phần (${res.failedBatches.join(', ')}) bị lỗi do Server quá tải. Bạn có thể nhấn trích xuất lại để lấy các câu còn thiếu.`, {
-          duration: 10000,
+        setFailedBatchIndices(res.failedBatches);
+        toast.warning(`Hoàn thành không trọn vẹn: Có ${res.failedBatches.length} phần (${res.failedBatches.join(', ')}) bị lỗi do Server quá tải.`, {
+          duration: 15000,
         });
       } else {
+        setFailedBatchIndices([]);
         toast.success(`Trích xuất hoàn tất! Tìm thấy tổng cộng ${formatted.length} câu hỏi.`);
       }
 
@@ -384,6 +395,62 @@ const App: React.FC = () => {
       toast.error("Lỗi trích xuất: " + e.message);
     }
     finally { setLoading(false); }
+  };
+
+  const deduplicateQuestions = (newList: MCQ[], existingList: MCQ[]): MCQ[] => {
+    const seen = new Set(existingList.map(q => q.question.trim().toLowerCase()));
+    return newList.filter(q => {
+      const txt = q.question.trim().toLowerCase();
+      if (seen.has(txt)) return false;
+      seen.add(txt);
+      return true;
+    });
+  };
+
+  const handleRetryFailed = async () => {
+    if (files.length === 0 || failedBatchIndices.length === 0) return;
+    
+    setLoading(true);
+    setProgressStatus(`Đang quét lại ${failedBatchIndices.length} phần lỗi...`);
+    
+    try {
+      const filesToUse = await prepareFiles();
+      const res = await generateQuestions(
+        filesToUse, 
+        settings, 
+        0, 
+        (status, count) => {
+          setProgressStatus(status);
+          setCurrentCount(count);
+        }, 
+        analysis?.estimatedCount || 0,
+        (newBatch) => {
+          setMcqs(prev => {
+            const uniqueNew = deduplicateQuestions(newBatch, prev);
+            return [...prev, ...uniqueNew].sort((a,b) => (extractQuestionNumber(a.question) || 0) - (extractQuestionNumber(b.question) || 0));
+          });
+        },
+        failedBatchIndices
+      );
+
+      if (res.failedBatches && res.failedBatches.length > 0) {
+        setFailedBatchIndices(res.failedBatches);
+        toast.error(`Quét lại vẫn thất bại một số phần: ${res.failedBatches.join(', ')}`);
+      } else {
+        setFailedBatchIndices([]);
+        toast.success("Đã quét lại thành công tất cả các phần lỗi!");
+      }
+    } catch (e: any) {
+      toast.error("Lỗi khi quét lại: " + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const extractQuestionNumber = (q: string) => {
+    // Ưu tiên các định dạng: "Câu 1", "1.", "Q1", "1/"
+    const m = q.match(/(?:Câu|Q|Question)?\s*(\d+)[\.\/\:]?/i);
+    return m ? parseInt(m[1]) : null;
   };
 
   const runAudit = async (count: number, processedFiles?: UploadedFile[]) => {
@@ -747,6 +814,15 @@ const App: React.FC = () => {
                 >
                   {loading ? <Loader2 className="animate-spin" /> : <><Sparkles size={18} /> Trích xuất câu hỏi</>}
                 </button>
+
+                {failedBatchIndices.length > 0 && !loading && (
+                  <button
+                    onClick={handleRetryFailed}
+                    className="w-full py-3 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 font-extrabold rounded-2xl border-2 border-orange-200 dark:border-orange-800 hover:bg-orange-600 hover:text-white dark:hover:bg-orange-600 transition-all flex items-center justify-center gap-2 uppercase tracking-tighter text-xs"
+                  >
+                    <RotateCcw size={16} /> Quét lại {failedBatchIndices.length} phần bị lỗi
+                  </button>
+                )}
               </div>
             )}
           </div>

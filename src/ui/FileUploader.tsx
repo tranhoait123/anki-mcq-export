@@ -203,7 +203,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
         </div>
         <div>
           <p className="font-black text-slate-800 dark:text-white uppercase tracking-tighter text-lg leading-tight">Kéo thả hoặc nhấn để tải tài liệu</p>
-          <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] mt-1 mb-4 text-center">Mastered by PonZ - Y khoa & Chuyên nghiệp</p>
+          <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] mt-1 mb-4 text-center">Tài liệu tải lên phải có nội dung trắc nghiệm</p>
           <p className="inline-block px-4 py-1.5 bg-slate-200/50 dark:bg-slate-800 rounded-full text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest border border-slate-100 dark:border-slate-700">
             Hỗ trợ: PDF / Ảnh / Word (Tối đa 50MB/file)
           </p>

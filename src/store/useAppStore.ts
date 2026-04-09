@@ -23,8 +23,11 @@ export const useAppStore = create<AppState>((set) => ({
   mcqs: [],
   settings: {
     apiKey: '',
+    shopAIKeyKey: '',
+    provider: 'google',
     model: 'gemini-3.1-flash-lite-preview',
-    customPrompt: ''
+    customPrompt: '',
+    skipAnalysis: false,
   },
   analysis: null,
   audit: null,

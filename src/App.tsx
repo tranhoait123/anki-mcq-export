@@ -36,8 +36,12 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState<AppSettings>({
     apiKey: '',
+    shopAIKeyKey: '',
+    provider: 'google',
     model: 'gemini-3.1-flash-lite-preview',
-    customPrompt: ''
+    customPrompt: '',
+    skipAnalysis: false,
+    concurrencyLimit: 2
   });
 
   // Initialization & Migration: Load from DB or Migration from localStorage
@@ -68,6 +72,11 @@ const App: React.FC = () => {
             console.warn("🛡️ Detected invalid or experimental model. Resetting to Gemini 3.1 Flash-Lite.");
             persistedSettings.model = 'gemini-3.1-flash-lite-preview';
           }
+
+          // Ensure new fields exist
+          if (!persistedSettings.provider) persistedSettings.provider = 'google';
+          if (persistedSettings.shopAIKeyKey === undefined) persistedSettings.shopAIKeyKey = '';
+          if (persistedSettings.skipAnalysis === undefined) persistedSettings.skipAnalysis = false;
           
           setSettings(persistedSettings);
         }
@@ -234,10 +243,33 @@ const App: React.FC = () => {
 
   const handleAnalyze = async () => {
     if (files.length === 0) return;
+
+    // Validation for Provider Keys (Fix Pack 2026)
+    if (settings.provider === 'google' && !settings.apiKey?.trim()) {
+      toast.error("Vui lòng nhập Google API Key trong phần Cài đặt.");
+      return;
+    }
+    if (settings.provider === 'shopaikey' && !settings.shopAIKeyKey?.trim()) {
+      toast.error("Vui lòng nhập ShopAIKey API Key trong phần Cài đặt.");
+      return;
+    }
+
     setAnalyzing(true);
     setAnalysis(null);
     setAudit(null);
     try {
+      if (settings.skipAnalysis) {
+        setAnalysis({
+          topic: "Bỏ qua thuộc tính quét",
+          estimatedCount: 0,
+          questionRange: "Toàn bộ tài liệu",
+          confidence: "N/A"
+        });
+        toast.info("Đã bỏ qua bước quét tài liệu.");
+        setAnalyzing(false);
+        return;
+      }
+
       const filesToUse = await prepareFiles();
       const res = await analyzeDocument(filesToUse, settings);
       setAnalysis(res);
@@ -250,6 +282,17 @@ const App: React.FC = () => {
 
   const handleGenerate = async () => {
     if (files.length === 0) return;
+    
+    // Validation for Provider Keys
+    if (settings.provider === 'google' && !settings.apiKey) {
+      toast.error("Vui lòng nhập Google API Key trong phần Cài đặt.");
+      return;
+    }
+    if (settings.provider === 'shopaikey' && !settings.shopAIKeyKey) {
+      toast.error("Vui lòng nhập ShopAIKey API Key trong phần Cài đặt.");
+      return;
+    }
+
     setLoading(true);
     setMcqs([]);
     setAudit(null);
@@ -438,50 +481,73 @@ const App: React.FC = () => {
     toast.success("Đã copy toàn bộ nội dung CSV vào bộ nhớ đệm! (Bạn có thể paste vào Excel/Sheets)");
   };
 
+  const generateCSVData = () => {
+    try {
+      if (mcqs.length === 0) return "";
+
+      const headers = ["Question", "A", "B", "C", "D", "E", "CorrectAnswer", "ExplanationHTML", "Source", "Difficulty"];
+      const rows = mcqs.map((m, idx) => {
+        try {
+          const esc = (t: string) => `"${(t || "").replace(/"/g, '""')}"`;
+          
+          // Chốt chặn an toàn cho dữ liệu
+          const cleanQ = cleanText(m.question || "Nội dung trống", 'question');
+          const formattedQ = formatRichText(cleanQ);
+
+          const rawOps = Array.isArray(m.options) ? m.options : [];
+          const ops = [...rawOps];
+          while (ops.length < 5) ops.push("");
+          const cleanOps = ops.map(o => formatRichText(cleanText(o || "", 'option')));
+
+          const correctIndex = rawOps.findIndex((opt, i) => isOptionCorrect(opt, m.correctAnswer || "", i));
+          const correctLetter = correctIndex !== -1 
+            ? String.fromCharCode(65 + correctIndex) 
+            : ((m.correctAnswer || "").match(/^[A-E]/i)?.[0]?.toUpperCase() || m.correctAnswer || "A");
+
+          let explanationHtml = "";
+          if (m.explanation && typeof m.explanation === 'object') {
+            explanationHtml = buildAnkiHtml(m.explanation, m.difficulty || "Trung bình", m.depthAnalysis || "Vận dụng");
+          } else if (typeof m.explanation === 'string') {
+            explanationHtml = formatRichText(m.explanation);
+          } else {
+            explanationHtml = "<i>Không có giải thích.</i>";
+          }
+
+          return [esc(formattedQ), ...cleanOps.map(esc), esc(correctLetter), esc(explanationHtml), esc(m.source || ""), esc(m.difficulty || "")].join(",");
+        } catch (err) {
+          console.warn(`Lỗi tại câu ${idx + 1}:`, err);
+          return null;
+        }
+      }).filter(Boolean);
+
+      return "\uFEFF" + [headers.join(","), ...rows].join("\n");
+    } catch (e: any) {
+      toast.error(`Lỗi CSV: ${e.message}`);
+      return null;
+    }
+  };
+
   const downloadCSV = () => {
-    if (mcqs.length === 0) return;
-
-    const headers = ["Question", "A", "B", "C", "D", "E", "CorrectAnswer", "ExplanationHTML", "Source", "Difficulty"];
-    const rows = mcqs.map(m => {
-      const esc = (t: string) => `"${(t || "").replace(new RegExp('"', 'g'), '""')}"`;
-
-      // Clean Question & Options
-      const cleanQ = cleanText(m.question, 'question');
-      const formattedQ = formatRichText(cleanQ);
-
-      const ops = [...m.options];
-      while (ops.length < 5) ops.push("");
-      const cleanOps = ops.map(o => formatRichText(cleanText(o, 'option')));
-
-      const correctIndex = m.options.findIndex((opt, i) => isOptionCorrect(opt, m.correctAnswer, i));
-      const correctLetter = correctIndex !== -1 
-        ? String.fromCharCode(65 + correctIndex) 
-        : (m.correctAnswer.match(/^[A-E]/i)?.[0]?.toUpperCase() || m.correctAnswer);
-
-      return [
-        esc(formattedQ),
-        esc(cleanOps[0]), esc(cleanOps[1]), esc(cleanOps[2]), esc(cleanOps[3]), esc(cleanOps[4]),
-        esc(correctLetter), // Normalize to A/B/C/D
-        esc(buildAnkiHtml(m.explanation, m.difficulty, m.depthAnalysis)),
-        esc(m.source),
-        esc(m.difficulty)
-      ].join(",");
-    });
-    const csv = "\uFEFF" + [headers.join(","), ...rows].join("\n");
+    const csv = generateCSVData();
+    if (!csv) return;
+    
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
 
     // Smart Filename
     let filename = "Anki_Export";
     if (files.length > 0) {
-      // Use the first filename, strip extension, replace spaces with underscores
-      const baseName = files[0].name.replace(/\.[^/.]+$/, "").replace(/\s+/g, "_");
+      const baseName = files[0].name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "_");
       filename = `[ANKI]_${baseName}`;
     }
 
     link.href = URL.createObjectURL(blob);
     link.download = `${filename}_${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
+
+    toast.success("Tải file thành công! Lưu ý khi Import vào Anki: 1. Chọn dấu phẩy (Comma) - 2. Tích chọn 'Allow HTML in fields'", {
+      duration: 6000,
+    });
   };
 
   return (
@@ -493,18 +559,17 @@ const App: React.FC = () => {
             alt="PonZ Logo"
             className="h-10 w-auto object-contain hover:scale-105 transition-transform"
           />
-          <div className="flex flex-col border-l border-slate-200 dark:border-slate-700 pl-4 ml-1">
-            <h1 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white leading-none">
+          <div className="flex flex-col border-l-2 border-indigo-600/20 dark:border-indigo-400/20 pl-4 ml-1">
+            <h1 className="text-xl font-black tracking-tight text-slate-900 dark:text-white leading-none">
               MCQ AnkiGen <span className="text-indigo-600 dark:text-indigo-400">Pro</span>
             </h1>
-            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-1">Medical Engine by PonZ</span>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <div className="hidden md:flex flex-col items-end px-4 border-r border-slate-200 dark:border-slate-800 mr-2">
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">Medical Expert Tool</span>
-            <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">Mastered by PonZ</span>
+            <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] mb-0.5">AI MCQ Extraction & Solver Engine</span>
+            <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">Made by PonZ</span>
           </div>
           <div className="flex bg-slate-100 dark:bg-slate-800/50 p-1 rounded-xl mr-2">
             <button
@@ -636,7 +701,7 @@ const App: React.FC = () => {
 
         {/* Sidebar - Control Panel */}
         <div className={`space-y-6 ${isSplitView ? 'hidden' : 'lg:col-span-4'}`}>
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-5">
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 space-y-5">
             <FileUploader files={files} setFiles={setFiles} />
 
             {ocrMode === 'tesseract' && files.some(f => f.type.startsWith('image/')) && (
@@ -669,7 +734,7 @@ const App: React.FC = () => {
                 <button
                   onClick={handleGenerate}
                   disabled={loading}
-                  className="w-full py-4 bg-slate-900 dark:bg-white dark:text-slate-900 text-white font-black rounded-2xl hover:scale-[1.02] active:scale-95 shadow-xl transition-all flex items-center justify-center gap-3 uppercase tracking-widest"
+                  className="w-full py-4 bg-slate-900 dark:bg-indigo-600 text-white font-black rounded-2xl hover:scale-[1.02] active:scale-95 shadow-xl transition-all flex items-center justify-center gap-3 uppercase tracking-widest"
                 >
                   {loading ? <Loader2 className="animate-spin" /> : <><Sparkles size={18} /> Trích xuất câu hỏi</>}
                 </button>
@@ -683,23 +748,23 @@ const App: React.FC = () => {
 
           {/* Duplicates Review Trigger */}
           {duplicates.length > 0 && (
-            <div className="bg-white p-5 rounded-2xl shadow-sm border border-orange-200 overflow-hidden relative group">
+            <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-orange-200 dark:border-orange-900/30 overflow-hidden relative group">
               <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
                 <RotateCcw size={48} className="text-orange-600 rotate-12" />
               </div>
               <div className="relative z-10">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 bg-orange-100 text-orange-600 rounded-xl flex items-center justify-center shadow-inner">
+                  <div className="w-10 h-10 bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-xl flex items-center justify-center shadow-inner">
                     <Info size={20} />
                   </div>
                   <div>
-                    <h3 className="font-black text-slate-800 text-sm leading-none uppercase tracking-tighter">Phát hiện trùng lặp</h3>
-                    <span className="text-xs font-bold text-orange-600 mt-1 block">Có {duplicates.length} câu tương đồng cao</span>
+                    <h3 className="font-black text-slate-800 dark:text-white text-sm leading-none uppercase tracking-tighter">Phát hiện trùng lặp</h3>
+                    <span className="text-xs font-bold text-orange-600 dark:text-orange-400 mt-1 block">Có {duplicates.length} câu tương đồng cao</span>
                   </div>
                 </div>
                 <button
                   onClick={() => setShowDuplicates(true)}
-                  className="w-full py-3 bg-white dark:bg-slate-800 border-2 border-orange-200 text-orange-700 font-black text-[10px] uppercase tracking-widest rounded-xl hover:bg-orange-600 hover:text-white hover:border-orange-600 transition-all shadow-sm flex items-center justify-center gap-2"
+                  className="w-full py-3 bg-white dark:bg-slate-900 border-2 border-orange-200 dark:border-orange-800 text-orange-700 dark:text-orange-400 font-black text-[10px] uppercase tracking-widest rounded-xl hover:bg-orange-600 dark:hover:bg-orange-600 hover:text-white transition-all shadow-sm flex items-center justify-center gap-2"
                 >
                   <ScanText size={14} /> Kiểm tra ngay
                 </button>
@@ -723,12 +788,16 @@ const App: React.FC = () => {
             <div className="bg-white p-5 rounded-xl border border-indigo-100 shadow-sm space-y-3">
               <div className="flex justify-between items-center text-sm font-medium text-indigo-900">
                 <span className="flex items-center gap-2"><Loader2 className="animate-spin text-indigo-600" size={16} /> {progressStatus}</span>
-                <span>{Math.round((currentCount / (analysis?.estimatedCount || 100)) * 100)}%</span>
+                <span>
+                  {analysis?.estimatedCount && analysis.estimatedCount > 0 
+                    ? `${Math.round((currentCount / analysis.estimatedCount) * 100)}%`
+                    : `Đã xong ${currentCount} câu`}
+                </span>
               </div>
               <div className="h-2 bg-indigo-50 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-indigo-600 transition-all duration-300 ease-out"
-                  style={{ width: `${Math.min(100, (currentCount / (analysis?.estimatedCount || 100)) * 100)}%` }}
+                  className={`h-full bg-indigo-600 transition-all duration-300 ease-out ${(!analysis?.estimatedCount || analysis.estimatedCount === 0) ? 'animate-pulse' : ''}`}
+                  style={{ width: `${analysis?.estimatedCount && analysis.estimatedCount > 0 ? Math.min(100, (currentCount / analysis.estimatedCount) * 100) : 100}%` }}
                 />
               </div>
             </div>

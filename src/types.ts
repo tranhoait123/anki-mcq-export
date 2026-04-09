@@ -72,10 +72,14 @@ export interface UploadedFile {
 }
 
 export type ProgressCallback = (message: string, count: number) => void;
-export type BatchCallback = (newQuestions: any[]) => void;
+export type BatchCallback = (newQuestions: MCQ[]) => void;
 
 export interface AppSettings {
   apiKey: string;
+  shopAIKeyKey: string;
+  provider: 'google' | 'shopaikey';
   model: string;
   customPrompt: string;
+  skipAnalysis?: boolean;
+  concurrencyLimit?: number;
 }

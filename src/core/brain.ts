@@ -1,6 +1,6 @@
 import { PDFDocument } from 'pdf-lib';
 import { GoogleGenAI, Type } from "@google/genai";
-import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings } from "../types";
+import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings, MCQ, DuplicateInfo } from "../types";
 import { db } from './db';
 
 // Helper: Hashing for cache identification
@@ -18,6 +18,30 @@ const hashApiKey = (key: string): string => {
   if (!key) return "no-key";
   return key.substring(0, 8) + key.substring(key.length - 8); // Simple suffix/prefix hash
 };
+
+// Helper: Auto-retry for ShopAIKey / Direct Key
+async function executeWithRetry<T>(fn: () => Promise<T>, retries: number = 3): Promise<T> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      const isTransient = 
+        error.message.includes("503") || 
+        error.message.includes("overloaded") || 
+        error.message.includes("429") ||
+        error.message.toLowerCase().includes("format") || 
+        error.message.toLowerCase().includes("json");
+
+      if (isTransient) {
+        console.warn(`⚠️ API Error/Format Error (Attempt ${i+1}/${retries}). Retrying...`);
+        await new Promise(r => setTimeout(r, 2000 * Math.pow(2, i))); 
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("Dịch vụ đang trục trặc hoặc phản hồi sai định dạng sau nhiều lần thử. Vui lòng thử lại.");
+}
 
 // Helper: Cache Management
 const getOrSetContextCache = async (ai: any, files: UploadedFile[], modelName: string, systemInstruction: string, apiKey: string): Promise<string | null> => {
@@ -72,8 +96,13 @@ const getOrSetContextCache = async (ai: any, files: UploadedFile[], modelName: s
 
     console.log(`✅ Cache Created: ${cache.name}`);
     return cache.name;
-  } catch (err) {
-    console.warn("⚠️ Context Caching failed (possibly not supported by key/model):", err);
+  } catch (err: any) {
+    const msg = err.message?.toLowerCase() || "";
+    if (msg.includes("limit exceeded") || msg.includes("429") || msg.includes("resource exhausted")) {
+      console.log("ℹ️ Context Caching is not available on this Free Tier key. Proceeding with standard request.");
+    } else {
+      console.warn("⚠️ Context Caching failed:", err);
+    }
     return null;
   }
 };
@@ -254,12 +283,13 @@ class UserKeyRotator {
   constructor() { }
 
   init(apiKeyString: string) {
-    if (!apiKeyString) {
+    if (!apiKeyString || typeof apiKeyString !== 'string') {
       this.keys = [];
       return;
     }
-    let parts = apiKeyString.split(/[,;\n]+/);
-    this.keys = parts.map(k => k.trim()).filter(k => k.length > 10);
+    // Hỗ trợ dấu phẩy, dấu chấm phẩy, hoặc xuống dòng
+    let parts = apiKeyString.split(/[,;\n\r]+/);
+    this.keys = parts.map(k => k.trim()).filter(k => k.length > 5);
     this.currentIndex = 0;
     console.log(`🔑 Loaded ${this.keys.length} API Keys.`);
   }
@@ -294,26 +324,62 @@ const userKeyRotator = new UserKeyRotator();
 const extractJson = (text: string): string => {
   if (!text) return "";
   
-  // Xử lý khối mã Markdown: ```json ... ``` hoặc ``` ... ```
+  // 1. Xử lý khối mã Markdown: ```json ... ``` hoặc ``` ... ```
   let cleanText = text;
   const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (codeBlockMatch) {
     cleanText = codeBlockMatch[1];
   }
 
+  // 2. Tìm điểm bắt đầu thực sự của JSON
   const start = cleanText.indexOf('{');
-  const end = cleanText.lastIndexOf('}');
+  const aStart = cleanText.indexOf('[');
   
-  if (start === -1 || end === -1 || start >= end) {
-    // Nếu không tìm thấy { }, kiểm tra xem có phải mảng [ ] không
-    const aStart = cleanText.indexOf('[');
-    const aEnd = cleanText.lastIndexOf(']');
-    if (aStart !== -1 && aEnd !== -1 && aStart < aEnd) {
-      return cleanText.substring(aStart, aEnd + 1);
+  // Ưu tiên cái nào xuất hiện trước
+  let actualStart = -1;
+  if (start !== -1 && aStart !== -1) actualStart = Math.min(start, aStart);
+  else actualStart = start !== -1 ? start : aStart;
+
+  if (actualStart === -1) return cleanText.trim();
+
+  // 3. Tìm điểm kết thúc và cố gắng "vá" nếu AI cắt cụt (Unbalanced Braces)
+  let subText = cleanText.substring(actualStart);
+  let braceCount = 0;
+  let bracketCount = 0;
+  let lastValidEnd = -1;
+
+  for (let i = 0; i < subText.length; i++) {
+    const char = subText[i];
+    if (char === '{') braceCount++;
+    else if (char === '}') braceCount--;
+    else if (char === '[') bracketCount++;
+    else if (char === ']') bracketCount--;
+
+    // Nếu về 0 và chúng ta đã bắt đầu rồi, đánh dấu điểm kết thúc hợp lệ
+    if (braceCount === 0 && bracketCount === 0) {
+      lastValidEnd = i;
     }
-    return cleanText.trim();
   }
-  return cleanText.substring(start, end + 1);
+
+  // Nếu chuỗi kết thúc mà vẫn còn ngoặc mở -> Cố gắng đóng lại
+  if (lastValidEnd !== -1) {
+    return subText.substring(0, lastValidEnd + 1);
+  }
+
+  // Fallback: Nếu không tìm thấy điểm kết thúc cân bằng, cố gắng lấy đến dấu ngoặc cuối cùng
+  const lastBrace = subText.lastIndexOf('}');
+  const lastBracket = subText.lastIndexOf(']');
+  const actualEnd = Math.max(lastBrace, lastBracket);
+  
+  if (actualEnd !== -1) {
+    let result = subText.substring(0, actualEnd + 1);
+    // Bổ sung ngoặc nếu thiếu để JSON.parse không tèo
+    while (braceCount > 0) { result += '}'; braceCount--; }
+    while (bracketCount > 0) { result += ']'; bracketCount--; }
+    return result;
+  }
+
+  return subText.trim();
 };
 
 // --- Deduplication Helpers ---
@@ -401,8 +467,8 @@ const calculateSimilarity = (str1: string, str2: string): number => {
 };
 
 const checkDuplicate = (newQ: any, existingQuestions: any[]): { isDup: boolean; reason?: string; matchedWith?: string; matchedData?: any } => {
-  const CONTENT_THRESHOLD = 0.95; // Nâng lên 95% để cực kỳ khắt khe
-  const NUMBER_MATCH_THRESHOLD = 0.90; // Nâng lên 90% thay vì 80%
+  const Q_THRESHOLD = 0.90; // Ngưỡng câu hỏi (linh hoạt hơn)
+  const OPT_THRESHOLD = 0.90; // Phải trùng cả đáp án để đảm bảo an toàn
 
   const newNumber = extractQuestionNumber(newQ.question);
   const newText = newQ.question;
@@ -413,27 +479,24 @@ const checkDuplicate = (newQ: any, existingQuestions: any[]): { isDup: boolean; 
     const qSim = calculateSimilarity(newText, existing.question);
     const optSim = calculateSimilarity(newOpts, (existing.options || []).join(' '));
     
-    // Tổng hợp độ tương đồng (70% câu hỏi, 30% đáp án)
-    const totalSim = (qSim * 0.7) + (optSim * 0.3);
-
     // Trường hợp 1: Trùng số câu hỏi (Câu 1, Câu 1...)
-    // Chỉ coi là trùng nếu nội dung cũng cực kỳ giống nhau (> 90%)
     if (newNumber !== null && existingNumber !== null && newNumber === existingNumber) {
-      if (totalSim >= NUMBER_MATCH_THRESHOLD) {
+      if (qSim >= 0.85 && optSim >= 0.85) {
         return {
           isDup: true,
-          reason: `Trùng số (${newNumber}) & Nội dung (~${Math.round(totalSim * 100)}%)`,
+          reason: `Trùng số (${newNumber}) & Nội dung tương đồng`,
           matchedWith: existing.question.substring(0, 60),
           matchedData: existing
         };
       }
     }
 
-    // Trường hợp 2: Không trùng số hoặc số khác nhau nhưng nội dung giống hệt (> 95%)
-    if (totalSim >= CONTENT_THRESHOLD) {
+    // Trường hợp 2: Kiểm tra kết hợp Câu hỏi + Đáp án
+    // Chỉ coi là trùng nếu CẢ câu hỏi và bộ đáp án đều giống nhau trên 90%
+    if (qSim >= Q_THRESHOLD && optSim >= OPT_THRESHOLD) {
       return {
         isDup: true,
-        reason: `Nội dung tương đồng rất cao (${Math.round(totalSim * 100)}%)`,
+        reason: `Nội dung & Đáp án tương đồng cao (~${Math.round(qSim * 100)}%)`,
         matchedWith: existing.question.substring(0, 60),
         matchedData: existing
       };
@@ -475,14 +538,16 @@ async function executeWithUserRotation<T>(
       const isRateLimit = msg.includes("429") || msg.includes("quota exceeded") || msg.includes("resource exhausted") || msg.includes("timeout") || msg.includes("econnreset");
       const isServerBusy = msg.includes("503") || msg.includes("unavailable") || msg.includes("overloaded");
       const isKeyError = msg.includes("api key") && (msg.includes("invalid") || msg.includes("not found") || msg.includes("expired"));
+      const isFormatError = msg.includes("json") || msg.includes("định dạng") || msg.includes("format");
 
-      if (isRateLimit || isServerBusy || isKeyError) {
-        const reason = isRateLimit ? "Hết hạn mức/Timeout" : (isServerBusy ? "Server quá tải (503)" : "Lỗi Key");
+      if (isRateLimit || isServerBusy || isKeyError || isFormatError) {
+        const reason = isFormatError ? "Lỗi định dạng AI" : (isRateLimit ? "Hết hạn mức/Timeout" : (isServerBusy ? "Server quá tải (503)" : "Lỗi Key"));
         console.warn(`⚠️ ${reason} on Key #${userKeyRotator.getKeyIndex() + 1}. Rotating... (Attempt ${attempts})`);
         
         // Exponential backoff & jitter logic for rate limits
-        const backoffMs = isRateLimit 
-             ? Math.min(15000, 1000 * Math.pow(1.5, attempts) + Math.random() * 1000) 
+        const multiplier = isFormatError ? 2.0 : 1.5; // Be more patient with format errors
+        const backoffMs = (isRateLimit || isFormatError)
+             ? Math.min(20000, 1000 * Math.pow(multiplier, attempts) + Math.random() * 1000) 
              : 500;
 
         userKeyRotator.rotate();
@@ -503,11 +568,19 @@ export const generateQuestions = async (
   onProgress?: ProgressCallback,
   expectedCount: number = 0,
   onBatchComplete?: BatchCallback
-): Promise<GeneratedResponse> => {
+): Promise<{ questions: MCQ[], duplicates: DuplicateInfo[] }> => {
   try {
-    userKeyRotator.init(settings.apiKey);
-    const apiKey = userKeyRotator.getCurrentKey();
-    const ai = new GoogleGenAI({ apiKey });
+    let ai: any;
+    if (settings.provider === 'shopaikey') {
+      ai = new GoogleGenAI({ 
+        apiKey: settings.shopAIKeyKey,
+        httpOptions: { baseUrl: 'https://api.shopaikey.com' }
+      });
+    } else {
+      userKeyRotator.init(settings.apiKey);
+      const apiKey = userKeyRotator.getCurrentKey();
+      ai = new GoogleGenAI({ apiKey });
+    }
 
     // --- STEP 1: PRE-PROCESS & NORMALIZE ---
     let allParts: any[] = [];
@@ -587,82 +660,107 @@ export const generateQuestions = async (
     let duplicateCounter = 0;
 
     // --- STEP 2: BATCH PROCESSING ---
-    // Since we split the PDF into small PDFs (3 pages), each "part" is now a 3-page PDF.
-    // We can treat each Part as a Batch.
-
-    const CHUNK_SIZE = 1; // Handled by splitPdf
-    // const OVERLAP = 0; // Handled by splitPdf overlap param if we wanted, but here simpler is distinct blocks or overlapping blocks?
-    // In splitPdf: I did NOT implement overlap. Just sequential.
-    // To implement overlap: `i += pagesPerChunk - 1`?
-    // My splitPdf loop: `i += pagesPerChunk`. That is NO overlap.
-    // To ensure "Rolling Window", update splitPdf logic?
-    // Actually, distinct blocks are usually fine if question doesn't span page break.
-    // But to match "Rolling Window", we can adjust splitPdf loop step.
-    // Ideally, we process these PDF chunks in parallel.
-
-    const CONCURRENCY_LIMIT = 2;
-    const totalBatches = allParts.length;
     let completedBatches = 0;
+    const CONCURRENCY_LIMIT = settings.concurrencyLimit || 2;
 
+    const extractAndParseQuestions = (text: string, batchIndex: number) => {
+      const jsonStr = extractJson(text);
+      try {
+        const parsed = JSON.parse(jsonStr);
+        if (Array.isArray(parsed)) return parsed;
+        if (parsed && parsed.questions) return parsed.questions;
+        return [];
+      } catch (e) {
+        throw new Error(`Dữ liệu từ AI ở Batch ${batchIndex + 1} không đúng định dạng JSON. Vui lòng thử lại.`);
+      }
+    };
+
+    const totalBatches = allParts.length;
     const processBatch = async (part: any, index: number) => {
       try {
         if (onProgress) onProgress(`Đang quét song song: Batch ${index + 1}/${totalBatches}...`, allQuestions.length);
         await new Promise(r => setTimeout(r, Math.random() * 1000));
 
-        const promptText = `
-  HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY.
-  Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy.
-  Đừng lo về trùng lặp (hệ thống sẽ tự lọc).
-            `;
+        const rawNewQs = await (settings.provider === 'shopaikey' 
+          ? executeWithRetry(async () => {
+              const finalInstruction = settings.customPrompt 
+                ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}`
+                : SYSTEM_INSTRUCTION_EXTRACT;
+              
+              const messages = [
+                { role: "system", content: finalInstruction },
+                { 
+                  role: "user", 
+                  content: [
+                    { type: "text", text: `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${index + 1}/${totalBatches}).` },
+                    ...(part.inlineData ? [{
+                      type: "image_url",
+                      image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` }
+                    }] : [{ type: "text", text: part.text }])
+                  ]
+                }
+              ];
 
-        const text = await executeWithUserRotation(async (currentKey) => {
-          const ai = new GoogleGenAI({ apiKey: currentKey });
-          
-          const finalInstruction = settings.customPrompt 
-            ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}`
-            : SYSTEM_INSTRUCTION_EXTRACT;
+              const response = await fetch("https://api.shopaikey.com/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${settings.shopAIKeyKey}`,
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  model: settings.model,
+                  messages,
+                  temperature: 0.1,
+                  response_format: { type: "json_object" }
+                })
+              });
 
-          // Resolve cache for THIS specific key (thread-safe within session)
-          const keyHash = hashApiKey(currentKey);
-          if (!sessionCache[keyHash]) {
-            sessionCache[keyHash] = getOrSetContextCache(ai, files, settings.model, finalInstruction, currentKey);
-          }
-          const kCacheName = await sessionCache[keyHash];
+              if (!response.ok) {
+                const err = await response.text();
+                throw new Error(`ShopAIKey API Error: ${response.status} - ${err}`);
+              }
+              const data = await response.json();
+              const text = data.choices[0].message.content;
+              return extractAndParseQuestions(text, index);
+            })
+          : executeWithUserRotation(async (currentKey) => {
+              const aiInstance = new GoogleGenAI({ apiKey: currentKey });
+              
+              const finalInstruction = settings.customPrompt 
+                ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}`
+                : SYSTEM_INSTRUCTION_EXTRACT;
 
-          // If we have a cache for this key, use it
-          const config = getModelConfig(currentKey, finalInstruction, questionSchema, settings.model, kCacheName || undefined);
-          const chat = ai.chats.create(config);
+              const keyHash = hashApiKey(currentKey);
+              
+              // CRITICAL FIX: Lock synchronization to prevent thundering herd 429 on Caching API
+              if (!sessionCache[keyHash]) {
+                // We assign a placeholder first to "claim" the initialization
+                sessionCache[keyHash] = (async () => {
+                  try {
+                    return await getOrSetContextCache(aiInstance, files, settings.model, finalInstruction, currentKey);
+                  } catch (e) {
+                    return null; // Quietly fail and proceed without cache
+                  }
+                })();
+              }
+              const kCacheName = await sessionCache[keyHash];
 
-          const batchPrompt = kCacheName 
-            ? `Dựa trên tài liệu bạn đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${index + 1}/${totalBatches}. Tập trung vào nội dung mới được gửi đính kèm.`
-            : `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${index + 1}/${totalBatches}).`;
+              const config = getModelConfig(currentKey, finalInstruction, questionSchema, settings.model, kCacheName || undefined);
+              const chat = aiInstance.chats.create(config);
 
-          const response = await chat.sendMessage({
-            message: [part, { text: batchPrompt }]
-          });
-          return response.text;
-        });
+              const batchPrompt = kCacheName 
+                ? `Dựa trên tài liệu bạn đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${index + 1}/${totalBatches}. Tập trung vào nội dung mới được gửi đính kèm.`
+                : `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${index + 1}/${totalBatches}).`;
 
-        if (text) {
-          console.log(`📡 Batch ${index + 1} Raw (Length: ${text.length}):`, text.substring(0, 500) + (text.length > 500 ? "..." : ""));
-          const jsonStr = extractJson(text);
-          let parsed: any;
-          try {
-            parsed = JSON.parse(jsonStr);
-          } catch (pe) {
-            console.error(`❌ Batch ${index + 1} JSON Parse Error:`, pe.message);
-            console.log("Faulty JSON:", jsonStr);
-            return;
-          }
+              const response = await chat.sendMessage({
+                message: [part, { text: batchPrompt }]
+              });
+              const text = response.text;
+              return extractAndParseQuestions(text, index);
+            })
+        );
 
-          // Fallback: Nếu AI trả về mảng trực tiếp, bọc lại vào đối tượng
-          let rawNewQs = [];
-          if (Array.isArray(parsed)) {
-            console.log(`⚠️ Batch ${index + 1}: AI returned an ARRAY instead of object. Using fallback.`);
-            rawNewQs = parsed;
-          } else if (parsed && parsed.questions) {
-            rawNewQs = parsed.questions;
-          }
+        if (rawNewQs && rawNewQs.length > 0) {
 
           const newQs = [];
 
@@ -728,8 +826,51 @@ export const generateQuestions = async (
 
 
 export const analyzeDocument = async (files: UploadedFile[], settings: AppSettings): Promise<AnalysisResult> => {
-  userKeyRotator.init(settings.apiKey);
+  if (settings.provider === 'shopaikey') {
+    return await executeWithRetry(async () => {
+      const parts: any[] = files.map(file => {
+        if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+          return {
+            type: "image_url",
+            image_url: { url: `data:${file.type};base64,${file.content.includes(',') ? file.content.split(',')[1] : file.content}` }
+          };
+        }
+        return { type: "text", text: `FILE: ${file.name}\n${file.content}\n` };
+      });
 
+      const response = await fetch("https://api.shopaikey.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${settings.shopAIKeyKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: settings.model,
+          messages: [
+            { role: "system", content: "Phân tích số câu hỏi trắc nghiệm trong tài liệu Y khoa." },
+            { 
+              role: "user", 
+              content: [
+                ...parts,
+                { type: "text", text: "Quét tài liệu và ước tính tổng số câu hỏi MCQ có mặt." }
+              ]
+            }
+          ],
+          temperature: 0.1,
+          response_format: { type: "json_object" }
+        })
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        throw new Error(`ShopAIKey API Error: ${response.status} - ${err}`);
+      }
+      const data = await response.json();
+      return JSON.parse(extractJson(data.choices[0].message.content)) as AnalysisResult;
+    });
+  }
+
+  userKeyRotator.init(settings.apiKey);
   return await executeWithUserRotation(async (apiKey) => {
     const ai = new GoogleGenAI({ apiKey });
 
@@ -763,8 +904,51 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
 };
 
 export const auditMissingQuestions = async (files: UploadedFile[], count: number, settings: AppSettings): Promise<AuditResult> => {
-  userKeyRotator.init(settings.apiKey);
+  if (settings.provider === 'shopaikey') {
+    return await executeWithRetry(async () => {
+      const parts: any[] = files.map(file => {
+        if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+          return {
+            type: "image_url",
+            image_url: { url: `data:${file.type};base64,${file.content.includes(',') ? file.content.split(',')[1] : file.content}` }
+          };
+        }
+        return { type: "text", text: `FILE: ${file.name}\n${file.content}\n` };
+      });
 
+      const response = await fetch("https://api.shopaikey.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${settings.shopAIKeyKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: settings.model,
+          messages: [
+            { role: "system", content: SYSTEM_INSTRUCTION_AUDIT },
+            { 
+              role: "user", 
+              content: [
+                ...parts,
+                { type: "text", text: `Quá trình trích xuất chỉ lấy được ${count} câu hỏi. Hãy so sánh với toàn bộ tài liệu và báo cáo tại sao có sự thiếu hụt này. Chỉ ra chính xác chương hoặc trang gặp khó khăn nếu có thể.` }
+              ]
+            }
+          ],
+          temperature: 0.1,
+          response_format: { type: "json_object" }
+        })
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        throw new Error(`ShopAIKey API Error: ${response.status} - ${err}`);
+      }
+      const data = await response.json();
+      return JSON.parse(extractJson(data.choices[0].message.content)) as AuditResult;
+    });
+  }
+
+  userKeyRotator.init(settings.apiKey);
   return await executeWithUserRotation(async (apiKey) => {
     const ai = new GoogleGenAI({ apiKey });
     const parts: any[] = files.map(file => {

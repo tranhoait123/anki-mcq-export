@@ -272,7 +272,6 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete }) => 
   const [searchTerm, setSearchTerm] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<MCQ | null>(null);
-  const [showWarningsOnly, setShowWarningsOnly] = useState(false);
   const [difficultyFilter, setDifficultyFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('preview');
 
@@ -284,11 +283,10 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete }) => 
   const filtered = useMemo(() =>
     mcqs.filter(m => {
       const matchSearch = m.question.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchWarning = showWarningsOnly ? (m.explanation.warning && m.explanation.warning.length > 0) : true;
       const matchDifficulty = difficultyFilter === 'all' ? true : m.difficulty === difficultyFilter;
-      return matchSearch && matchWarning && matchDifficulty;
+      return matchSearch && matchDifficulty;
     }),
-    [mcqs, searchTerm, showWarningsOnly, difficultyFilter]);
+    [mcqs, searchTerm, difficultyFilter]);
 
   const handleEditStart = (mcq: MCQ) => {
     setEditingId(mcq.id);
@@ -374,18 +372,6 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete }) => 
             <PenLine size={12} /> Soạn thảo
           </button>
         </div>
-
-        <button
-          onClick={() => setShowWarningsOnly(!showWarningsOnly)}
-          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[10px] font-black transition-all uppercase tracking-tighter border shadow-sm ${showWarningsOnly
-            ? 'bg-amber-100 text-amber-700 border-amber-200'
-            : 'bg-white dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:bg-slate-50'
-            }`}
-          title="Lọc các câu có cảnh báo/lưu ý"
-        >
-          <AlertTriangle size={12} strokeWidth={3} className={showWarningsOnly ? "fill-amber-700" : ""} />
-          Lọc Cảnh Báo
-        </button>
 
         <div className="hidden md:flex flex-col items-end px-3 border-l border-slate-200 dark:border-slate-800">
           <span className="text-[10px] font-black text-slate-400 tracking-tighter uppercase whitespace-nowrap">Kết quả</span>

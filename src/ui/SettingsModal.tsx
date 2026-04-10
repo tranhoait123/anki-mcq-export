@@ -198,7 +198,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                             onChange={e => setSettings({ ...settings, concurrencyLimit: parseInt(e.target.value) })}
                                             className="text-xs font-bold border dark:border-slate-700 rounded px-2 py-1 bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 outline-none"
                                         >
-                                            {[1, 2, 3, 4, 5, 10, 15, 20].map(n => (
+                                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
                                                 <option key={n} value={n}>{n} luồng</option>
                                             ))}
                                         </select>

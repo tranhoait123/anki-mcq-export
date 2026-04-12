@@ -19,6 +19,106 @@ const hashApiKey = (key: string): string => {
   return key.substring(0, 8) + key.substring(key.length - 8); // Simple suffix/prefix hash
 };
 
+// --- User-Friendly Error Translator ---
+// Nguyên tắc: "Chuyện gì xảy ra? Tại sao? Người dùng cần làm gì?"
+export const translateErrorForUser = (error: any, context?: string): string => {
+  const msg = error?.message || String(error) || "";
+  const msgLow = msg.toLowerCase();
+  const statusCode = error?.status || error?.statusCode || 0;
+  const prefix = context ? `[${context}] ` : "";
+
+  // --- API Key & Authentication ---
+  if (statusCode === 403 || msgLow.includes("403") || msgLow.includes("permission denied") || msgLow.includes("forbidden")) {
+    return `${prefix}🔑 API Key không có quyền truy cập. Hãy kiểm tra: Key đã bật Gemini API chưa? Key có bị vô hiệu hóa không? (Mã lỗi: 403)`;
+  }
+  if ((msgLow.includes("api key") || msgLow.includes("api_key")) && (msgLow.includes("invalid") || msgLow.includes("not found") || msgLow.includes("expired"))) {
+    return `${prefix}🔑 API Key không hợp lệ hoặc đã hết hạn. Vui lòng vào Cài đặt → kiểm tra lại API Key.`;
+  }
+  if (msgLow.includes("401") || msgLow.includes("unauthenticated") || statusCode === 401) {
+    return `${prefix}🔑 Xác thực thất bại. Vui lòng kiểm tra API Key trong phần Cài đặt.`;
+  }
+
+  // --- Rate Limiting ---
+  if (statusCode === 429 || msgLow.includes("429") || msgLow.includes("quota") || msgLow.includes("resource_exhausted") || msgLow.includes("exhausted")) {
+    return `${prefix}⏳ Hệ thống đang nhận quá nhiều yêu cầu (hết hạn mức). Vui lòng chờ 1-2 phút rồi thử lại. Nếu lỗi tiếp tục, hãy thêm nhiều API Key trong Cài đặt.`;
+  }
+
+  // --- Server Overload ---
+  if (statusCode === 503 || msgLow.includes("503") || msgLow.includes("unavailable") || msgLow.includes("overloaded")) {
+    return `${prefix}🔄 Server AI đang quá tải tạm thời. Hệ thống sẽ tự động thử lại. Nếu lỗi kéo dài, vui lòng chờ 2-3 phút.`;
+  }
+  if (statusCode === 500 || msgLow.includes("500") || msgLow.includes("internal")) {
+    return `${prefix}⚠️ Lỗi phía server AI (lỗi nội bộ). Vui lòng thử lại sau ít phút.`;
+  }
+  if (msgLow.includes("deadline") || msgLow.includes("504") || statusCode === 504) {
+    return `${prefix}⏱️ Yêu cầu quá thời gian chờ. Tài liệu có thể quá dài — hãy thử chia nhỏ file hoặc giảm số trang.`;
+  }
+
+  // --- Network ---
+  if (msgLow.includes("failed to fetch") || msgLow.includes("networkerror") || msgLow.includes("net::")) {
+    return `${prefix}🌐 Mất kết nối mạng. Hãy kiểm tra WiFi/Internet rồi thử lại.`;
+  }
+  if (msgLow.includes("timeout") || msgLow.includes("econnreset") || msgLow.includes("econnrefused")) {
+    return `${prefix}🌐 Kết nối bị gián đoạn (timeout). Hãy kiểm tra mạng và thử lại.`;
+  }
+  if (msgLow.includes("cors")) {
+    return `${prefix}🌐 Lỗi kết nối CORS. Vui lòng thử tải lại trang (F5).`;
+  }
+
+  // --- AI Format / Content ---
+  if (msgLow.includes("ai_format_error") || msgLow.includes("json") && msgLow.includes("định dạng")) {
+    return `${prefix}📄 AI trả về dữ liệu không đúng định dạng (tài liệu quá dài). Hệ thống sẽ tự chia nhỏ và thử lại.`;
+  }
+  if (msgLow.includes("safety") || msgLow.includes("blocked") || msgLow.includes("content filter")) {
+    return `${prefix}🛡️ Nội dung bị chặn bởi bộ lọc an toàn AI. Hãy thử với tài liệu khác hoặc kiểm tra nội dung.`;
+  }
+  if (msgLow.includes("too large") || msgLow.includes("payload") || msgLow.includes("413") || statusCode === 413) {
+    return `${prefix}📦 File quá lớn để xử lý. Vui lòng nén file hoặc chia nhỏ (dưới 20MB/file).`;
+  }
+  if (msgLow.includes("không tìm thấy câu hỏi") || msgLow.includes("không tìm thấy văn bản")) {
+    return `${prefix}📄 Không tìm thấy câu hỏi trắc nghiệm trong tài liệu. Hãy kiểm tra file đúng chưa (cần file có nội dung MCQ).`;
+  }
+
+  // --- ShopAIKey Specific ---
+  if (msgLow.includes("shopaikey api error")) {
+    const code = msg.match(/:\s*(\d+)/)?.[1] || "?";
+    const shopMsgs: Record<string, string> = {
+      "401": "API Key ShopAIKey không hợp lệ. Kiểm tra lại Key.",
+      "402": "Tài khoản ShopAIKey hết số dư. Vui lòng nạp thêm.",
+      "403": "API Key ShopAIKey không có quyền. Kiểm tra Key.",
+      "429": "ShopAIKey quá tải. Chờ 1-2 phút rồi thử lại.",
+      "500": "Server ShopAIKey đang gặp sự cố. Thử lại sau.",
+      "503": "Server ShopAIKey quá tải tạm thời. Thử lại sau.",
+    };
+    return `${prefix}🤖 Lỗi ShopAIKey: ${shopMsgs[code] || `Server phản hồi mã ${code}. Vui lòng thử lại sau.`}`;
+  }
+
+  // --- PDF / File Processing ---
+  if (msgLow.includes("pdf") && (msgLow.includes("lỗi") || msgLow.includes("error"))) {
+    return `${prefix}📄 Lỗi đọc file PDF. File có thể bị hỏng hoặc được bảo vệ bằng mật khẩu. Hãy thử chuyển sang ảnh rồi tải lại.`;
+  }
+  if (msgLow.includes("ocr failed")) {
+    return `${prefix}📷 Nhận dạng chữ từ ảnh thất bại. Ảnh có thể quá mờ hoặc không chứa văn bản. Thử với ảnh có độ phân giải cao hơn.`;
+  }
+
+  // --- All API Keys Failed ---
+  if (msgLow.includes("tất cả") && msgLow.includes("keys") && msgLow.includes("lỗi")) {
+    return msg; // Đã là message rõ ràng rồi
+  }
+  if (msgLow.includes("đã thử luân phiên") || msgLow.includes("quá tải")) {
+    return msg; // Đã là message rõ ràng rồi  
+  }
+
+  // --- Fallback: Return original message if already Vietnamese/clear ---
+  if (msg.startsWith("🔑") || msg.startsWith("⏳") || msg.startsWith("🔄") || msg.startsWith("📄") || msg.startsWith("🌐")) {
+    return msg; // Đã có emoji prefix → message rõ ràng
+  }
+
+  // --- Last resort: wrap unknown error ---
+  const shortMsg = msg.length > 120 ? msg.substring(0, 120) + "..." : msg;
+  return `${prefix}❌ Đã xảy ra lỗi không mong muốn: ${shortMsg}. Vui lòng thử lại hoặc liên hệ hỗ trợ.`;
+};
+
 // --- High-Level Execution Wrappers ---
 
 async function executeWithRetry<T>(fn: () => Promise<T>, retries: number = 3): Promise<T> {
@@ -45,11 +145,22 @@ async function executeWithRetry<T>(fn: () => Promise<T>, retries: number = 3): P
       throw error;
     }
   }
-  throw new Error("Dịch vụ đang trục trặc hoặc phản hồi sai định dạng sau nhiều lần thử. Vui lòng thử lại.");
+  throw new Error("🔄 Dịch vụ AI đang bận hoặc phản hồi sai định dạng sau nhiều lần thử. Vui lòng chờ 1-2 phút rồi thử lại, hoặc dùng nút 'Quét lại' để chia nhỏ tài liệu.");
 }
 
 // Helper: Cache Management
+// Session-level flag: Khi 1 key fail caching (Free Tier / 429 / 403), tất cả key khác
+// trong cùng session rất có thể cũng là Free Tier → skip luôn để tiết kiệm thời gian.
+let cachingDisabledForSession = false;
+let cachingFailureCount = 0;
+const CACHING_FAIL_THRESHOLD = 2; // Sau 2 lần fail liên tiếp → disable cho cả session
+
 const getOrSetContextCache = async (ai: any, files: UploadedFile[], modelName: string, systemInstruction: string, apiKey: string): Promise<string | null> => {
+  // Fast-skip: Nếu session đã xác nhận Free Tier, không thử caching nữa
+  if (cachingDisabledForSession) {
+    return null;
+  }
+
   try {
     const fileHash = await hashFiles(files);
     const keyHash = hashApiKey(apiKey);
@@ -60,6 +171,7 @@ const getOrSetContextCache = async (ai: any, files: UploadedFile[], modelName: s
     // If existing and not expired, return it
     if (existing && existing.expiresAt > Date.now()) {
       console.log(`🎯 Cache Hit (Key: ${keyHash}): ${existing.cacheName}`);
+      cachingFailureCount = 0; // Reset failure count on success
       return existing.cacheName;
     }
 
@@ -100,11 +212,21 @@ const getOrSetContextCache = async (ai: any, files: UploadedFile[], modelName: s
     });
 
     console.log(`✅ Cache Created: ${cache.name}`);
+    cachingFailureCount = 0; // Reset on success
     return cache.name;
   } catch (err: any) {
     const msg = err.message?.toLowerCase() || "";
-    if (msg.includes("limit exceeded") || msg.includes("429") || msg.includes("resource exhausted")) {
-      console.log("ℹ️ Context Caching is not available on this Free Tier key. Proceeding with standard request.");
+    cachingFailureCount++;
+
+    const isFreeTierError = msg.includes("limit exceeded") || msg.includes("429") || msg.includes("resource exhausted");
+    const isPermissionError = msg.includes("403") || msg.includes("permission denied") || msg.includes("suspended");
+
+    if (isFreeTierError || isPermissionError) {
+      console.log(`ℹ️ Context Caching failed (${isPermissionError ? '403/Suspended' : 'Free Tier/429'}). Failure count: ${cachingFailureCount}/${CACHING_FAIL_THRESHOLD}`);
+      if (cachingFailureCount >= CACHING_FAIL_THRESHOLD) {
+        cachingDisabledForSession = true;
+        console.log(`🚫 Context Caching DISABLED for this session (${cachingFailureCount} consecutive failures). All keys appear to be Free Tier. Skipping caching for remaining batches.`);
+      }
     } else {
       console.warn("⚠️ Context Caching failed:", err);
     }
@@ -298,6 +420,8 @@ const normalizeToMarkdown = async (ai: any, files: UploadedFile[], onProgress?: 
 class UserKeyRotator {
   private keys: string[] = [];
   private currentIndex: number = 0;
+  private failedKeys: Set<string> = new Set(); // Track permanently failed keys (403/invalid)
+  private batchKeyCounter: number = 0; // For round-robin per-batch key distribution
 
   constructor() { }
 
@@ -310,6 +434,8 @@ class UserKeyRotator {
     let parts = apiKeyString.split(/[,;\n\r]+/);
     this.keys = parts.map(k => k.trim()).filter(k => k.length > 5);
     this.currentIndex = 0;
+    this.failedKeys.clear(); // Reset failed keys khi init lại session
+    this.batchKeyCounter = 0;
     console.log(`🔑 Loaded ${this.keys.length} API Keys.`);
   }
 
@@ -322,13 +448,52 @@ class UserKeyRotator {
 
   rotate(): string {
     if (this.keys.length <= 1) return this.getCurrentKey();
-    this.currentIndex = (this.currentIndex + 1) % this.keys.length;
-    console.log(`🔄 Rotating to API Key #${this.currentIndex + 1}`);
+    
+    // Tìm key tiếp theo chưa bị đánh dấu failed
+    let attempts = 0;
+    do {
+      this.currentIndex = (this.currentIndex + 1) % this.keys.length;
+      attempts++;
+      // Nếu đã duyệt hết vòng mà tất cả đều failed, reset và chọn random
+      if (attempts >= this.keys.length) {
+        console.warn(`⚠️ All ${this.keys.length} keys have been marked as failed. Resetting failed list...`);
+        this.failedKeys.clear();
+        // Chọn random key thay vì key kế tiếp (tránh chọn key vừa mới failed)
+        this.currentIndex = Math.floor(Math.random() * this.keys.length);
+        break;
+      }
+    } while (this.failedKeys.has(this.keys[this.currentIndex]));
+    
+    console.log(`🔄 Rotating to API Key #${this.currentIndex + 1}/${this.keys.length}`);
     return this.keys[this.currentIndex];
+  }
+
+  // Đánh dấu key bị lỗi vĩnh viễn (403 Permission Denied, Invalid Key)
+  markKeyFailed(key: string): void {
+    this.failedKeys.add(key);
+    console.warn(`🚫 API Key #${this.keys.indexOf(key) + 1} marked as FAILED (403/Invalid). ${this.availableKeyCount} keys remaining.`);
+  }
+
+  // Lấy key theo round-robin cho mỗi batch (tránh thundering herd)
+  getKeyForBatch(): string {
+    if (this.keys.length === 0) return "";
+    const availableKeys = this.keys.filter(k => !this.failedKeys.has(k));
+    if (availableKeys.length === 0) {
+      // Nếu tất cả đều failed, reset và dùng lại
+      this.failedKeys.clear();
+      this.batchKeyCounter = this.batchKeyCounter % this.keys.length; // Prevent overflow
+      return this.keys[this.batchKeyCounter++ % this.keys.length];
+    }
+    this.batchKeyCounter = this.batchKeyCounter % availableKeys.length; // Prevent overflow
+    return availableKeys[this.batchKeyCounter++ % availableKeys.length];
   }
 
   get keyCount(): number {
     return this.keys.length;
+  }
+
+  get availableKeyCount(): number {
+    return this.keys.filter(k => !this.failedKeys.has(k)).length;
   }
 
   getKeyIndex(): number {
@@ -566,16 +731,19 @@ const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any,
 
 async function executeWithUserRotation<T>(
   initialModel: string,
-  operation: (apiKey: string, modelName: string) => Promise<T>
+  operation: (apiKey: string, modelName: string) => Promise<T>,
+  startingKey?: string // Cho phép chỉ định key khởi đầu (per-batch distribution)
 ): Promise<T> {
-  const ATTEMPTS_LIMIT = 8;
+  const ATTEMPTS_LIMIT = Math.max(8, userKeyRotator.keyCount + 3); // Đảm bảo thử hết tất cả key + buffer
   let attempts = 0;
+  let distinctKeysTried = 0; // Đếm số key THỰC SỰ đã thử (thay vì so sánh index)
+  let lastTriedKey = ''; // Track key trước đó để đếm chính xác
   let currentModel = initialModel;
   const FALLBACK_MODEL = 'gemini-2.5-flash';
+  let currentKey = startingKey || userKeyRotator.getCurrentKey();
 
   while (attempts < ATTEMPTS_LIMIT) {
     attempts++;
-    const currentKey = userKeyRotator.getCurrentKey();
 
     // Nếu sau 6 lần thử (hết khoảng 1/2 số Key trung bình) mà vẫn lỗi 503, 
     // ta tự động chuyển sang Model dự phòng ổn định hơn.
@@ -588,31 +756,74 @@ async function executeWithUserRotation<T>(
       return await operation(currentKey, currentModel);
     } catch (error: any) {
       const msg = error.message?.toLowerCase() || "";
+      const statusCode = error.status || error.statusCode || 0;
+      
       // Mở rộng bộ lọc lỗi để nhận diện thêm các trường hợp đặc biệt của Google AI
-      const isRateLimit = msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || msg.includes("limit") || msg.includes("timeout") || msg.includes("econnreset");
-      const isServerBusy = msg.includes("503") || msg.includes("unavailable") || msg.includes("overloaded") || msg.includes("deadline") || msg.includes("servicedown");
-      const isKeyError = msg.includes("api key") && (msg.includes("invalid") || msg.includes("not found") || msg.includes("expired"));
+      const isPermissionDenied = msg.includes("403") || msg.includes("permission denied") || msg.includes("forbidden") || statusCode === 403;
+      const isRateLimit = msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || msg.includes("resource_exhausted") || msg.includes("timeout") || msg.includes("econnreset") || statusCode === 429;
+      const isServerBusy = msg.includes("503") || msg.includes("unavailable") || msg.includes("overloaded") || msg.includes("deadline") || msg.includes("servicedown") || statusCode === 503;
+      const isKeyError = (msg.includes("api key") || msg.includes("api_key")) && (msg.includes("invalid") || msg.includes("not found") || msg.includes("expired"));
       const isFormatError = msg.includes("json") || msg.includes("định dạng") || msg.includes("format") || msg.includes("unexpected token");
 
-      if (isRateLimit || isServerBusy || isKeyError || isFormatError) {
+      if (isPermissionDenied || isRateLimit || isServerBusy || isKeyError || isFormatError) {
         // Fast-Failure logic: Nếu là lỗi định dạng (do AI bị đứt đoạn), chỉ thử lại tối đa 2 lần rồi cho chia nhỏ ngay.
         if (isFormatError && attempts >= 2) {
           console.warn(`🚀 Detection: JSON Format Error confirmed after ${attempts} attempts. Failing fast to trigger Subdivision...`);
           throw new Error("AI_FORMAT_ERROR_TRUNCATED");
         }
 
-        const reason = isFormatError ? "Lỗi định dạng AI" : (isRateLimit ? "Hết hạn mức/Timeout" : (isServerBusy ? "Server quá tải (503)" : "Lỗi Key"));
-        console.warn(`⚠️ ${reason} (Lần thử ${attempts}/${ATTEMPTS_LIMIT}). Đang xoay vòng/thử lại...`);
-
-        // Luôn xoay key nếu có nhiều hơn 1 key
-        if (userKeyRotator.keyCount > 1) {
-          userKeyRotator.rotate();
+        // === CHIẾN LƯỢC XỬ LÝ LỖI THÔNG MINH ===
+        
+        // [A] 403 Permission Denied / Invalid Key: Đánh dấu key hỏng, xoay NGAY, KHÔNG delay
+        if (isPermissionDenied || isKeyError) {
+          console.warn(`🚫 403/Invalid Key detected! Key #${userKeyRotator.getKeyIndex() + 1} is broken. Rotating IMMEDIATELY...`);
+          userKeyRotator.markKeyFailed(currentKey);
+          if (userKeyRotator.availableKeyCount > 0) {
+            currentKey = userKeyRotator.rotate();
+            continue; // Retry ngay lập tức với key mới, KHÔNG delay
+          } else {
+            throw new Error(`Tất cả ${userKeyRotator.keyCount} API Keys đều bị lỗi 403 (Permission Denied). Vui lòng kiểm tra lại API Keys.`);
+          }
         }
 
-        const baseDelay = isServerBusy ? 3500 : 2000;
-        const multiplier = (isServerBusy || isFormatError) ? 1.8 : 1.4;
-        const backoffMs = Math.min(60000, baseDelay * Math.pow(multiplier, attempts - 1) + Math.random() * 3000);
+        // [B] 429 Rate Limit / 503 Server Busy: Xoay key + Exponential Backoff + Jitter
+        const reason = isFormatError ? "Lỗi định dạng AI" : (isRateLimit ? "Hết hạn mức/Timeout (429)" : "Server quá tải (503)");
+        console.warn(`⚠️ ${reason} (Lần thử ${attempts}/${ATTEMPTS_LIMIT}). Đang xoay vòng/thử lại...`);
 
+        let backoffMs = 0;
+        
+        // Luôn xoay key nếu có nhiều hơn 1 key khả dụng
+        if (userKeyRotator.availableKeyCount > 1) {
+          currentKey = userKeyRotator.rotate();
+          
+          // Đếm số key thực sự đã thử (không dùng index comparison vì sẽ sai khi có key bị skip)
+          if (currentKey !== lastTriedKey) {
+            distinctKeysTried++;
+            lastTriedKey = currentKey;
+          }
+          
+          // Chỉ áp dụng Exponential Backoff khi đã thử hết tất cả key khả dụng ít nhất 1 vòng
+          const availableCount = userKeyRotator.availableKeyCount;
+          if (distinctKeysTried >= availableCount) {
+            const cycles = Math.floor(distinctKeysTried / Math.max(1, availableCount));
+            const baseDelay = isServerBusy ? 3500 : (isRateLimit ? 2500 : 2000);
+            const multiplier = (isServerBusy || isFormatError) ? 1.8 : 1.5;
+            const jitter = Math.random() * 2000 + 1000;
+            backoffMs = Math.min(45000, baseDelay * Math.pow(multiplier, cycles) + jitter);
+          } else {
+            // Vừa xoay sang Key mới chưa thử: Chờ rất ngắn (0.5s - 1.5s) để tránh thundering herd,
+            // nhưng không bị phạt thời gian như key cũ.
+            backoffMs = Math.random() * 1000 + 500; 
+          }
+        } else {
+          // Chỉ có 1 key: Áp dụng Exponential Backoff bình thường
+          const baseDelay = isServerBusy ? 3500 : (isRateLimit ? 2500 : 2000);
+          const multiplier = (isServerBusy || isFormatError) ? 1.8 : 1.5;
+          const jitter = Math.random() * 3000 + 1000;
+          backoffMs = Math.min(60000, baseDelay * Math.pow(multiplier, attempts - 1) + jitter);
+        }
+        
+        console.log(`⏳ Backoff: ${Math.round(backoffMs / 1000)}s (Key #${userKeyRotator.getKeyIndex() + 1}/${userKeyRotator.keyCount}, Distinct tried: ${distinctKeysTried})`);
         await new Promise(r => setTimeout(r, backoffMs));
         continue;
       }
@@ -635,16 +846,11 @@ export const generateQuestions = async (
 ): Promise<{ questions: MCQ[], duplicates: DuplicateInfo[], failedBatches: number[] }> => {
   try {
     userKeyRotator.init(settings.apiKey);
-    let ai: any;
-    if (settings.provider === 'shopaikey') {
-      ai = new GoogleGenAI({
-        apiKey: settings.shopAIKeyKey,
-        httpOptions: { baseUrl: 'https://api.shopaikey.com' }
-      });
-    } else {
-      const apiKey = userKeyRotator.getCurrentKey();
-      ai = new GoogleGenAI({ apiKey });
-    }
+    // Reset session-level caching flag cho mỗi phiên mới
+    cachingDisabledForSession = false;
+    cachingFailureCount = 0;
+    // Note: Mỗi batch tự tạo GoogleGenAI instance riêng trong processBatch/executeWithUserRotation
+    // Không cần tạo `ai` ở đây cho Google provider (dead code đã bị xóa)
 
     // --- STEP 1: PRE-PROCESS & NORMALIZE ---
     let allParts: any[] = [];
@@ -730,7 +936,7 @@ export const generateQuestions = async (
 
     const extractAndParseQuestions = (text: string, batchIndex: number) => {
       let jsonStr = extractJson(text);
-      if (!jsonStr) throw new Error("AI không trả về dữ liệu đúng định dạng JSON.");
+      if (!jsonStr) throw new Error("📄 AI không trả về dữ liệu đúng định dạng. Batch này sẽ được tự động chia nhỏ và thử lại.");
 
       try {
         // Cố gắng tự vá một số lỗi JSON phổ biến của AI trước khi parse
@@ -744,11 +950,11 @@ export const generateQuestions = async (
 
         const parsed = JSON.parse(jsonStr);
         const questions = Array.isArray(parsed) ? parsed : (parsed?.questions || []);
-        if (questions.length === 0) throw new Error("AI trả về JSON nhưng không tìm thấy câu hỏi nào.");
+        if (questions.length === 0) throw new Error("📄 AI đã xử lý nhưng không tìm thấy câu hỏi trắc nghiệm nào trong phần này. Batch sẽ được chia nhỏ để quét kỹ hơn.");
         return questions;
       } catch (e) {
         console.error("JSON Parse Error info:", e, "Raw string:", jsonStr.substring(0, 100) + "...");
-        throw new Error(`Dữ liệu từ AI ở Batch ${batchIndex + 1} có lỗi cấu trúc. Đang thử cứu vãn...`);
+        throw new Error(`📄 Dữ liệu AI ở Phần ${batchIndex + 1} bị lỗi cấu trúc (JSON). Hệ thống đang tự động chia nhỏ và thử lại...`);
       }
     };
 
@@ -762,9 +968,13 @@ export const generateQuestions = async (
         if (onProgress) onProgress(`Quét Batch ${batchLabel}/${totalBatches}${depth > 0 ? ' (Đang chia nhỏ)' : ''}...`, allQuestions.length);
         await new Promise(r => setTimeout(r, Math.random() * 800));
 
+        // Per-batch key assignment: Mỗi batch nhận key riêng theo round-robin
+        const batchStartingKey = settings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
+
         const rawNewQs = await (settings.provider === 'shopaikey'
-          ? (isAdvancedMode 
-              ? executeWithUserRotation('gemini-2.5-flash', async (dummyKey, activeModel) => {
+          ? executeWithUserRotation(
+              isAdvancedMode ? 'gemini-2.5-flash' : settings.model,
+              async (dummyKey, activeModel) => {
                   const finalInstruction = settings.customPrompt ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
                   const messages = [
                     { role: "system", content: isAdvancedMode ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction },
@@ -775,52 +985,31 @@ export const generateQuestions = async (
                     headers: { "Authorization": `Bearer ${settings.shopAIKeyKey}`, "Content-Type": "application/json" },
                     body: JSON.stringify({ model: activeModel, messages, temperature: 0.1, response_format: { type: "json_object" } })
                   });
-                  if (!response.ok) throw new Error(`ShopAIKey API Error: ${response.status}`);
+                  if (!response.ok) throw new Error(`ShopAIKey API Error: ${response.status}`); // translateErrorForUser sẽ dịch mã lỗi này
                   const data = await response.json();
                   return extractAndParseQuestions(data.choices[0].message.content, index);
-                })
-              : executeWithRetry(async () => {
-                  const finalInstruction = settings.customPrompt ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
-                  const messages = [
-                    { role: "system", content: finalInstruction },
-                    { role: "user", content: [{ type: "text", text: `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).` }, ...(part.inlineData ? [{ type: "image_url", image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` } }] : [{ type: "text", text: part.text }])] }
-                  ];
-                  const response = await fetch("https://api.shopaikey.com/v1/chat/completions", {
-                    method: "POST",
-                    headers: { "Authorization": `Bearer ${settings.shopAIKeyKey}`, "Content-Type": "application/json" },
-                    body: JSON.stringify({ model: settings.model, messages, temperature: 0.1, response_format: { type: "json_object" } })
-                  });
-                  if (!response.ok) throw new Error(`ShopAIKey API Error: ${response.status}`);
-                  const data = await response.json();
-                  return extractAndParseQuestions(data.choices[0].message.content, index);
-                })
+              }
             )
-          : (isAdvancedMode
-              ? executeWithUserRotation('gemini-2.5-flash', async (currentKey, activeModel) => {
+          : executeWithUserRotation(
+              isAdvancedMode ? 'gemini-2.5-flash' : settings.model,
+              async (currentKey, activeModel) => {
                   const aiInstance = new GoogleGenAI({ apiKey: currentKey });
                   const finalInstruction = settings.customPrompt ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
-                  const keyHash = hashApiKey(currentKey);
-                  if (!sessionCache[keyHash]) {
-                    sessionCache[keyHash] = (async () => {
+                  // Cache key bao gồm cả modelName để tránh dùng cache của model cũ khi fallback
+                  const cacheSessionKey = `${hashApiKey(currentKey)}_${activeModel}`;
+                  if (!sessionCache[cacheSessionKey]) {
+                    sessionCache[cacheSessionKey] = (async () => {
                       try { return await getOrSetContextCache(aiInstance, files, activeModel, finalInstruction, currentKey); } catch (e) { return null; }
                     })();
                   }
-                  const kCacheName = await sessionCache[keyHash];
-                  const config = getModelConfig(currentKey, finalInstruction, questionSchema, activeModel, kCacheName || undefined);
+                  const kCacheName = await sessionCache[cacheSessionKey];
+                  const config = getModelConfig(currentKey, isAdvancedMode ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction, questionSchema, activeModel, kCacheName || undefined);
                   const chat = aiInstance.chats.create(config);
                   const batchPrompt = kCacheName ? `Dựa trên tài liệu đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${batchLabel}.` : `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
                   const response = await chat.sendMessage({ message: [part, { text: batchPrompt }] });
                   return extractAndParseQuestions(response.text, index);
-                })
-              : executeWithRetry(async () => {
-                  const apiKey = userKeyRotator.getCurrentKey();
-                  const aiInstance = new GoogleGenAI({ apiKey });
-                  const finalInstruction = settings.customPrompt ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
-                  const config = getModelConfig(apiKey, finalInstruction, questionSchema, settings.model);
-                  const chat = aiInstance.chats.create(config);
-                  const response = await chat.sendMessage({ message: [part, { text: `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).` }] });
-                  return extractAndParseQuestions(response.text, index);
-                })
+              },
+              batchStartingKey // Per-batch key assignment
             )
         );
 
@@ -914,7 +1103,7 @@ export const generateQuestions = async (
     return { questions: allQuestions, duplicates: allDuplicates, failedBatches };
 
   } catch (error: any) {
-    throw new Error(error.message);
+    throw new Error(translateErrorForUser(error, 'Trích xuất'));
   }
 };
 
@@ -955,7 +1144,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
         })
       });
 
-      if (!response.ok) throw new Error(`ShopAIKey API Error: ${response.status}`);
+      if (!response.ok) throw new Error(`ShopAIKey API Error: ${response.status}`); // translateErrorForUser sẽ dịch mã lỗi này
       const data = await response.json();
       return JSON.parse(extractJson(data.choices[0].message.content));
     });
@@ -1022,7 +1211,7 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
         })
       });
 
-      if (!response.ok) throw new Error(`ShopAIKey API Error: ${response.status}`);
+      if (!response.ok) throw new Error(`ShopAIKey API Error: ${response.status}`); // translateErrorForUser sẽ dịch mã lỗi này
       const data = await response.json();
       return JSON.parse(extractJson(data.choices[0].message.content)) as AuditResult;
     });

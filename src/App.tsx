@@ -5,7 +5,7 @@ import MCQDisplay from './ui/MCQDisplay';
 import SettingsModal from './ui/SettingsModal';
 import AuditPanel from './ui/AuditPanel';
 import DuplicatesReviewModal from './ui/DuplicatesReviewModal';
-import { generateQuestions, analyzeDocument, auditMissingQuestions } from './core/brain';
+import { generateQuestions, analyzeDocument, auditMissingQuestions, translateErrorForUser } from './core/brain';
 // @ts-ignore
 import { db } from './core/db';
 import { BrainCircuit, Loader2, Download, CheckCircle2, AlertTriangle, ScanText, Moon, Sun, Settings as SettingsIcon, Columns, FileText, DownloadCloud, Sparkles, Filter, Trash2, Copy, RotateCcw, Info } from 'lucide-react';
@@ -254,11 +254,11 @@ const App: React.FC = () => {
 
     // Validation for Provider Keys (Fix Pack 2026)
     if (settings.provider === 'google' && !settings.apiKey?.trim()) {
-      toast.error("Vui lòng nhập Google API Key trong phần Cài đặt.");
+      toast.error("🔑 Vui lòng nhập Google API Key trong phần Cài đặt (⚙️) để bắt đầu.");
       return;
     }
     if (settings.provider === 'shopaikey' && !settings.shopAIKeyKey?.trim()) {
-      toast.error("Vui lòng nhập ShopAIKey API Key trong phần Cài đặt.");
+      toast.error("🔑 Vui lòng nhập ShopAIKey API Key trong phần Cài đặt (⚙️) để bắt đầu.");
       return;
     }
 
@@ -283,7 +283,7 @@ const App: React.FC = () => {
       setAnalysis(res);
       toast.success(`Phân tích thành công! Dự kiến có khoảng ${res.estimatedCount} câu hỏi.`);
     } catch (e: any) { 
-      toast.error(e.message || "Lỗi khi phân tích tài liệu");
+      toast.error(translateErrorForUser(e, 'Phân tích'));
     }
     finally { setAnalyzing(false); }
   };
@@ -293,11 +293,11 @@ const App: React.FC = () => {
     
     // Validation for Provider Keys
     if (settings.provider === 'google' && !settings.apiKey) {
-      toast.error("Vui lòng nhập Google API Key trong phần Cài đặt.");
+      toast.error("🔑 Vui lòng nhập Google API Key trong phần Cài đặt (⚙️) để bắt đầu.");
       return;
     }
     if (settings.provider === 'shopaikey' && !settings.shopAIKeyKey) {
-      toast.error("Vui lòng nhập ShopAIKey API Key trong phần Cài đặt.");
+      toast.error("🔑 Vui lòng nhập ShopAIKey API Key trong phần Cài đặt (⚙️) để bắt đầu.");
       return;
     }
 
@@ -374,7 +374,7 @@ const App: React.FC = () => {
       // 3. Thông báo lỗi cho các Batch thất bại (nếu có)
       if (res.failedBatches && res.failedBatches.length > 0) {
         setFailedBatchIndices(res.failedBatches);
-        toast.warning(`Hoàn thành không trọn vẹn: Có ${res.failedBatches.length} phần (${res.failedBatches.join(', ')}) bị lỗi do Server quá tải.`, {
+        toast.warning(`⚠️ Hoàn thành ${formatted.length} câu hỏi, nhưng có ${res.failedBatches.length} phần (Phần ${res.failedBatches.join(', ')}) bị lỗi do server AI quá tải. Nhấn nút "Quét lại phần lỗi" để thử lại.`, {
           duration: 15000,
         });
       } else {
@@ -392,7 +392,7 @@ const App: React.FC = () => {
         runAudit(formatted.length, filesToUse);
       }
     } catch (e: any) {
-      toast.error("Lỗi trích xuất: " + e.message);
+      toast.error(translateErrorForUser(e, 'Trích xuất'));
     }
     finally { setLoading(false); }
   };
@@ -436,13 +436,13 @@ const App: React.FC = () => {
 
       if (res.failedBatches && res.failedBatches.length > 0) {
         setFailedBatchIndices(res.failedBatches);
-        toast.error(`Quét lại vẫn thất bại một số phần: ${res.failedBatches.join(', ')}`);
+        toast.error(`⚠️ Quét lại vẫn còn ${res.failedBatches.length} phần lỗi (Phần ${res.failedBatches.join(', ')}). Server AI đang quá tải — hãy chờ 2-3 phút rồi thử lại.`);
       } else {
         setFailedBatchIndices([]);
         toast.success("Đã quét lại thành công tất cả các phần lỗi!");
       }
     } catch (e: any) {
-      toast.error("Lỗi khi quét lại: " + e.message);
+      toast.error(translateErrorForUser(e, 'Quét lại'));
     } finally {
       setLoading(false);
     }
@@ -599,7 +599,7 @@ const App: React.FC = () => {
 
       return "\uFEFF" + [headers.join(","), ...rows].join("\n");
     } catch (e: any) {
-      toast.error(`Lỗi CSV: ${e.message}`);
+      toast.error(`📄 Lỗi tạo file CSV: ${e.message}. Hãy thử xuất lại hoặc đổi sang định dạng khác.`);
       return null;
     }
   };

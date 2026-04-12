@@ -41,7 +41,7 @@ const App: React.FC = () => {
     provider: 'google',
     model: 'gemini-3.1-flash-lite-preview',
     customPrompt: '',
-    skipAnalysis: false,
+    skipAnalysis: true,
     concurrencyLimit: 2
   });
 
@@ -77,7 +77,7 @@ const App: React.FC = () => {
           // Ensure new fields exist
           if (!persistedSettings.provider) persistedSettings.provider = 'google';
           if (persistedSettings.shopAIKeyKey === undefined) persistedSettings.shopAIKeyKey = '';
-          if (persistedSettings.skipAnalysis === undefined) persistedSettings.skipAnalysis = false;
+          if (persistedSettings.skipAnalysis === undefined) persistedSettings.skipAnalysis = true;
           
           setSettings(persistedSettings);
         }

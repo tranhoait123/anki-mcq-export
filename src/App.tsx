@@ -14,7 +14,7 @@ import { buildAnkiHtml, formatRichText } from './core/anki';
 import { buildStudyDocxBlob } from './core/docxExport';
 import { isOptionCorrect } from './utils/text';
 import { findDuplicate } from './utils/dedupe';
-import { DEFAULT_GEMINI_MODEL, isModelAllowedForProvider } from './utils/models';
+import { coerceModelForProvider, DEFAULT_GEMINI_MODEL, isModelAllowedForProvider } from './utils/models';
 import { toast } from 'sonner';
 import { convertPdfToImages } from './utils/pdfProcessor';
 
@@ -78,7 +78,7 @@ const App: React.FC = () => {
           // Provider safety: only Gemini-native providers must reject non-Gemini model IDs.
           if (!persistedSettings.model || !isModelAllowedForProvider(persistedSettings.provider, persistedSettings.model)) {
             console.warn("🛡️ Detected missing or provider-incompatible model. Resetting to Gemini 3.1 Flash-Lite.");
-            persistedSettings.model = DEFAULT_GEMINI_MODEL;
+            persistedSettings.model = coerceModelForProvider(persistedSettings.provider, persistedSettings.model || DEFAULT_GEMINI_MODEL);
           }
 
           // Ensure new fields exist
@@ -177,6 +177,17 @@ const App: React.FC = () => {
       console.log('User accepted the install prompt');
       setDeferredPrompt(null);
     }
+  };
+
+  const getRequestSettings = () => {
+    const coercedModel = coerceModelForProvider(settings.provider, settings.model);
+    if (coercedModel !== settings.model) {
+      const nextSettings = { ...settings, model: coercedModel };
+      setSettings(nextSettings);
+      toast.info("Đã tự đổi model cho khớp provider hiện tại để tránh lỗi endpoint.");
+      return nextSettings;
+    }
+    return settings;
   };
 
   // Memoized Preview URL for Split View to avoid base64 overhead
@@ -292,21 +303,22 @@ const App: React.FC = () => {
 
   const handleAnalyze = async () => {
     if (files.length === 0) return;
+    const requestSettings = getRequestSettings();
 
     // Validation for Provider Keys (Fix Pack 2026)
-    if (settings.provider === 'google' && !settings.apiKey?.trim()) {
+    if (requestSettings.provider === 'google' && !requestSettings.apiKey?.trim()) {
       toast.error("🔑 Vui lòng nhập Google API Key trong phần Cài đặt (⚙️) để bắt đầu.");
       return;
     }
-    if (settings.provider === 'shopaikey' && !settings.shopAIKeyKey?.trim()) {
+    if (requestSettings.provider === 'shopaikey' && !requestSettings.shopAIKeyKey?.trim()) {
       toast.error("🔑 Vui lòng nhập ShopAIKey API Key trong phần Cài đặt (⚙️) để bắt đầu.");
       return;
     }
-    if (settings.provider === 'openrouter' && !settings.openRouterKey?.trim()) {
+    if (requestSettings.provider === 'openrouter' && !requestSettings.openRouterKey?.trim()) {
       toast.error("🔑 Vui lòng nhập OpenRouter API Key trong phần Cài đặt (⚙️) để bắt đầu.");
       return;
     }
-    if (settings.provider === 'vertexai' && (!settings.vertexProjectId?.trim() || !settings.vertexLocation?.trim() || !settings.vertexAccessToken?.trim())) {
+    if (requestSettings.provider === 'vertexai' && (!requestSettings.vertexProjectId?.trim() || !requestSettings.vertexLocation?.trim() || !requestSettings.vertexAccessToken?.trim())) {
       toast.error("🔗 Vui lòng nhập đủ Project ID, Location và Token của Vertex AI trong (⚙️).");
       return;
     }
@@ -328,7 +340,7 @@ const App: React.FC = () => {
       }
 
       const filesToUse = await prepareFiles();
-      const res = await analyzeDocument(filesToUse, settings);
+      const res = await analyzeDocument(filesToUse, requestSettings);
       setAnalysis(res);
       toast.success(`Phân tích thành công! Dự kiến có khoảng ${res.estimatedCount} câu hỏi.`);
     } catch (e: any) { 
@@ -339,21 +351,22 @@ const App: React.FC = () => {
 
   const handleGenerate = async () => {
     if (files.length === 0) return;
+    const requestSettings = getRequestSettings();
     
     // Validation for Provider Keys
-    if (settings.provider === 'google' && !settings.apiKey) {
+    if (requestSettings.provider === 'google' && !requestSettings.apiKey) {
       toast.error("🔑 Vui lòng nhập Google API Key trong phần Cài đặt (⚙️) để bắt đầu.");
       return;
     }
-    if (settings.provider === 'shopaikey' && !settings.shopAIKeyKey) {
+    if (requestSettings.provider === 'shopaikey' && !requestSettings.shopAIKeyKey) {
       toast.error("🔑 Vui lòng nhập ShopAIKey API Key trong phần Cài đặt (⚙️) để bắt đầu.");
       return;
     }
-    if (settings.provider === 'openrouter' && !settings.openRouterKey?.trim()) {
+    if (requestSettings.provider === 'openrouter' && !requestSettings.openRouterKey?.trim()) {
       toast.error("🔑 Vui lòng nhập OpenRouter API Key trong phần Cài đặt (⚙️) để bắt đầu.");
       return;
     }
-    if (settings.provider === 'vertexai' && (!settings.vertexProjectId?.trim() || !settings.vertexLocation?.trim() || !settings.vertexAccessToken?.trim())) {
+    if (requestSettings.provider === 'vertexai' && (!requestSettings.vertexProjectId?.trim() || !requestSettings.vertexLocation?.trim() || !requestSettings.vertexAccessToken?.trim())) {
       toast.error("🔗 Vui lòng nhập đủ Project ID, Location và Token của Vertex AI trong (⚙️).");
       return;
     }
@@ -369,7 +382,7 @@ const App: React.FC = () => {
     try {
       // 1. Initial Attempt (Default Mode)
       let filesToUse = await prepareFiles();
-      let res = await generateQuestions(filesToUse, settings, 0, (status, count) => {
+      let res = await generateQuestions(filesToUse, requestSettings, 0, (status, count) => {
         setProgressStatus(status);
         setCurrentCount(count);
       }, analysis?.estimatedCount || 0, (newBatch) => {
@@ -403,7 +416,7 @@ const App: React.FC = () => {
               // If OCR produced text, let's retry generation
               if (tesseractFiles.some(f => f.type === 'text/plain' && f.content.length > 50)) {
                 setProgressStatus("Đang trích xuất lại với dữ liệu từ Local OCR...");
-                const fallbackRes = await generateQuestions(tesseractFiles, settings, 0, (status, count) => {
+                const fallbackRes = await generateQuestions(tesseractFiles, requestSettings, 0, (status, count) => {
                   setProgressStatus(`${status} (Fallback Loop)`);
                   setCurrentCount(count);
                 }, analysis.estimatedCount);
@@ -430,7 +443,7 @@ const App: React.FC = () => {
           setProgressStatus(`Đang tự cứu ${initialFailed.length} phần lỗi • đã thêm 0 câu`);
           const rescueRes = await generateQuestions(
             filesToUse,
-            settings,
+            requestSettings,
             0,
             (status, count) => {
               setProgressStatus(status);
@@ -532,6 +545,7 @@ const App: React.FC = () => {
 
   const handleRetryFailed = async () => {
     if (files.length === 0 || failedBatchIndices.length === 0) return;
+    const requestSettings = getRequestSettings();
     
     setLoading(true);
     setProgressStatus(`Đang quét lại ${failedBatchIndices.length} phần lỗi...`);
@@ -540,7 +554,7 @@ const App: React.FC = () => {
       const filesToUse = await prepareFiles();
       const res = await generateQuestions(
         filesToUse, 
-        settings, 
+        requestSettings, 
         0, 
         (status, count) => {
           setProgressStatus(`[CƠ CHẾ CHUYÊN GIA] ${status}`);
@@ -581,8 +595,9 @@ const App: React.FC = () => {
   const runAudit = async (count: number, processedFiles?: UploadedFile[]) => {
     setAuditing(true);
     try {
+      const requestSettings = getRequestSettings();
       const filesToUse = processedFiles || await prepareFiles();
-      const res = await auditMissingQuestions(filesToUse, count, settings);
+      const res = await auditMissingQuestions(filesToUse, count, requestSettings);
       setAudit(res);
       setShowAudit(true);
     } catch (e) {

@@ -3,7 +3,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo } from "../types";
 import { db } from './db';
 import { findDuplicate } from '../utils/dedupe';
-import { getProviderFallbackModel } from '../utils/models';
+import { coerceModelForProvider, getProviderFallbackModel, getProviderModelMismatchMessage } from '../utils/models';
 import {
   classifyBatchError,
   describeBatchError,
@@ -83,6 +83,9 @@ export const translateErrorForUser = (error: any, context?: string): string => {
   }
   if (msgLow.includes("cors")) {
     return `${prefix}🌐 Lỗi kết nối CORS. Vui lòng thử tải lại trang (F5).`;
+  }
+  if (msgLow.includes("model_provider_mismatch")) {
+    return `${prefix}⚙️ Model đang không khớp provider. Nếu dùng DeepSeek/OpenAI/Claude hãy chọn OpenRouter hoặc ShopAIKey; nếu dùng Google/Vertex hãy chọn model dạng gemini-*.`;
   }
 
   // --- AI Format / Content ---
@@ -207,6 +210,10 @@ let cachingFailureCount = 0;
 const CACHING_FAIL_THRESHOLD = 2; // Sau 2 lần fail liên tiếp → disable cho cả session
 
 const getOrSetContextCache = async (ai: any, files: UploadedFile[], modelName: string, systemInstruction: string, apiKey: string): Promise<string | null> => {
+  if (!modelName.startsWith('gemini-')) {
+    return null;
+  }
+
   // Fast-skip: Nếu session đã xác nhận Free Tier, không thử caching nữa
   if (cachingDisabledForSession) {
     return null;
@@ -816,9 +823,11 @@ export const generateQuestions = async (
   options: GenerateQuestionsOptions = {}
 ): Promise<{ questions: MCQ[], duplicates: DuplicateInfo[], failedBatches: number[], failedBatchDetails: BatchFailureInfo[], autoSkippedCount: number }> => {
   try {
+    const mismatchMessage = getProviderModelMismatchMessage(settings.provider, settings.model);
+    const runtimeSettings = mismatchMessage ? { ...settings, model: coerceModelForProvider(settings.provider, settings.model) } : settings;
     const retryProfile = getRetryProfile(options.retryProfile || (isAdvancedMode ? 'rescue' : 'normal'));
     const isRescueMode = retryProfile.name === 'rescue';
-    userKeyRotator.init(settings.apiKey);
+    userKeyRotator.init(runtimeSettings.apiKey);
     // Reset session-level caching flag cho mỗi phiên mới
     cachingDisabledForSession = false;
     cachingFailureCount = 0;
@@ -924,7 +933,7 @@ export const generateQuestions = async (
 
     // --- STEP 2: BATCH PROCESSING ---
     let completedBatches = 0;
-    const CONCURRENCY_LIMIT = settings.concurrencyLimit || 2;
+    const CONCURRENCY_LIMIT = runtimeSettings.concurrencyLimit || 2;
 
     const extractAndParseQuestions = (text: string, batchIndex: number) => {
       let jsonStr = extractJson(text);
@@ -951,8 +960,8 @@ export const generateQuestions = async (
     };
 
     const totalBatches = allParts.length;
-    const stableFallbackModel = getProviderFallbackModel(settings.provider);
-    const extractionModel = isAdvancedMode || isRescueMode ? stableFallbackModel : settings.model;
+    const stableFallbackModel = getProviderFallbackModel(runtimeSettings.provider);
+    const extractionModel = isAdvancedMode || isRescueMode ? stableFallbackModel : runtimeSettings.model;
 
     // Hàm xử lý Batch chính có khả năng Đệ quy (Subdivision)
     const processBatch = async (part: any, index: number, depth: number = 0) => {
@@ -969,13 +978,13 @@ export const generateQuestions = async (
         await new Promise(r => setTimeout(r, Math.random() * (isRescueMode ? 250 : 800)));
 
         // Per-batch key assignment: Mỗi batch nhận key riêng theo round-robin
-        const batchStartingKey = settings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
+        const batchStartingKey = runtimeSettings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
 
-        const rawNewQs = await (settings.provider === 'shopaikey' || settings.provider === 'openrouter' || settings.provider === 'vertexai'
+        const rawNewQs = await (runtimeSettings.provider === 'shopaikey' || runtimeSettings.provider === 'openrouter' || runtimeSettings.provider === 'vertexai'
           ? executeWithUserRotation(
               extractionModel,
               async (dummyKey, activeModel) => {
-                  const finalInstruction = settings.customPrompt ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
+                  const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
                   
                   // PDF Rasterization is now handled by App.tsx prepareFiles() for OpenAI-compatible providers.
                   // We remove the rigid guard to allow the data to flow through as images.
@@ -985,13 +994,13 @@ export const generateQuestions = async (
                     { role: "user", content: [{ type: "text", text: `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).` }, ...(part.inlineData ? [{ type: "image_url", image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` } }] : [{ type: "text", text: part.text }])] }
                   ];
 
-                  const apiUrl = settings.provider === 'vertexai'
-                    ? `https://${settings.vertexLocation}-aiplatform.googleapis.com/v1beta1/projects/${settings.vertexProjectId}/locations/${settings.vertexLocation}/publishers/google/models/${activeModel}/chat/completions`
-                    : settings.provider === 'shopaikey' 
+                  const apiUrl = runtimeSettings.provider === 'vertexai'
+                    ? `https://${runtimeSettings.vertexLocation}-aiplatform.googleapis.com/v1beta1/projects/${runtimeSettings.vertexProjectId}/locations/${runtimeSettings.vertexLocation}/publishers/google/models/${activeModel}/chat/completions`
+                    : runtimeSettings.provider === 'shopaikey' 
                       ? "https://api.shopaikey.com/v1/chat/completions" 
                       : "https://openrouter.ai/api/v1/chat/completions";
-                  const apiKey = settings.provider === 'vertexai' ? settings.vertexAccessToken : settings.provider === 'shopaikey' ? settings.shopAIKeyKey : settings.openRouterKey;
-                  const providerName = settings.provider === 'vertexai' ? "Vertex AI" : settings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
+                  const apiKey = runtimeSettings.provider === 'vertexai' ? runtimeSettings.vertexAccessToken : runtimeSettings.provider === 'shopaikey' ? runtimeSettings.shopAIKeyKey : runtimeSettings.openRouterKey;
+                  const providerName = runtimeSettings.provider === 'vertexai' ? "Vertex AI" : runtimeSettings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
 
                   const response = await fetch(apiUrl, {
                     method: "POST",
@@ -1015,8 +1024,9 @@ export const generateQuestions = async (
           : executeWithUserRotation(
               extractionModel,
               async (currentKey, activeModel) => {
+                  if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
                   const aiInstance = new GoogleGenAI({ apiKey: currentKey });
-                  const finalInstruction = settings.customPrompt ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
+                  const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
                   // Cache key bao gồm cả modelName để tránh dùng cache của model cũ khi fallback
                   const cacheSessionKey = `${hashApiKey(currentKey)}_${activeModel}`;
                   if (!sessionCache[cacheSessionKey]) {
@@ -1137,13 +1147,15 @@ export const generateQuestions = async (
 
 
 export const analyzeDocument = async (files: UploadedFile[], settings: AppSettings): Promise<AnalysisResult> => {
+  const mismatchMessage = getProviderModelMismatchMessage(settings.provider, settings.model);
+  const runtimeSettings = mismatchMessage ? { ...settings, model: coerceModelForProvider(settings.provider, settings.model) } : settings;
   const finalPrompt = `PHÂN TÍCH TÀI LIỆU Y KHOA:
   - Dự đoán TỔNG SỐ CÂU HỎI trắc nghiệm có trong toàn bộ tài liệu.
   - Phân loại chuyên khoa chính.
   - Mô tả cấu trúc (vd: có đáp án đi kèm không).
   ${SYSTEM_INSTRUCTION_ANALYZE}`;
 
-  if (settings.provider === 'shopaikey' || settings.provider === 'openrouter' || settings.provider === 'vertexai') {
+  if (runtimeSettings.provider === 'shopaikey' || runtimeSettings.provider === 'openrouter' || runtimeSettings.provider === 'vertexai') {
     return await executeWithRetry(async () => {
       const parts: any[] = files.map(file => {
         // PDF Rasterization is handled upstream in App.tsx prepareFiles()
@@ -1156,13 +1168,13 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
         return { type: "text", text: `FILE: ${file.name}\n${file.content}\n` };
       });
 
-      const apiUrl = settings.provider === 'vertexai'
-        ? `https://${settings.vertexLocation}-aiplatform.googleapis.com/v1beta1/projects/${settings.vertexProjectId}/locations/${settings.vertexLocation}/publishers/google/models/${settings.model}/chat/completions`
-        : settings.provider === 'shopaikey' 
+      const apiUrl = runtimeSettings.provider === 'vertexai'
+        ? `https://${runtimeSettings.vertexLocation}-aiplatform.googleapis.com/v1beta1/projects/${runtimeSettings.vertexProjectId}/locations/${runtimeSettings.vertexLocation}/publishers/google/models/${runtimeSettings.model}/chat/completions`
+        : runtimeSettings.provider === 'shopaikey' 
           ? "https://api.shopaikey.com/v1/chat/completions" 
           : "https://openrouter.ai/api/v1/chat/completions";
-      const apiKey = settings.provider === 'vertexai' ? settings.vertexAccessToken : settings.provider === 'shopaikey' ? settings.shopAIKeyKey : settings.openRouterKey;
-      const providerName = settings.provider === 'vertexai' ? "Vertex AI" : settings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
+      const apiKey = runtimeSettings.provider === 'vertexai' ? runtimeSettings.vertexAccessToken : runtimeSettings.provider === 'shopaikey' ? runtimeSettings.shopAIKeyKey : runtimeSettings.openRouterKey;
+      const providerName = runtimeSettings.provider === 'vertexai' ? "Vertex AI" : runtimeSettings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
 
       const response = await fetch(apiUrl, {
         method: "POST",
@@ -1173,7 +1185,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: settings.model,
+          model: runtimeSettings.model,
           messages: [
             { role: "system", content: finalPrompt },
             { role: "user", content: parts }
@@ -1183,14 +1195,15 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
         })
       });
 
-      if (!response.ok) throw await createProviderApiError(providerName, response, settings.model); // translateErrorForUser sẽ dịch mã lỗi này
+      if (!response.ok) throw await createProviderApiError(providerName, response, runtimeSettings.model); // translateErrorForUser sẽ dịch mã lỗi này
       const data = await response.json();
       return JSON.parse(extractJson(data.choices[0].message.content));
     });
   }
 
-  userKeyRotator.init(settings.apiKey);
-  return await executeWithUserRotation(settings.model, async (apiKey, activeModel) => {
+  userKeyRotator.init(runtimeSettings.apiKey);
+  return await executeWithUserRotation(runtimeSettings.model, async (apiKey, activeModel) => {
+    if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
     const ai = new GoogleGenAI({ apiKey });
     const parts: any[] = files.map(file => {
       if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
@@ -1214,11 +1227,13 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
     const chat = ai.chats.create(getModelConfig(apiKey, finalPrompt, schema, activeModel));
     const result = await chat.sendMessage({ message: parts });
     return JSON.parse(extractJson(result.text));
-  }, undefined, getProviderFallbackModel(settings.provider));
+  }, undefined, getProviderFallbackModel(runtimeSettings.provider));
 };
 
 export const auditMissingQuestions = async (files: UploadedFile[], count: number, settings: AppSettings): Promise<AuditResult> => {
-  if (settings.provider === 'shopaikey' || settings.provider === 'openrouter' || settings.provider === 'vertexai') {
+  const mismatchMessage = getProviderModelMismatchMessage(settings.provider, settings.model);
+  const runtimeSettings = mismatchMessage ? { ...settings, model: coerceModelForProvider(settings.provider, settings.model) } : settings;
+  if (runtimeSettings.provider === 'shopaikey' || runtimeSettings.provider === 'openrouter' || runtimeSettings.provider === 'vertexai') {
     return await executeWithRetry(async () => {
       const parts: any[] = files.map(file => {
         // PDF Rasterization is handled upstream in App.tsx prepareFiles()
@@ -1228,13 +1243,13 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
         return { type: "text", text: `FILE: ${file.name}\n${file.content}\n` };
       });
 
-      const apiUrl = settings.provider === 'vertexai'
-        ? `https://${settings.vertexLocation}-aiplatform.googleapis.com/v1beta1/projects/${settings.vertexProjectId}/locations/${settings.vertexLocation}/publishers/google/models/${settings.model}/chat/completions`
-        : settings.provider === 'shopaikey' 
+      const apiUrl = runtimeSettings.provider === 'vertexai'
+        ? `https://${runtimeSettings.vertexLocation}-aiplatform.googleapis.com/v1beta1/projects/${runtimeSettings.vertexProjectId}/locations/${runtimeSettings.vertexLocation}/publishers/google/models/${runtimeSettings.model}/chat/completions`
+        : runtimeSettings.provider === 'shopaikey' 
           ? "https://api.shopaikey.com/v1/chat/completions" 
           : "https://openrouter.ai/api/v1/chat/completions";
-      const apiKey = settings.provider === 'vertexai' ? settings.vertexAccessToken : settings.provider === 'shopaikey' ? settings.shopAIKeyKey : settings.openRouterKey;
-      const providerName = settings.provider === 'vertexai' ? "Vertex AI" : settings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
+      const apiKey = runtimeSettings.provider === 'vertexai' ? runtimeSettings.vertexAccessToken : runtimeSettings.provider === 'shopaikey' ? runtimeSettings.shopAIKeyKey : runtimeSettings.openRouterKey;
+      const providerName = runtimeSettings.provider === 'vertexai' ? "Vertex AI" : runtimeSettings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
 
       const response = await fetch(apiUrl, {
         method: "POST",
@@ -1245,7 +1260,7 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: settings.model,
+          model: runtimeSettings.model,
           messages: [
             { role: "system", content: SYSTEM_INSTRUCTION_AUDIT },
             {
@@ -1261,14 +1276,15 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
         })
       });
 
-      if (!response.ok) throw await createProviderApiError(providerName, response, settings.model); // translateErrorForUser sẽ dịch mã lỗi này
+      if (!response.ok) throw await createProviderApiError(providerName, response, runtimeSettings.model); // translateErrorForUser sẽ dịch mã lỗi này
       const data = await response.json();
       return JSON.parse(extractJson(data.choices[0].message.content)) as AuditResult;
     });
   }
 
-  userKeyRotator.init(settings.apiKey);
-  return await executeWithUserRotation(settings.model, async (apiKey, activeModel) => {
+  userKeyRotator.init(runtimeSettings.apiKey);
+  return await executeWithUserRotation(runtimeSettings.model, async (apiKey, activeModel) => {
+    if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
     const parts: any[] = files.map(file => {
       if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
         return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
@@ -1297,5 +1313,5 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
       ]
     });
     return JSON.parse(extractJson(res.text)) as AuditResult;
-  }, undefined, getProviderFallbackModel(settings.provider));
+  }, undefined, getProviderFallbackModel(runtimeSettings.provider));
 };

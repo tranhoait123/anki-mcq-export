@@ -145,3 +145,17 @@ export const getProviderFallbackModel = (provider: AIProvider): string => {
   if (provider === 'openrouter') return 'google/gemini-2.5-flash';
   return 'gemini-2.5-flash';
 };
+
+export const coerceModelForProvider = (provider: AIProvider, model: string): string => {
+  if (isModelAllowedForProvider(provider, model)) return model;
+  if (provider === 'google' || provider === 'vertexai') return DEFAULT_GEMINI_MODEL;
+  return getProviderFallbackModel(provider);
+};
+
+export const getProviderModelMismatchMessage = (provider: AIProvider, model: string): string | null => {
+  if (isModelAllowedForProvider(provider, model)) return null;
+  if (provider === 'google' || provider === 'vertexai') {
+    return `MODEL_PROVIDER_MISMATCH: Model "${model || '(trống)'}" không dùng được với ${provider === 'google' ? 'Google Gemini' : 'Vertex AI'}. Chỉ model dạng gemini-* mới gọi được Google endpoint.`;
+  }
+  return `MODEL_PROVIDER_MISMATCH: Model đang trống hoặc không phù hợp với provider hiện tại.`;
+};

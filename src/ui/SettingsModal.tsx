@@ -3,7 +3,7 @@ import { Settings as SettingsIcon, Trash2, ChevronDown, ChevronUp, ShieldAlert, 
 import { AppSettings } from '../types';
 import { db } from '../core/db';
 import { toast } from 'sonner';
-import { getModelGroups } from '../utils/models';
+import { AIProvider, coerceModelForProvider, getModelGroups } from '../utils/models';
 
 interface SettingsModalProps {
     show: boolean;
@@ -17,6 +17,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
     const modelGroups = getModelGroups(settings.provider);
     
     if (!show) return null;
+
+    const handleProviderChange = (provider: AIProvider) => {
+        const nextModel = coerceModelForProvider(provider, settings.model);
+        setSettings({ ...settings, provider, model: nextModel });
+        if (nextModel !== settings.model) {
+            toast.info("Đã tự đổi model cho khớp provider mới để tránh lỗi endpoint.");
+        }
+    };
 
     const handleClearCaches = async () => {
         if (confirm("Bạn có chắc chắn muốn xóa toàn bộ bộ nhớ đệm (Context Caches)? Việc này giúp làm mới dữ liệu nhưng sẽ làm AI xử lý chậm hơn và tốn phí hơn ở lần chạy tiếp theo.")) {
@@ -57,25 +65,25 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                         </div>
                         <div className="flex p-1 gap-1 bg-gray-100 dark:bg-slate-800 rounded-xl border dark:border-slate-700">
                             <button
-                                onClick={() => setSettings({ ...settings, provider: 'google' })}
+                                onClick={() => handleProviderChange('google')}
                                 className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all ${settings.provider === 'google' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
                             >
                                 Google Gemini
                             </button>
                             <button
-                                onClick={() => setSettings({ ...settings, provider: 'shopaikey' })}
+                                onClick={() => handleProviderChange('shopaikey')}
                                 className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${settings.provider === 'shopaikey' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
                             >
                                 ShopAIKey
                             </button>
                             <button
-                                onClick={() => setSettings({ ...settings, provider: 'openrouter' })}
+                                onClick={() => handleProviderChange('openrouter')}
                                 className={`flex-1 py-2 px-3 rounded-lg text-[13px] font-bold transition-all ${settings.provider === 'openrouter' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
                             >
                                 OpenRouter
                             </button>
                             <button
-                                onClick={() => setSettings({ ...settings, provider: 'vertexai' })}
+                                onClick={() => handleProviderChange('vertexai')}
                                 className={`flex-1 py-2 px-3 rounded-lg text-[13px] font-bold transition-all ${settings.provider === 'vertexai' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
                             >
                                 Vertex AI

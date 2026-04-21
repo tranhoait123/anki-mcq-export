@@ -16,6 +16,17 @@ describe('Core Logic', () => {
     expect(message).toContain('response_format');
   });
 
+  it('explains provider/model mismatch instead of generic network failure', () => {
+    const message = translateErrorForUser(
+      new Error('MODEL_PROVIDER_MISMATCH: Model "deepseek/deepseek-v3.2" không dùng được với Google Gemini.'),
+      'Trích xuất'
+    );
+
+    expect(message).toContain('Model đang không khớp provider');
+    expect(message).toContain('OpenRouter');
+    expect(message).toContain('gemini-*');
+  });
+
   it('omits document parts from Google batch messages when context cache is available', () => {
     const part = { text: 'very long document part' };
     const prompt = 'Dựa trên tài liệu đã cache, hãy trích xuất Phần 1.';

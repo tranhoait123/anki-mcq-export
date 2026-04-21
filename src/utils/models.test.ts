@@ -3,6 +3,7 @@ import {
   getModelGroups,
   getModelValues,
   getProviderFallbackModel,
+  coerceModelForProvider,
   isModelAllowedForProvider,
 } from './models';
 
@@ -82,5 +83,12 @@ describe('AI model registry', () => {
     expect(isModelAllowedForProvider('openrouter', 'custom/vendor-model')).toBe(true);
     expect(isModelAllowedForProvider('google', 'deepseek/deepseek-chat')).toBe(false);
     expect(isModelAllowedForProvider('vertexai', 'openai/gpt-5.4')).toBe(false);
+  });
+
+  it('coerces provider-incompatible models before runtime requests', () => {
+    expect(coerceModelForProvider('google', 'deepseek/deepseek-v3.2')).toBe('gemini-3.1-flash-lite-preview');
+    expect(coerceModelForProvider('vertexai', 'openai/gpt-5.4')).toBe('gemini-3.1-flash-lite-preview');
+    expect(coerceModelForProvider('openrouter', 'deepseek/deepseek-v3.2')).toBe('deepseek/deepseek-v3.2');
+    expect(coerceModelForProvider('shopaikey', 'deepseek/deepseek-v3.2')).toBe('deepseek/deepseek-v3.2');
   });
 });

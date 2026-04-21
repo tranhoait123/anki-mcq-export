@@ -12,6 +12,8 @@ import { BrainCircuit, Loader2, Download, CheckCircle2, AlertTriangle, ScanText,
 import { extractTextWithTesseract } from './core/vision';
 import { buildAnkiHtml, formatRichText } from './core/anki';
 import { isOptionCorrect } from './utils/text';
+import { findDuplicate } from './utils/dedupe';
+import { DEFAULT_GEMINI_MODEL, isModelAllowedForProvider } from './utils/models';
 import { toast } from 'sonner';
 import { convertPdfToImages } from './utils/pdfProcessor';
 
@@ -63,20 +65,22 @@ const App: React.FC = () => {
           }
         }
         if (persistedSettings) {
+          // Ensure provider is known before validating provider-specific model IDs.
+          if (!persistedSettings.provider) persistedSettings.provider = 'google';
+
           // Migration to April 2026 Lineup
           if (persistedSettings.model?.includes('gemini-1.5')) persistedSettings.model = 'gemini-2.5-flash';
           if (persistedSettings.model === 'gemini-3-flash' || persistedSettings.model === 'gemini-3-flash-preview') persistedSettings.model = 'gemini-3-flash-preview';
           if (persistedSettings.model === 'gemini-3-pro' || persistedSettings.model === 'gemini-3-pro-preview') persistedSettings.model = 'gemini-3.1-pro-preview';
           if (persistedSettings.model === 'gemini-3.1-flash-lite') persistedSettings.model = 'gemini-3.1-flash-lite-preview';
           
-          // SAFETY: If the model is an invalid "experimental" one (like deepseek), reset it
-          if (persistedSettings.model?.includes('deepseek') || !persistedSettings.model) {
-            console.warn("🛡️ Detected invalid or experimental model. Resetting to Gemini 3.1 Flash-Lite.");
-            persistedSettings.model = 'gemini-3.1-flash-lite-preview';
+          // Provider safety: only Gemini-native providers must reject non-Gemini model IDs.
+          if (!persistedSettings.model || !isModelAllowedForProvider(persistedSettings.provider, persistedSettings.model)) {
+            console.warn("🛡️ Detected missing or provider-incompatible model. Resetting to Gemini 3.1 Flash-Lite.");
+            persistedSettings.model = DEFAULT_GEMINI_MODEL;
           }
 
           // Ensure new fields exist
-          if (!persistedSettings.provider) persistedSettings.provider = 'google';
           if (persistedSettings.shopAIKeyKey === undefined) persistedSettings.shopAIKeyKey = '';
           if (persistedSettings.openRouterKey === undefined) persistedSettings.openRouterKey = '';
           if (persistedSettings.vertexProjectId === undefined) persistedSettings.vertexProjectId = '';
@@ -461,13 +465,12 @@ const App: React.FC = () => {
   };
 
   const deduplicateQuestions = (newList: MCQ[], existingList: MCQ[]): MCQ[] => {
-    const seen = new Set(existingList.map(q => q.question.trim().toLowerCase()));
-    return newList.filter(q => {
-      const txt = q.question.trim().toLowerCase();
-      if (seen.has(txt)) return false;
-      seen.add(txt);
-      return true;
-    });
+    const uniqueNew: MCQ[] = [];
+    for (const q of newList) {
+      const result = findDuplicate(q, [...existingList, ...uniqueNew]);
+      if (!result.isDup) uniqueNew.push(q);
+    }
+    return uniqueNew;
   };
 
   const handleRetryFailed = async () => {
@@ -681,9 +684,11 @@ const App: React.FC = () => {
       filename = `[ANKI]_${baseName}`;
     }
 
-    link.href = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(blob);
+    link.href = url;
     link.download = `${filename}_${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
+    URL.revokeObjectURL(url);
 
     toast.success("Tải file thành công! Lưu ý khi Import vào Anki: 1. Chọn dấu phẩy (Comma) - 2. Tích chọn 'Allow HTML in fields'", {
       duration: 6000,

@@ -14,11 +14,14 @@ export default defineConfig(({ mode }) => {
       react(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+        workbox: {
+          globIgnores: ['**/pdf.worker.min-*.mjs']
+        },
         manifest: {
           name: 'AnkiGen Pro - AI MCQ Generator',
           short_name: 'AnkiGen',
           description: 'Tạo thẻ Anki & Trắc nghiệm từ tài liệu bằng AI',
+          lang: 'vi',
           theme_color: '#ffffff',
           icons: [
             {

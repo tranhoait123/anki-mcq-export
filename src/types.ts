@@ -37,6 +37,13 @@ export interface DuplicateInfo {
   question: string;
   reason: string;
   matchedWith: string;
+  score?: number;
+  fieldScores?: {
+    question: number;
+    optionsBySlot: number;
+    optionsAsSet: number;
+    composite: number;
+  };
   // Full question data for restore functionality
   fullData: {
     question: string;

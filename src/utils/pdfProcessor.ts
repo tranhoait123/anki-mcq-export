@@ -1,13 +1,5 @@
-import * as pdfjsLib from 'pdfjs-dist';
-
-// "Solid" Static Worker Strategy:
-// Load worker from the public directory (Same Origin).
-// This avoids CORS issues that Blob Workers face when fetching other assets.
-// pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
-
 // Local Assets Strategy:
-// All assets (Worker, CMaps, Fonts) are served locally from public/ for 100% offline stability.
-// Use Absolute path (window.location.origin) to ensure resolution is always correct.
+// CMaps and fonts are served locally from public/ for offline stability.
 const getAssetUrl = (path: string) => {
     return typeof window !== 'undefined' ? `${window.location.origin}${path}` : path;
 };
@@ -17,20 +9,22 @@ const STANDARD_FONT_DATA_URL = getAssetUrl('/standard_fonts/');
 
 export const convertPdfToImages = async (base64OrUrl: string): Promise<string[]> => {
     try {
-        console.log(`Worker Status: Using static worker at ${pdfjsLib.GlobalWorkerOptions.workerSrc}`);
+        const pdfjsLib = await import('pdfjs-dist');
+        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+            'pdfjs-dist/build/pdf.worker.min.mjs',
+            import.meta.url
+        ).toString();
 
         const loadingTask = pdfjsLib.getDocument({
             url: base64OrUrl,
-            // cMapUrl: CMAP_URL,
-            // cMapPacked: true,
-            // standardFontDataUrl: STANDARD_FONT_DATA_URL,
+            cMapUrl: CMAP_URL,
+            cMapPacked: true,
+            standardFontDataUrl: STANDARD_FONT_DATA_URL,
         });
 
         const pdf = await loadingTask.promise;
         const pageCount = pdf.numPages;
         const images: string[] = [];
-
-        console.log(`📄 PDF Loaded: ${pageCount} pages.`);
 
         for (let i = 1; i <= pageCount; i++) {
             try {

@@ -1,10 +1,11 @@
-import Tesseract from 'tesseract.js';
+import type { Worker } from 'tesseract.js';
 
-let workerPromise: Promise<Tesseract.Worker> | null = null;
+let workerPromise: Promise<Worker> | null = null;
 
-const getWorker = async (): Promise<Tesseract.Worker> => {
+const getWorker = async (): Promise<Worker> => {
     if (!workerPromise) {
         workerPromise = (async () => {
+            const Tesseract = await import('tesseract.js');
             const worker = await Tesseract.createWorker('vie', 1, {
                 logger: m => {
                     // Global logger - difficult to map to specific file progress here directly

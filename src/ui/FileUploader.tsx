@@ -1,7 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { UploadCloud, FileText, X, Loader2, Image as ImageIcon } from 'lucide-react';
 import { UploadedFile } from '../types';
-import mammoth from 'mammoth';
 import { toast } from 'sonner';
 
 interface FileUploaderProps {
@@ -11,6 +10,23 @@ interface FileUploaderProps {
 
 // 3MB chunk size (Divisible by 3 to ensure safe Base64 concatenation for PDFs)
 const CHUNK_SIZE = 3 * 1024 * 1024;
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
+
+const sanitizeUploadedHtml = (html: string): string => {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  template.content.querySelectorAll('script, style, iframe, object, embed, link, meta').forEach(node => node.remove());
+  template.content.querySelectorAll('*').forEach(node => {
+    Array.from(node.attributes).forEach(attr => {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim().toLowerCase();
+      if (name.startsWith('on') || value.startsWith('javascript:') || value.startsWith('data:text/html')) {
+        node.removeAttribute(attr.name);
+      }
+    });
+  });
+  return template.innerHTML;
+};
 
 const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
 
@@ -58,6 +74,11 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
   const processFile = useCallback(async (file: File) => {
     // Prevent duplicate processing
     if (files.some(f => f.name === file.name)) return;
+
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error(`File ${file.name} vượt quá giới hạn 50MB. Vui lòng nén hoặc chia nhỏ file.`);
+      return;
+    }
 
     // Create a placeholder for the file being processed
     setFiles(prev => [
@@ -122,8 +143,9 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
         }
 
         updateFileProgress(file.name, 95);
+        const mammoth = await import('mammoth');
         const result = await mammoth.convertToHtml({ arrayBuffer: fullBuffer.buffer });
-        content = result.value;
+        content = sanitizeUploadedHtml(result.value);
         if (!content.trim()) throw new Error("Không tìm thấy văn bản trong file Word");
 
       } else {

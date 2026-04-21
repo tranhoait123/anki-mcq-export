@@ -3,6 +3,7 @@ import { Settings as SettingsIcon, Trash2, ChevronDown, ChevronUp, ShieldAlert, 
 import { AppSettings } from '../types';
 import { db } from '../core/db';
 import { toast } from 'sonner';
+import { getModelGroups } from '../utils/models';
 
 interface SettingsModalProps {
     show: boolean;
@@ -13,6 +14,7 @@ interface SettingsModalProps {
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, setSettings }) => {
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const modelGroups = getModelGroups(settings.provider);
     
     if (!show) return null;
 
@@ -160,53 +162,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                             onChange={e => setSettings({ ...settings, model: e.target.value })}
                             className="w-full border dark:border-slate-700 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white dark:bg-slate-800 dark:text-white transition-all shadow-sm"
                         >
-                            {settings.provider === 'google' ? (
-                                <>
-                                    <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Mạnh nhất - Tư duy Y khoa sâu)</option>
-                                    <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash-Lite (Khuyên dùng - Nhanh & Mượt)</option>
-                                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (Ổn định - Tương thích cao)</option>
-                                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (Sắp xếp dự phòng - Tương thích)</option>
-                                    <option value="gemini-2.0-flash">Gemini 2.0 Flash (Cực nhanh)</option>
-                                </>
-                            ) : settings.provider === 'shopaikey' ? (
-                                <optgroup label="Hệ thống ShopAIKey (2026)">
-                                    <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Mạnh nhất 2026)</option>
-                                    <option value="openai/gpt-4.5-preview">GPT-4.5 Preview</option>
-                                    <option value="openai/o3-pro">OpenAI o3 Pro</option>
-                                    <option value="openai/o3-mini">OpenAI o3-mini</option>
-                                    <option value="anthropic/claude-3.7-sonnet">Claude 3.7 Sonnet</option>
-                                    <option value="deepseek/deepseek-v3.2">DeepSeek V3.2</option>
-                                    <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash-Lite (Tối ưu chi phí)</option>
-                                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (Rất ổn định)</option>
-                                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (Cân bằng hiệu suất)</option>
+                            {modelGroups.map(group => (
+                                <optgroup key={group.label} label={group.label}>
+                                    {group.options.map(option => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
                                 </optgroup>
-                            ) : settings.provider === 'vertexai' ? (
-                                <optgroup label="Google Cloud Vertex AI">
-                                    <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
-                                    <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash-Lite Preview</option>
-                                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (Nền tảng GCP)</option>
-                                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                                    <option value="gemini-2.0-pro-exp-0205">Gemini 2.0 Pro Experimental</option>
-                                    <option value="gemini-2.0-flash-001">Gemini 2.0 Flash 001</option>
-                                    <option value="gemini-2.0-flash-lite-preview-02-05">Gemini 2.0 Flash-Lite</option>
-                                </optgroup>
-                            ) : (
-                                <optgroup label="Hệ thống OpenRouter">
-                                    <option value="google/gemini-3.1-pro-preview">Gemini 3.1 Pro (Mạnh nhất GCP)</option>
-                                    <option value="openai/gpt-4.5-preview">GPT-4.5 Preview (Tối tân nhất)</option>
-                                    <option value="openai/o3-pro">OpenAI o3 Pro (Lý luận chuyên gia)</option>
-                                    <option value="openai/o3-mini">OpenAI o3-mini (Lý luận lập trình & Logic)</option>
-                                    <option value="anthropic/claude-3.7-sonnet">Claude 3.7 Sonnet (Siêu việt lập luận)</option>
-                                    <option value="deepseek/deepseek-v3.2">DeepSeek V3.2 (Mới nhất)</option>
-                                    <option value="openai/gpt-4o">GPT-4o (Thông minh, toàn diện)</option>
-                                    <option value="deepseek/deepseek-chat">DeepSeek Chat (V3 - Giá rẻ hiệu năng cao)</option>
-                                    <option value="deepseek/deepseek-r1">DeepSeek Reasoner (R1 - Suy luận y khoa sâu)</option>
-                                    <option value="google/gemini-2.5-pro">Gemini 2.5 Pro (OpenRouter API)</option>
-                                    <option value="google/gemini-2.5-flash">Gemini 2.5 Flash (OpenRouter API)</option>
-                                    <option value="anthropic/claude-3.5-haiku">Claude 3.5 Haiku (Siêu tốc)</option>
-                                    <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B Instruct</option>
-                                </optgroup>
-                            )}
+                            ))}
                         </select>
                     </section>
 

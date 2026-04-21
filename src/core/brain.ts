@@ -2,6 +2,8 @@ import { PDFDocument } from 'pdf-lib';
 import { GoogleGenAI, Type } from "@google/genai";
 import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings, MCQ, DuplicateInfo } from "../types";
 import { db } from './db';
+import { findDuplicate } from '../utils/dedupe';
+import { getProviderFallbackModel } from '../utils/models';
 
 // Helper: Hashing for cache identification
 const hashFiles = async (files: UploadedFile[]): Promise<string> => {
@@ -623,14 +625,6 @@ const extractJson = (text: string): string => {
 
 // --- Deduplication Helpers ---
 
-const normalizeText = (text: string): string => {
-  return text
-    .toLowerCase()
-    .replace(/[\s\n\r]+/g, ' ')
-    .replace(/[.,;:!?\"'()\\[\\]{}]/g, '')
-    .trim();
-};
-
 const extractQuestionNumber = (text: string): number | null => {
   if (!text || typeof text !== 'string') return null;
   const patterns = [
@@ -646,107 +640,6 @@ const extractQuestionNumber = (text: string): number | null => {
     }
   }
   return null;
-};
-
-const calculateSimilarity = (str1: string, str2: string): number => {
-  const s1 = normalizeText(str1);
-  const s2 = normalizeText(str2);
-
-  if (s1 === s2) return 1;
-  if (s1.length === 0 || s2.length === 0) return 0;
-
-  // Logic Flip Detection (Bẫy phủ định)
-  // Nếu một câu có chữ "không" mà câu kia không có -> Giảm mạnh tương đồng
-  const negativeKeywords = ['không', 'ngoại trừ', 'ngoài trừ', 'not', 'except', 'un-'];
-  for (const kw of negativeKeywords) {
-    const has1 = s1.includes(` ${kw} `) || s1.startsWith(`${kw} `);
-    const has2 = s2.includes(` ${kw} `) || s2.startsWith(`${kw} `);
-    if (has1 !== has2) return 0.2; // Rất thấp vì logic ngược nhau
-  }
-
-  const words1 = s1.split(' ').filter(w => w.length > 2);
-  const words2 = s2.split(' ').filter(w => w.length > 2);
-
-  if (words1.length === 0 || words2.length === 0) return 0;
-
-  // Detect shared case stem (common prefix by words)
-  let commonPrefixLen = 0;
-  const minLen = Math.min(words1.length, words2.length);
-  for (let i = 0; i < minLen; i++) {
-    if (words1[i] === words2[i]) {
-      commonPrefixLen++;
-    } else {
-      break;
-    }
-  }
-
-  const maxLen = Math.max(words1.length, words2.length);
-
-  // If >40% of words are a shared prefix (case stem), compare suffixes
-  if (commonPrefixLen > 5 && commonPrefixLen / maxLen > 0.4) {
-    const suffix1 = words1.slice(commonPrefixLen);
-    const suffix2 = words2.slice(commonPrefixLen);
-
-    if (suffix1.length === 0 && suffix2.length === 0) return 1;
-    if (suffix1.length === 0 || suffix2.length === 0) return 0.5;
-
-    const suffixSet1 = new Set(suffix1);
-    const suffixSet2 = new Set(suffix2);
-    let suffixOverlap = 0;
-    suffixSet1.forEach(w => { if (suffixSet2.has(w)) suffixOverlap++; });
-    return suffixOverlap / Math.max(suffixSet1.size, suffixSet2.size);
-  }
-
-  const set1 = new Set(words1);
-  const set2 = new Set(words2);
-  let overlap = 0;
-  set1.forEach(w => { if (set2.has(w)) overlap++; });
-
-  return overlap / Math.max(set1.size, set2.size);
-};
-
-const checkDuplicate = (newQ: any, existingQuestions: any[]): { isDup: boolean; isAutoSkip?: boolean; reason?: string; matchedWith?: string; matchedData?: any } => {
-  const Q_THRESHOLD = 0.90; // Ngưỡng câu hỏi
-  const OPT_THRESHOLD = 0.90; // Phải trùng cả đáp án
-  const AUTO_SKIP_THRESHOLD = 0.98; // Ngưỡng tự động bỏ qua (không hiện lên UI)
-
-  const newNumber = extractQuestionNumber(newQ.question);
-  const newText = newQ.question;
-  const newOpts = (newQ.options || []).join(' ');
-
-  for (const existing of existingQuestions) {
-    const existingNumber = extractQuestionNumber(existing.question);
-    const qSim = calculateSimilarity(newText, existing.question);
-    const optSim = calculateSimilarity(newOpts, (existing.options || []).join(' '));
-
-    // Trường hợp 1: Trùng số câu hỏi (Câu 1, Câu 1...)
-    if (newNumber !== null && existingNumber !== null && newNumber === existingNumber) {
-      if (qSim >= 0.85 && optSim >= 0.85) {
-        const isIdentical = qSim >= AUTO_SKIP_THRESHOLD && optSim >= AUTO_SKIP_THRESHOLD;
-        return {
-          isDup: true,
-          isAutoSkip: isIdentical,
-          reason: `Trùng số (${newNumber}) & Nội dung tương đồng (~${Math.round(qSim * 100)}%)`,
-          matchedWith: existing.question.substring(0, 60),
-          matchedData: existing
-        };
-      }
-    }
-
-    // Trường hợp 2: Kiểm tra kết hợp Câu hỏi + Đáp án
-    if (qSim >= Q_THRESHOLD && optSim >= OPT_THRESHOLD) {
-      const isIdentical = qSim >= AUTO_SKIP_THRESHOLD && optSim >= AUTO_SKIP_THRESHOLD;
-      return {
-        isDup: true,
-        isAutoSkip: isIdentical,
-        reason: `Nội dung & Đáp án tương đồng cao (~${Math.round(qSim * 100)}%)`,
-        matchedWith: existing.question.substring(0, 60),
-        matchedData: existing
-      };
-    }
-  }
-
-  return { isDup: false };
 };
 
 const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any, modelName: string = 'gemini-2.0-flash', cachedContent?: string) => {
@@ -767,14 +660,14 @@ const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any,
 async function executeWithUserRotation<T>(
   initialModel: string,
   operation: (apiKey: string, modelName: string) => Promise<T>,
-  startingKey?: string // Cho phép chỉ định key khởi đầu (per-batch distribution)
+  startingKey?: string, // Cho phép chỉ định key khởi đầu (per-batch distribution)
+  fallbackModel: string = 'gemini-2.5-flash'
 ): Promise<T> {
   const ATTEMPTS_LIMIT = Math.max(8, userKeyRotator.keyCount + 3); // Đảm bảo thử hết tất cả key + buffer
   let attempts = 0;
   let distinctKeysTried = 0; // Đếm số key THỰC SỰ đã thử (thay vì so sánh index)
   let lastTriedKey = ''; // Track key trước đó để đếm chính xác
   let currentModel = initialModel;
-  const FALLBACK_MODEL = 'gemini-2.5-flash';
   let currentKey = startingKey || userKeyRotator.getCurrentKey();
 
   while (attempts < ATTEMPTS_LIMIT) {
@@ -782,9 +675,9 @@ async function executeWithUserRotation<T>(
 
     // Nếu sau 6 lần thử (hết khoảng 1/2 số Key trung bình) mà vẫn lỗi 503, 
     // ta tự động chuyển sang Model dự phòng ổn định hơn.
-    if (attempts > 6 && currentModel !== FALLBACK_MODEL) {
-      console.log(`🚀 Switching to STABLE FALLBACK MODEL: ${FALLBACK_MODEL}`);
-      currentModel = FALLBACK_MODEL;
+    if (attempts > 6 && currentModel !== fallbackModel) {
+      console.log(`🚀 Switching to STABLE FALLBACK MODEL: ${fallbackModel}`);
+      currentModel = fallbackModel;
     }
 
     try {
@@ -994,6 +887,8 @@ export const generateQuestions = async (
     };
 
     const totalBatches = allParts.length;
+    const stableFallbackModel = getProviderFallbackModel(settings.provider);
+    const extractionModel = isAdvancedMode ? stableFallbackModel : settings.model;
 
     // Hàm xử lý Batch chính có khả năng Đệ quy (Subdivision)
     const processBatch = async (part: any, index: number, depth: number = 0) => {
@@ -1008,7 +903,7 @@ export const generateQuestions = async (
 
         const rawNewQs = await (settings.provider === 'shopaikey' || settings.provider === 'openrouter' || settings.provider === 'vertexai'
           ? executeWithUserRotation(
-              isAdvancedMode ? 'gemini-2.5-flash' : settings.model,
+              extractionModel,
               async (dummyKey, activeModel) => {
                   const finalInstruction = settings.customPrompt ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
                   
@@ -1042,9 +937,12 @@ export const generateQuestions = async (
                   const data = await response.json();
                   return extractAndParseQuestions(data.choices[0].message.content, index);
               }
+              ,
+              undefined,
+              stableFallbackModel
             )
           : executeWithUserRotation(
-              isAdvancedMode ? 'gemini-2.5-flash' : settings.model,
+              extractionModel,
               async (currentKey, activeModel) => {
                   const aiInstance = new GoogleGenAI({ apiKey: currentKey });
                   const finalInstruction = settings.customPrompt ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
@@ -1062,14 +960,15 @@ export const generateQuestions = async (
                   const response = await chat.sendMessage({ message: [part, { text: batchPrompt }] });
                   return extractAndParseQuestions(response.text, index);
               },
-              batchStartingKey // Per-batch key assignment
+              batchStartingKey, // Per-batch key assignment
+              stableFallbackModel
             )
         );
 
         if (rawNewQs && rawNewQs.length > 0) {
           const newQs = [];
           for (const q of rawNewQs) {
-            const result = checkDuplicate(q, allQuestions);
+            const result = findDuplicate(q, [...allQuestions, ...newQs]);
             if (!result.isDup) {
               q.id = `mcq-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
               newQs.push(q);
@@ -1083,7 +982,9 @@ export const generateQuestions = async (
                   reason: result.reason || 'Duplicate found',
                   matchedWith: result.matchedWith,
                   fullData: q,
-                  matchedData: result.matchedData
+                  matchedData: result.matchedData,
+                  score: result.score,
+                  fieldScores: result.fieldScores
                 });
               } else {
                 autoSkippedCount++;
@@ -1245,7 +1146,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
     const chat = ai.chats.create(getModelConfig(apiKey, finalPrompt, schema, activeModel));
     const result = await chat.sendMessage({ message: parts });
     return JSON.parse(extractJson(result.text));
-  });
+  }, undefined, getProviderFallbackModel(settings.provider));
 };
 
 export const auditMissingQuestions = async (files: UploadedFile[], count: number, settings: AppSettings): Promise<AuditResult> => {
@@ -1328,5 +1229,5 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
       ]
     });
     return JSON.parse(extractJson(res.text)) as AuditResult;
-  });
+  }, undefined, getProviderFallbackModel(settings.provider));
 };

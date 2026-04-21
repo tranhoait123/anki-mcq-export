@@ -241,17 +241,31 @@ const answersConflict = (a: MCQLike, b: MCQLike): boolean => {
 };
 
 export const scoreMCQDuplicate = (a: MCQLike, b: MCQLike): DuplicateFieldScores => {
+  // Compute raw scores
   const question = scoreQuestion(a.question || '', b.question || '');
   const optionsBySlot = scoreOptionsBySlot(getOptions(a), getOptions(b));
   const optionsAsSet = scoreOptionsAsSet(getOptions(a), getOptions(b));
   const optionsScore = Math.max(optionsBySlot, optionsAsSet * 0.96);
-  const composite = question * 0.55 + optionsBySlot * 0.3 + optionsAsSet * 0.15;
+  const compositeRaw = question * 0.55 + optionsBySlot * 0.3 + optionsAsSet * 0.15;
+  // Length‑aware adjustment: short texts get a stricter score, long texts get a looser one
+  const lenA = (a.question || '').length;
+  const lenB = (b.question || '').length;
+  const maxLen = Math.max(lenA, lenB);
+  let lengthCoeff = 1;
+  if (maxLen < 50) {
+    // Very short questions – penalize differences more heavily
+    lengthCoeff = 1.05; // boost score so threshold is harder to meet
+  } else if (maxLen > 200) {
+    // Long clinical cases – allow a bit more variance
+    lengthCoeff = 0.95; // lower score so threshold is easier to meet
+  }
+  const composite = Math.min(compositeRaw * lengthCoeff, question * 0.75 + optionsScore * 0.25);
 
   return {
     question,
     optionsBySlot,
     optionsAsSet,
-    composite: Math.min(composite, question * 0.75 + optionsScore * 0.25),
+    composite,
   };
 };
 
@@ -265,6 +279,21 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
     const fieldScores = scoreMCQDuplicate(candidate, existing);
     const optionsScore = Math.max(fieldScores.optionsBySlot, fieldScores.optionsAsSet);
     const answerConflict = answersConflict(candidate, existing);
+
+    // Immediate auto‑skip when the shared stem overlap is very high (>= 0.9)
+    const overlapScore = tailAfterSharedStemScore(candidate.question || '', existing.question || '');
+    if (overlapScore !== null && overlapScore >= 0.9) {
+      return {
+        action: 'autoSkip',
+        isDup: true,
+        isAutoSkip: true,
+        reason: `Overlap stem high (~${formatPercent(overlapScore)}%)`,
+        matchedWith: (existing.question || '').substring(0, 60),
+        matchedData: existing,
+        score: overlapScore,
+        fieldScores: { ...fieldScores, composite: overlapScore },
+      };
+    }
 
     if (exactFingerprint) {
       return {
@@ -280,12 +309,12 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
     }
 
     if (
-      fieldScores.composite >= 0.985 &&
-      fieldScores.question >= 0.97 &&
-      fieldScores.optionsBySlot >= 0.985 &&
-      fieldScores.optionsAsSet >= 0.985 &&
-      !answerConflict
-    ) {
+        fieldScores.composite >= 0.95 && // lowered auto‑skip threshold
+        fieldScores.question >= 0.93 && // slightly relaxed question threshold
+        fieldScores.optionsBySlot >= 0.95 &&
+        fieldScores.optionsAsSet >= 0.95 &&
+        !answerConflict
+      ) {
       return {
         action: 'autoSkip',
         isDup: true,
@@ -299,10 +328,10 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
     }
 
     if (
-      fieldScores.composite >= 0.92 &&
-      fieldScores.question >= 0.88 &&
-      optionsScore >= 0.84
-    ) {
+        fieldScores.composite >= 0.82 && // lowered review threshold
+        fieldScores.question >= 0.78 &&
+        optionsScore >= 0.75
+      ) {
       return {
         action: 'review',
         isDup: true,

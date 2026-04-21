@@ -83,12 +83,13 @@ export const translateErrorForUser = (error: any, context?: string): string => {
   if (msgLow.includes("shopaikey api error")) {
     const code = msg.match(/:\s*(\d+)/)?.[1] || "?";
     const shopMsgs: Record<string, string> = {
-      "401": "API Key ShopAIKey không hợp lệ. Kiểm tra lại Key.",
-      "402": "Tài khoản ShopAIKey hết số dư. Vui lòng nạp thêm.",
-      "403": "API Key ShopAIKey không có quyền. Kiểm tra Key.",
-      "429": "ShopAIKey quá tải. Chờ 1-2 phút rồi thử lại.",
-      "500": "Server ShopAIKey đang gặp sự cố. Thử lại sau.",
-      "503": "Server ShopAIKey quá tải tạm thời. Thử lại sau.",
+      "400": "Dữ liệu gửi lên bị từ chối do sai định dạng (Mã 400).",
+      "401": "API Key ShopAIKey không hợp lệ. Kiểm tra lại Key (Mã 401).",
+      "402": "Tài khoản ShopAIKey hết số dư. Vui lòng nạp thêm (Mã 402).",
+      "403": "API Key ShopAIKey không có quyền truy cập. Kiểm tra Key (Mã 403).",
+      "429": "ShopAIKey quá tải. Chờ 1-2 phút rồi thử lại (Mã 429).",
+      "500": "Server ShopAIKey đang gặp sự cố nội bộ. Thử lại sau (Mã 500).",
+      "503": "Server ShopAIKey quá tải tạm thời. Thử lại sau (Mã 503).",
     };
     return `${prefix}🤖 Lỗi ShopAIKey: ${shopMsgs[code] || `Server phản hồi mã ${code}. Vui lòng thử lại sau.`}`;
   }
@@ -1185,7 +1186,7 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
         if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
           return { type: "image_url", image_url: { url: `data:${file.type};base64,${file.content.includes(',') ? file.content.split(',')[1] : file.content}` } };
         }
-        return { text: `FILE: ${file.name}\n${file.content}\n` };
+        return { type: "text", text: `FILE: ${file.name}\n${file.content}\n` };
       });
 
       const response = await fetch("https://api.shopaikey.com/v1/chat/completions", {

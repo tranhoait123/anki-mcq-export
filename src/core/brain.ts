@@ -705,9 +705,10 @@ const calculateSimilarity = (str1: string, str2: string): number => {
   return overlap / Math.max(set1.size, set2.size);
 };
 
-const checkDuplicate = (newQ: any, existingQuestions: any[]): { isDup: boolean; reason?: string; matchedWith?: string; matchedData?: any } => {
-  const Q_THRESHOLD = 0.90; // Ngưỡng câu hỏi (linh hoạt hơn)
-  const OPT_THRESHOLD = 0.90; // Phải trùng cả đáp án để đảm bảo an toàn
+const checkDuplicate = (newQ: any, existingQuestions: any[]): { isDup: boolean; isAutoSkip?: boolean; reason?: string; matchedWith?: string; matchedData?: any } => {
+  const Q_THRESHOLD = 0.90; // Ngưỡng câu hỏi
+  const OPT_THRESHOLD = 0.90; // Phải trùng cả đáp án
+  const AUTO_SKIP_THRESHOLD = 0.98; // Ngưỡng tự động bỏ qua (không hiện lên UI)
 
   const newNumber = extractQuestionNumber(newQ.question);
   const newText = newQ.question;
@@ -721,9 +722,11 @@ const checkDuplicate = (newQ: any, existingQuestions: any[]): { isDup: boolean; 
     // Trường hợp 1: Trùng số câu hỏi (Câu 1, Câu 1...)
     if (newNumber !== null && existingNumber !== null && newNumber === existingNumber) {
       if (qSim >= 0.85 && optSim >= 0.85) {
+        const isIdentical = qSim >= AUTO_SKIP_THRESHOLD && optSim >= AUTO_SKIP_THRESHOLD;
         return {
           isDup: true,
-          reason: `Trùng số (${newNumber}) & Nội dung tương đồng`,
+          isAutoSkip: isIdentical,
+          reason: `Trùng số (${newNumber}) & Nội dung tương đồng (~${Math.round(qSim * 100)}%)`,
           matchedWith: existing.question.substring(0, 60),
           matchedData: existing
         };
@@ -731,10 +734,11 @@ const checkDuplicate = (newQ: any, existingQuestions: any[]): { isDup: boolean; 
     }
 
     // Trường hợp 2: Kiểm tra kết hợp Câu hỏi + Đáp án
-    // Chỉ coi là trùng nếu CẢ câu hỏi và bộ đáp án đều giống nhau trên 90%
     if (qSim >= Q_THRESHOLD && optSim >= OPT_THRESHOLD) {
+      const isIdentical = qSim >= AUTO_SKIP_THRESHOLD && optSim >= AUTO_SKIP_THRESHOLD;
       return {
         isDup: true,
+        isAutoSkip: isIdentical,
         reason: `Nội dung & Đáp án tương đồng cao (~${Math.round(qSim * 100)}%)`,
         matchedWith: existing.question.substring(0, 60),
         matchedData: existing
@@ -805,7 +809,6 @@ async function executeWithUserRotation<T>(
 
         // === CHIẾN LƯỢC XỬ LÝ LỖI THÔNG MINH ===
         
-        // [A] 403 Permission Denied / Invalid Key: Đánh dấu key hỏng, xoay NGAY, KHÔNG delay
         if (isPermissionDenied || isKeyError) {
           console.warn(`🚫 403/Invalid Key detected! Key #${userKeyRotator.getKeyIndex() + 1} is broken. Rotating IMMEDIATELY...`);
           userKeyRotator.markKeyFailed(currentKey);
@@ -813,7 +816,7 @@ async function executeWithUserRotation<T>(
             currentKey = userKeyRotator.rotate();
             continue; // Retry ngay lập tức với key mới, KHÔNG delay
           } else {
-            throw new Error(`Tất cả ${userKeyRotator.keyCount} API Keys đều bị lỗi 403 (Permission Denied). Vui lòng kiểm tra lại API Keys.`);
+            throw new Error(`API Key hoặc Token bị từ chối truy cập (403/Invalid). Vui lòng vào Cài đặt kiểm tra lại (Có thể Key hết hạn hoặc sai).`);
           }
         }
 
@@ -861,7 +864,7 @@ async function executeWithUserRotation<T>(
       throw error;
     }
   }
-  throw new Error(`Đã thử luân phiên tất cả ${userKeyRotator.keyCount} Keys nhưng đều quá tải (đã thử ${ATTEMPTS_LIMIT} lần). Vui lòng chờ 1-2 phút rồi thử lại.`);
+  throw new Error(`Dịch vụ AI đang bận hoặc quá tải sau ${ATTEMPTS_LIMIT} lần thử. Vui lòng chờ 1-2 phút rồi thử lại.`);
 }
 
 
@@ -874,7 +877,7 @@ export const generateQuestions = async (
   onBatchComplete?: BatchCallback,
   retryIndices?: number[],
   isAdvancedMode: boolean = false
-): Promise<{ questions: MCQ[], duplicates: DuplicateInfo[], failedBatches: number[] }> => {
+): Promise<{ questions: MCQ[], duplicates: DuplicateInfo[], failedBatches: number[], autoSkippedCount: number }> => {
   try {
     userKeyRotator.init(settings.apiKey);
     // Reset session-level caching flag cho mỗi phiên mới
@@ -922,7 +925,7 @@ export const generateQuestions = async (
     }
 
     if (allParts.length === 0) {
-      return { questions: [], duplicates: [], failedBatches: [] };
+      return { questions: [], duplicates: [], failedBatches: [], autoSkippedCount: 0 };
     }
 
     const questionSchema = {
@@ -960,6 +963,7 @@ export const generateQuestions = async (
     let allDuplicates: any[] = [];
     let failedBatches: number[] = [];
     let duplicateCounter = 0;
+    let autoSkippedCount = 0;
 
     // --- STEP 2: BATCH PROCESSING ---
     let completedBatches = 0;
@@ -1007,13 +1011,17 @@ export const generateQuestions = async (
               isAdvancedMode ? 'gemini-2.5-flash' : settings.model,
               async (dummyKey, activeModel) => {
                   const finalInstruction = settings.customPrompt ? `${settings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
+                  
+                  // PDF Rasterization is now handled by App.tsx prepareFiles() for OpenAI-compatible providers.
+                  // We remove the rigid guard to allow the data to flow through as images.
+
                   const messages = [
                     { role: "system", content: isAdvancedMode ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction },
                     { role: "user", content: [{ type: "text", text: `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).` }, ...(part.inlineData ? [{ type: "image_url", image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` } }] : [{ type: "text", text: part.text }])] }
                   ];
 
                   const apiUrl = settings.provider === 'vertexai'
-                    ? `https://${settings.vertexLocation}-aiplatform.googleapis.com/v1/projects/${settings.vertexProjectId}/locations/${settings.vertexLocation}/endpoints/openapi/chat/completions`
+                    ? `https://${settings.vertexLocation}-aiplatform.googleapis.com/v1beta1/projects/${settings.vertexProjectId}/locations/${settings.vertexLocation}/publishers/google/models/${activeModel}/chat/completions`
                     : settings.provider === 'shopaikey' 
                       ? "https://api.shopaikey.com/v1/chat/completions" 
                       : "https://openrouter.ai/api/v1/chat/completions";
@@ -1067,14 +1075,20 @@ export const generateQuestions = async (
               newQs.push(q);
             } else {
               duplicateCounter++;
-              allDuplicates.push({
-                id: `dup-${Date.now()}-${duplicateCounter}`,
-                question: q.question.substring(0, 50),
-                reason: result.reason || 'Duplicate found',
-                matchedWith: result.matchedWith,
-                fullData: q,
-                matchedData: result.matchedData
-              });
+              // Chỉ thêm vào danh sách Review nếu độ trùng lặp < 98% (không phải auto-skip)
+              if (!result.isAutoSkip) {
+                allDuplicates.push({
+                  id: `dup-${Date.now()}-${duplicateCounter}`,
+                  question: q.question.substring(0, 50),
+                  reason: result.reason || 'Duplicate found',
+                  matchedWith: result.matchedWith,
+                  fullData: q,
+                  matchedData: result.matchedData
+                });
+              } else {
+                autoSkippedCount++;
+                console.log(`⏩ Auto-skipped identical MCQ (~100%): ${q.question.substring(0, 50)}...`);
+              }
             }
           }
 
@@ -1144,8 +1158,8 @@ export const generateQuestions = async (
       return numA - numB;
     });
 
-    console.log(`\n📊 FINAL: ${allQuestions.length} questions. Failed Batches: ${failedBatches.join(', ') || 'None'}`);
-    return { questions: allQuestions, duplicates: allDuplicates, failedBatches };
+    console.log(`\n📊 FINAL: ${allQuestions.length} questions. Auto-skipped: ${autoSkippedCount}. Failed Batches: ${failedBatches.join(', ') || 'None'}`);
+    return { questions: allQuestions, duplicates: allDuplicates, failedBatches, autoSkippedCount };
 
   } catch (error: any) {
     throw new Error(translateErrorForUser(error, 'Trích xuất'));
@@ -1163,7 +1177,8 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
   if (settings.provider === 'shopaikey' || settings.provider === 'openrouter' || settings.provider === 'vertexai') {
     return await executeWithRetry(async () => {
       const parts: any[] = files.map(file => {
-        if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+        // PDF Rasterization is handled upstream in App.tsx prepareFiles()
+        if (file.type.startsWith('image/')) {
           return {
             type: "image_url",
             image_url: { url: `data:${file.type};base64,${file.content.includes(',') ? file.content.split(',')[1] : file.content}` }
@@ -1173,7 +1188,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
       });
 
       const apiUrl = settings.provider === 'vertexai'
-        ? `https://${settings.vertexLocation}-aiplatform.googleapis.com/v1/projects/${settings.vertexProjectId}/locations/${settings.vertexLocation}/endpoints/openapi/chat/completions`
+        ? `https://${settings.vertexLocation}-aiplatform.googleapis.com/v1beta1/projects/${settings.vertexProjectId}/locations/${settings.vertexLocation}/publishers/google/models/${settings.model}/chat/completions`
         : settings.provider === 'shopaikey' 
           ? "https://api.shopaikey.com/v1/chat/completions" 
           : "https://openrouter.ai/api/v1/chat/completions";
@@ -1237,14 +1252,15 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
   if (settings.provider === 'shopaikey' || settings.provider === 'openrouter' || settings.provider === 'vertexai') {
     return await executeWithRetry(async () => {
       const parts: any[] = files.map(file => {
-        if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+        // PDF Rasterization is handled upstream in App.tsx prepareFiles()
+        if (file.type.startsWith('image/')) {
           return { type: "image_url", image_url: { url: `data:${file.type};base64,${file.content.includes(',') ? file.content.split(',')[1] : file.content}` } };
         }
         return { type: "text", text: `FILE: ${file.name}\n${file.content}\n` };
       });
 
       const apiUrl = settings.provider === 'vertexai'
-        ? `https://${settings.vertexLocation}-aiplatform.googleapis.com/v1/projects/${settings.vertexProjectId}/locations/${settings.vertexLocation}/endpoints/openapi/chat/completions`
+        ? `https://${settings.vertexLocation}-aiplatform.googleapis.com/v1beta1/projects/${settings.vertexProjectId}/locations/${settings.vertexLocation}/publishers/google/models/${settings.model}/chat/completions`
         : settings.provider === 'shopaikey' 
           ? "https://api.shopaikey.com/v1/chat/completions" 
           : "https://openrouter.ai/api/v1/chat/completions";

@@ -13,6 +13,7 @@ import { extractTextWithTesseract } from './core/vision';
 import { buildAnkiHtml, formatRichText } from './core/anki';
 import { isOptionCorrect } from './utils/text';
 import { toast } from 'sonner';
+import { convertPdfToImages } from './utils/pdfProcessor';
 
 const App: React.FC = () => {
   const [files, setFiles] = useState<UploadedFile[]>([]);
@@ -217,18 +218,49 @@ const App: React.FC = () => {
   // Helper to process files for analysis/generation
   const prepareFiles = async (forcedMode?: 'gemini' | 'tesseract'): Promise<UploadedFile[]> => {
     const mode = forcedMode || ocrMode;
-    if (mode === 'gemini') return files;
+    let processedFiles: UploadedFile[] = [];
+
+    // Pre-processing: Chuyển PDF thành ảnh nếu Provider không phải Google (Vertex/OpenRouter/ShopAI không nhận PDF raw)
+    const needsPdfRasterization = settings.provider !== 'google';
+    for (const file of files) {
+      if (file.type === 'application/pdf' && needsPdfRasterization) {
+         setProgressStatus(`Đang chuyển đổi PDF sang ảnh để tương thích với ${settings.provider}...`);
+         try {
+           const pdfDataUrl = file.content.startsWith('data:') ? file.content : `data:application/pdf;base64,${file.content}`;
+           const imageBase64s = await convertPdfToImages(pdfDataUrl);
+           
+           imageBase64s.forEach((b64, idx) => {
+             // Extract raw base64 logic
+             const rawBase64 = b64.includes(',') ? b64.split(',')[1] : b64;
+             processedFiles.push({
+               id: `${file.id}-page-${idx}`,
+               name: `${file.name.replace('.pdf', '')} - Trang ${idx + 1}.jpg`,
+               type: 'image/jpeg',
+               size: Math.round(rawBase64.length * 0.75),
+               content: rawBase64,
+             });
+           });
+           continue; 
+         } catch (e: any) {
+           console.error('PDF Conversion failed:', e);
+           toast.error(`Lỗi chuyển đổi PDF ${file.name}: ${e.message}`);
+         }
+      }
+      processedFiles.push(file);
+    }
+
+    if (mode === 'gemini') return processedFiles;
 
     // Tesseract Mode: Convert images to text first
     setProgressStatus("Đang chạy Local OCR (Tesseract)...");
 
     // Process in parallel using Promise.all
-    const processedFiles = await Promise.all(files.map(async (file) => {
+    const textProcessedFiles = await Promise.all(processedFiles.map(async (file) => {
       if (file.type.startsWith('image/')) {
         try {
-          const base64Content = `data:${file.type}; base64, ${file.content} `;
+          const base64Content = `data:${file.type};base64,${file.content}`;
           const text = await extractTextWithTesseract(base64Content, (p) => {
-            setProgressStatus(`OCR ${file.name}: ${p}% `);
+            setProgressStatus(`OCR ${file.name}: ${p}%`);
           });
           return {
             ...file,
@@ -250,7 +282,7 @@ const App: React.FC = () => {
       return file;
     }));
 
-    return processedFiles;
+    return textProcessedFiles;
   };
 
   const handleAnalyze = async () => {
@@ -349,6 +381,17 @@ const App: React.FC = () => {
           });
         });
       });
+
+      const count = res.questions.length;
+      const skipCount = res.autoSkippedCount || 0;
+      
+      if (count > 0) {
+        toast.success(`Hoàn tất! Trích xuất được ${count} câu hỏi.${skipCount > 0 ? ` (Đã tự động bỏ qua ${skipCount} câu trùng 100%)` : ''}`);
+      } else if (res.questions.length === 0 && skipCount > 0) {
+        toast.info(`Toàn bộ tài liệu (${skipCount} câu) đã trùng lặp trong danh sách, không trích xuất thêm.`);
+      } else if (res.questions.length === 0) {
+        toast.error("Không tìm thấy câu hỏi nào hoặc lỗi trích xuất.");
+      }
 
       // 2. Auto-Fallback Check
       // If we used Gemini (Cloud) AND got bad results (< 60% of estimate), try Tesseract

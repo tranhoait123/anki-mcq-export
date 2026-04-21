@@ -142,14 +142,24 @@ const DuplicatesReviewModal: React.FC<DuplicatesReviewModalProps> = ({
                     {/* Compare Area */}
                     <div className="flex-1 flex flex-col p-8 overflow-y-auto bg-slate-50/50 dark:bg-slate-950">
                         <div className="bg-orange-50 dark:bg-orange-950/20 border border-orange-100 dark:border-orange-900/30 rounded-2xl p-4 flex items-center justify-between mb-8 shadow-sm">
-                            <div className="flex items-center gap-3">
-                                <div className="bg-orange-500 text-white p-2 rounded-xl shadow-sm">
-                                    <Info size={16} />
+                            <div className="flex items-center justify-between w-full">
+                                <div className="flex items-center gap-3">
+                                    <div className="bg-orange-500 text-white p-2 rounded-xl shadow-sm">
+                                        <Info size={16} />
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] font-black text-orange-600 dark:text-orange-400 uppercase tracking-widest block">Lý do phát hiện trùng</span>
+                                        <span className="text-sm font-bold text-orange-900 dark:text-orange-200">{currentDup.reason.replace(/ \(~\d+%\)/, '')}</span>
+                                    </div>
                                 </div>
-                                <div>
-                                    <span className="text-[10px] font-black text-orange-600 dark:text-orange-400 uppercase tracking-widest block">Lý do phát hiện trùng</span>
-                                    <span className="text-sm font-bold text-orange-900 dark:text-orange-200">{currentDup.reason}</span>
-                                </div>
+                                {currentDup.reason.match(/~(\d+)%/) && (
+                                    <div className="bg-orange-500 text-white px-4 py-2 rounded-xl shadow-md flex items-center justify-center shrink-0">
+                                        <div className="text-center">
+                                            <span className="block text-[10px] font-black uppercase tracking-widest opacity-80 mb-0.5">Mức độ giống</span>
+                                            <span className="block text-2xl font-black leading-none">{currentDup.reason.match(/~(\d+)%/)?.[1]}%</span>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
 

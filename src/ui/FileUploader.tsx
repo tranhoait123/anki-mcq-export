@@ -63,6 +63,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
     setFiles(prev => [
       ...prev,
       {
+        id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
         name: file.name,
         type: file.type,
         content: "",

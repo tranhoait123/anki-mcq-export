@@ -29,6 +29,7 @@ export interface GeneratedResponse {
   }[];
   duplicates?: DuplicateInfo[];
   failedBatches?: number[];
+  autoSkippedCount: number;
 }
 
 export interface DuplicateInfo {
@@ -65,9 +66,11 @@ export interface AuditResult {
 }
 
 export interface UploadedFile {
+  id: string; // Unique ID for tracking
   name: string;
   type: string;
   content: string;
+  size?: number; // Added to fix lint error
   isProcessing?: boolean;
   progress?: number;
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildStudyDocxBlob, getCorrectLetter, sanitizeDocxText } from './docxExport';
+import JSZip from 'jszip';
+import { buildStudyDocxBlob, getCorrectLetter, sanitizeDocxText, splitMarkdownBlocks } from './docxExport';
 import { MCQ } from '../types';
 
 const makeMcq = (overrides: Partial<MCQ> = {}): MCQ => ({
@@ -57,5 +58,26 @@ describe('DOCX study export', () => {
   it('detects correct answer from option content or letter', () => {
     expect(getCorrectLetter(makeMcq({ correctAnswer: 'Sốt' }))).toBe('A');
     expect(getCorrectLetter(makeMcq({ correctAnswer: 'C' }))).toBe('C');
+  });
+
+  it('splits markdown tables into structured blocks without separator rows', () => {
+    const blocks = splitMarkdownBlocks('Intro\n| Cột 1 | Cột 2 |\n| --- | --- |\n| A | B |\nOutro');
+
+    expect(blocks).toEqual([
+      { type: 'text', lines: ['Intro'] },
+      { type: 'table', rows: [['Cột 1', 'Cột 2'], ['A', 'B']] },
+      { type: 'text', lines: ['Outro'] },
+    ]);
+  });
+
+  it('renders markdown tables as Word tables instead of raw pipe text', async () => {
+    const blob = await buildStudyDocxBlob([makeMcq()], 'Unit Test');
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const documentXml = await zip.file('word/document.xml')?.async('string');
+
+    expect(documentXml).toBeTruthy();
+    expect(documentXml).toContain('<w:tbl>');
+    expect(documentXml).not.toContain('| --- |');
+    expect(documentXml).not.toContain('| Dấu hiệu | Ý nghĩa |');
   });
 });

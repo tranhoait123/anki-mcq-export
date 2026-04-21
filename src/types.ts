@@ -29,7 +29,19 @@ export interface GeneratedResponse {
   }[];
   duplicates?: DuplicateInfo[];
   failedBatches?: number[];
+  failedBatchDetails?: BatchFailureInfo[];
   autoSkippedCount: number;
+}
+
+export type BatchFailureKind = 'format' | 'empty' | 'rateLimit' | 'serverBusy' | 'auth' | 'fatal';
+
+export interface BatchFailureInfo {
+  index: number;
+  label: string;
+  kind: BatchFailureKind;
+  stage: 'normal' | 'rescue' | 'split';
+  message: string;
+  advice: string;
 }
 
 export interface DuplicateInfo {

@@ -1,9 +1,24 @@
 import { PDFDocument } from 'pdf-lib';
 import { GoogleGenAI, Type } from "@google/genai";
-import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings, MCQ, DuplicateInfo } from "../types";
+import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo } from "../types";
 import { db } from './db';
 import { findDuplicate } from '../utils/dedupe';
 import { getProviderFallbackModel } from '../utils/models';
+import {
+  classifyBatchError,
+  describeBatchError,
+  getBackoffDelayMs,
+  getRetryProfile,
+  RetryProfile,
+  RetryProfileName,
+  shouldSplitForError,
+  splitTextIntoNaturalParts,
+} from '../utils/retryStrategy';
+
+interface GenerateQuestionsOptions {
+  retryProfile?: RetryProfileName;
+  autoRescue?: boolean;
+}
 
 // Helper: Hashing for cache identification
 const hashFiles = async (files: UploadedFile[]): Promise<string> => {
@@ -28,6 +43,9 @@ export const translateErrorForUser = (error: any, context?: string): string => {
   const msgLow = msg.toLowerCase();
   const statusCode = error?.status || error?.statusCode || 0;
   const prefix = context ? `[${context}] ` : "";
+  const providerModel = msg.match(/model=([^|]+)/)?.[1]?.trim();
+  const providerDetail = msg.includes('|') ? msg.split('|').slice(2).join('|').trim() : '';
+  const providerSuffix = `${providerModel ? ` Model: ${providerModel}.` : ''}${providerDetail ? ` Chi tiết: ${providerDetail}` : ''}`;
 
   // --- API Key & Authentication ---
   if (statusCode === 403 || msgLow.includes("403") || msgLow.includes("permission denied") || msgLow.includes("forbidden")) {
@@ -92,7 +110,7 @@ export const translateErrorForUser = (error: any, context?: string): string => {
       "429": "Vertex AI Quota Exceeded (Hết lượng truy cập cho phép).",
       "500": "Lỗi nội bộ từ máy chủ Google Cloud Vertex AI.",
     };
-    return `${prefix}🔷 Lỗi Vertex AI: ${vxMsgs[code] || `Máy chủ phản hồi mã ${code}.`}`;
+    return `${prefix}🔷 Lỗi Vertex AI: ${vxMsgs[code] || `Máy chủ phản hồi mã ${code}.`}${providerSuffix}`;
   }
 
   // --- OpenRouter Specific ---
@@ -108,7 +126,7 @@ export const translateErrorForUser = (error: any, context?: string): string => {
       "502": "Lỗi kết nối từ OpenRouter tới AI Model đang chọn (Mã 502).",
       "503": "Nhà cung cấp quá tải. Thử chọn model khác trên OpenRouter (Mã 503).",
     };
-    return `${prefix}🤖 Lỗi OpenRouter: ${orMsgs[code] || `Máy chủ phản hồi mã ${code}. Vui lòng thử lại sau.`}`;
+    return `${prefix}🤖 Lỗi OpenRouter: ${orMsgs[code] || `Máy chủ phản hồi mã ${code}. Vui lòng thử lại sau.`}${providerSuffix}`;
   }
 
   // --- ShopAIKey Specific ---
@@ -123,7 +141,7 @@ export const translateErrorForUser = (error: any, context?: string): string => {
       "500": "Server ShopAIKey đang gặp sự cố nội bộ. Thử lại sau (Mã 500).",
       "503": "Server ShopAIKey quá tải tạm thời. Thử lại sau (Mã 503).",
     };
-    return `${prefix}🤖 Lỗi ShopAIKey: ${shopMsgs[code] || `Server phản hồi mã ${code}. Vui lòng thử lại sau.`}`;
+    return `${prefix}🤖 Lỗi ShopAIKey: ${shopMsgs[code] || `Server phản hồi mã ${code}. Vui lòng thử lại sau.`}${providerSuffix}`;
   }
 
   // --- PDF / File Processing ---
@@ -655,15 +673,41 @@ const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any,
   };
 };
 
+const createProviderApiError = async (providerName: string, response: Response, modelName: string): Promise<Error> => {
+  let detail = '';
+  try {
+    const raw = await response.text();
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        detail = parsed?.error?.message || parsed?.message || parsed?.detail || raw;
+      } catch {
+        detail = raw;
+      }
+    }
+  } catch {
+    detail = '';
+  }
+
+  const cleanDetail = detail.replace(/\s+/g, ' ').slice(0, 260);
+  return new Error(`${providerName} API Error: ${response.status} | model=${modelName}${cleanDetail ? ` | ${cleanDetail}` : ''}`);
+};
+
+export const buildGoogleBatchMessage = (part: any, batchPrompt: string, cachedContent?: string) => {
+  if (cachedContent) return [{ text: batchPrompt }];
+  return [part, { text: batchPrompt }];
+};
+
 // --- Execution with Retry & Rotation ---
 
 async function executeWithUserRotation<T>(
   initialModel: string,
   operation: (apiKey: string, modelName: string) => Promise<T>,
   startingKey?: string, // Cho phép chỉ định key khởi đầu (per-batch distribution)
-  fallbackModel: string = 'gemini-2.5-flash'
+  fallbackModel: string = 'gemini-2.5-flash',
+  retryProfile: RetryProfile = getRetryProfile('normal')
 ): Promise<T> {
-  const ATTEMPTS_LIMIT = Math.max(8, userKeyRotator.keyCount + 3); // Đảm bảo thử hết tất cả key + buffer
+  const ATTEMPTS_LIMIT = Math.max(retryProfile.minAttempts, userKeyRotator.keyCount + retryProfile.attemptBuffer);
   let attempts = 0;
   let distinctKeysTried = 0; // Đếm số key THỰC SỰ đã thử (thay vì so sánh index)
   let lastTriedKey = ''; // Track key trước đó để đếm chính xác
@@ -675,7 +719,7 @@ async function executeWithUserRotation<T>(
 
     // Nếu sau 6 lần thử (hết khoảng 1/2 số Key trung bình) mà vẫn lỗi 503, 
     // ta tự động chuyển sang Model dự phòng ổn định hơn.
-    if (attempts > 6 && currentModel !== fallbackModel) {
+    if (attempts > retryProfile.fallbackAfterAttempt && currentModel !== fallbackModel) {
       console.log(`🚀 Switching to STABLE FALLBACK MODEL: ${fallbackModel}`);
       currentModel = fallbackModel;
     }
@@ -695,7 +739,7 @@ async function executeWithUserRotation<T>(
 
       if (isPermissionDenied || isRateLimit || isServerBusy || isKeyError || isFormatError) {
         // Fast-Failure logic: Nếu là lỗi định dạng (do AI bị đứt đoạn), chỉ thử lại tối đa 2 lần rồi cho chia nhỏ ngay.
-        if (isFormatError && attempts >= 2) {
+        if (isFormatError && attempts >= retryProfile.formatFastFailAttempt) {
           console.warn(`🚀 Detection: JSON Format Error confirmed after ${attempts} attempts. Failing fast to trigger Subdivision...`);
           throw new Error("AI_FORMAT_ERROR_TRUNCATED");
         }
@@ -722,32 +766,31 @@ async function executeWithUserRotation<T>(
         // Luôn xoay key nếu có nhiều hơn 1 key khả dụng
         if (userKeyRotator.availableKeyCount > 1) {
           currentKey = userKeyRotator.rotate();
+          let hasFreshKey = false;
           
           // Đếm số key thực sự đã thử (không dùng index comparison vì sẽ sai khi có key bị skip)
           if (currentKey !== lastTriedKey) {
             distinctKeysTried++;
             lastTriedKey = currentKey;
+            hasFreshKey = true;
           }
           
           // Chỉ áp dụng Exponential Backoff khi đã thử hết tất cả key khả dụng ít nhất 1 vòng
           const availableCount = userKeyRotator.availableKeyCount;
           if (distinctKeysTried >= availableCount) {
             const cycles = Math.floor(distinctKeysTried / Math.max(1, availableCount));
-            const baseDelay = isServerBusy ? 3500 : (isRateLimit ? 2500 : 2000);
-            const multiplier = (isServerBusy || isFormatError) ? 1.8 : 1.5;
-            const jitter = Math.random() * 2000 + 1000;
-            backoffMs = Math.min(45000, baseDelay * Math.pow(multiplier, cycles) + jitter);
+            backoffMs = getBackoffDelayMs(retryProfile, attempts, cycles, isServerBusy, isRateLimit, isFormatError, false);
           } else {
             // Vừa xoay sang Key mới chưa thử: Chờ rất ngắn (0.5s - 1.5s) để tránh thundering herd,
             // nhưng không bị phạt thời gian như key cũ.
-            backoffMs = Math.random() * 1000 + 500; 
+            backoffMs = getBackoffDelayMs(retryProfile, attempts, 0, isServerBusy, isRateLimit, isFormatError, hasFreshKey);
           }
         } else {
           // Chỉ có 1 key: Áp dụng Exponential Backoff bình thường
-          const baseDelay = isServerBusy ? 3500 : (isRateLimit ? 2500 : 2000);
-          const multiplier = (isServerBusy || isFormatError) ? 1.8 : 1.5;
-          const jitter = Math.random() * 3000 + 1000;
-          backoffMs = Math.min(60000, baseDelay * Math.pow(multiplier, attempts - 1) + jitter);
+          backoffMs = Math.min(
+            retryProfile.singleKeyBackoffCapMs,
+            getBackoffDelayMs(retryProfile, attempts, attempts - 1, isServerBusy, isRateLimit, isFormatError, false)
+          );
         }
         
         console.log(`⏳ Backoff: ${Math.round(backoffMs / 1000)}s (Key #${userKeyRotator.getKeyIndex() + 1}/${userKeyRotator.keyCount}, Distinct tried: ${distinctKeysTried})`);
@@ -769,9 +812,12 @@ export const generateQuestions = async (
   expectedCount: number = 0,
   onBatchComplete?: BatchCallback,
   retryIndices?: number[],
-  isAdvancedMode: boolean = false
-): Promise<{ questions: MCQ[], duplicates: DuplicateInfo[], failedBatches: number[], autoSkippedCount: number }> => {
+  isAdvancedMode: boolean = false,
+  options: GenerateQuestionsOptions = {}
+): Promise<{ questions: MCQ[], duplicates: DuplicateInfo[], failedBatches: number[], failedBatchDetails: BatchFailureInfo[], autoSkippedCount: number }> => {
   try {
+    const retryProfile = getRetryProfile(options.retryProfile || (isAdvancedMode ? 'rescue' : 'normal'));
+    const isRescueMode = retryProfile.name === 'rescue';
     userKeyRotator.init(settings.apiKey);
     // Reset session-level caching flag cho mỗi phiên mới
     cachingDisabledForSession = false;
@@ -818,7 +864,7 @@ export const generateQuestions = async (
     }
 
     if (allParts.length === 0) {
-      return { questions: [], duplicates: [], failedBatches: [], autoSkippedCount: 0 };
+      return { questions: [], duplicates: [], failedBatches: [], failedBatchDetails: [], autoSkippedCount: 0 };
     }
 
     const questionSchema = {
@@ -855,8 +901,26 @@ export const generateQuestions = async (
     let allQuestions: any[] = [];
     let allDuplicates: any[] = [];
     let failedBatches: number[] = [];
+    let failedBatchDetails: BatchFailureInfo[] = [];
     let duplicateCounter = 0;
     let autoSkippedCount = 0;
+    let rescueCompleted = 0;
+    const rescueTotal = retryIndices?.length || 0;
+
+    const recordBatchFailure = (index: number, label: string, error: any, stage: BatchFailureInfo['stage']) => {
+      const batchNumber = index + 1;
+      if (!failedBatches.includes(batchNumber)) failedBatches.push(batchNumber);
+      if (failedBatchDetails.some(item => item.index === batchNumber && item.label === label && item.stage === stage)) return;
+      const detail = describeBatchError(error, retryProfile.name);
+      failedBatchDetails.push({
+        index: batchNumber,
+        label,
+        kind: detail.kind,
+        stage,
+        message: detail.message,
+        advice: detail.advice,
+      });
+    };
 
     // --- STEP 2: BATCH PROCESSING ---
     let completedBatches = 0;
@@ -888,15 +952,21 @@ export const generateQuestions = async (
 
     const totalBatches = allParts.length;
     const stableFallbackModel = getProviderFallbackModel(settings.provider);
-    const extractionModel = isAdvancedMode ? stableFallbackModel : settings.model;
+    const extractionModel = isAdvancedMode || isRescueMode ? stableFallbackModel : settings.model;
 
     // Hàm xử lý Batch chính có khả năng Đệ quy (Subdivision)
     const processBatch = async (part: any, index: number, depth: number = 0) => {
       const batchLabel = depth === 0 ? `${index + 1}` : `${index + 1}${String.fromCharCode(96 + depth)}`;
 
       try {
-        if (onProgress) onProgress(`Quét Batch ${batchLabel}/${totalBatches}${depth > 0 ? ' (Đang chia nhỏ)' : ''}...`, allQuestions.length);
-        await new Promise(r => setTimeout(r, Math.random() * 800));
+        if (onProgress) {
+          if (isRescueMode) {
+            onProgress(`Đang cứu ${Math.min(rescueCompleted + 1, Math.max(1, rescueTotal))}/${Math.max(1, rescueTotal)} phần lỗi • đã thêm ${allQuestions.length} câu${depth > 0 ? ' • đang chia nhỏ' : ''}`, allQuestions.length);
+          } else {
+            onProgress(`Quét Batch ${batchLabel}/${totalBatches}${depth > 0 ? ' (Đang chia nhỏ)' : ''}...`, allQuestions.length);
+          }
+        }
+        await new Promise(r => setTimeout(r, Math.random() * (isRescueMode ? 250 : 800)));
 
         // Per-batch key assignment: Mỗi batch nhận key riêng theo round-robin
         const batchStartingKey = settings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
@@ -933,13 +1003,14 @@ export const generateQuestions = async (
                     },
                     body: JSON.stringify({ model: activeModel, messages, temperature: 0.1, response_format: { type: "json_object" } })
                   });
-                  if (!response.ok) throw new Error(`${providerName} API Error: ${response.status}`); // translateErrorForUser sẽ dịch mã lỗi này
+                  if (!response.ok) throw await createProviderApiError(providerName, response, activeModel); // translateErrorForUser sẽ dịch mã lỗi này
                   const data = await response.json();
                   return extractAndParseQuestions(data.choices[0].message.content, index);
               }
               ,
               undefined,
-              stableFallbackModel
+              stableFallbackModel,
+              retryProfile
             )
           : executeWithUserRotation(
               extractionModel,
@@ -957,11 +1028,12 @@ export const generateQuestions = async (
                   const config = getModelConfig(currentKey, isAdvancedMode ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction, questionSchema, activeModel, kCacheName || undefined);
                   const chat = aiInstance.chats.create(config);
                   const batchPrompt = kCacheName ? `Dựa trên tài liệu đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${batchLabel}.` : `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
-                  const response = await chat.sendMessage({ message: [part, { text: batchPrompt }] });
+                  const response = await chat.sendMessage({ message: buildGoogleBatchMessage(part, batchPrompt, kCacheName || undefined) });
                   return extractAndParseQuestions(response.text, index);
               },
               batchStartingKey, // Per-batch key assignment
-              stableFallbackModel
+              stableFallbackModel,
+              retryProfile
             )
         );
 
@@ -1000,39 +1072,32 @@ export const generateQuestions = async (
           }
         }
       } catch (e: any) {
-        // CHIẾN LƯỢC CỨU VÃN: Nếu thất bại sau 2-15 lần thử (depth < 2) và là văn bản, ta chia nhỏ.
-        // Nâng cấp: Chia làm 4 phần thay vì 2 để đảm bảo AI xử lý mượt mà nhất.
-        if (depth < 2 && part.text && part.text.length > 500) {
-          console.warn(`🚀 Batch ${batchLabel} fail. Triggering QUARTER-SUBDIVISION (4 parts, Depth ${depth + 1})...`);
-          
-          const textLength = part.text.length;
-          const segmentSize = Math.floor(textLength / 4);
-          
-          const getSplitPos = (start: number, end: number) => {
-            let pos = part.text.lastIndexOf('\n', end);
-            if (pos < start || pos > end) pos = end;
-            return pos;
-          };
-
-          const s1 = getSplitPos(0, segmentSize);
-          const s2 = getSplitPos(s1, s1 + segmentSize);
-          const s3 = getSplitPos(s2, s2 + segmentSize);
-
-          const parts = [
-            { ...part, text: part.text.substring(0, s1) },
-            { ...part, text: part.text.substring(s1, s2) },
-            { ...part, text: part.text.substring(s2, s3) },
-            { ...part, text: part.text.substring(s3) }
-          ].filter(p => p.text.trim().length > 0);
+        const errorKind = classifyBatchError(e);
+        const canSplitText = depth < retryProfile.maxDepth && part.text && part.text.length > retryProfile.splitThresholdChars && shouldSplitForError(errorKind);
+        if (canSplitText) {
+          console.warn(`🚀 Batch ${batchLabel} fail (${errorKind}). Triggering NATURAL-SUBDIVISION (${retryProfile.targetSplitParts} parts, Depth ${depth + 1})...`);
+          const progressBeforeSplit = allQuestions.length + allDuplicates.length + autoSkippedCount;
+          const parts = splitTextIntoNaturalParts(part.text, retryProfile.targetSplitParts, retryProfile.splitThresholdChars)
+            .map(text => ({ ...part, text }))
+            .filter(p => p.text.trim().length > 0);
 
           // Chạy song song cả 4 phần để tối ưu thời gian
           await Promise.all(parts.map((p, i) => processBatch(p, index, depth + 1)));
+          const progressAfterSplit = allQuestions.length + allDuplicates.length + autoSkippedCount;
+          if (depth === 0 && progressAfterSplit === progressBeforeSplit && !failedBatches.includes(index + 1)) {
+            recordBatchFailure(index, batchLabel, e, 'split');
+          }
           return;
         }
 
-        console.error(`❌ Batch ${batchLabel} FAILED after all retries & sub-batching:`, e);
-        if (depth === 0) failedBatches.push(index + 1);
-        if (onProgress) onProgress(`⚠️ Phần ${batchLabel} thất bại hoàn toàn. Đang tiếp tục...`, allQuestions.length);
+        console.error(`❌ Batch ${batchLabel} FAILED after all retries & sub-batching (${errorKind}):`, e);
+        if (depth === 0) recordBatchFailure(index, batchLabel, e, isRescueMode ? 'rescue' : 'normal');
+        if (onProgress) {
+          const detail = describeBatchError(e, retryProfile.name);
+          onProgress(`⚠️ Phần ${batchLabel} lỗi: ${detail.message}. Đang tiếp tục...`, allQuestions.length);
+        }
+      } finally {
+        if (isRescueMode && depth === 0) rescueCompleted++;
       }
     };
 
@@ -1059,8 +1124,11 @@ export const generateQuestions = async (
       return numA - numB;
     });
 
-    console.log(`\n📊 FINAL: ${allQuestions.length} questions. Auto-skipped: ${autoSkippedCount}. Failed Batches: ${failedBatches.join(', ') || 'None'}`);
-    return { questions: allQuestions, duplicates: allDuplicates, failedBatches, autoSkippedCount };
+    failedBatches = Array.from(new Set(failedBatches)).sort((a, b) => a - b);
+    failedBatchDetails = failedBatchDetails.sort((a, b) => a.index - b.index || a.label.localeCompare(b.label));
+
+    console.log(`\n📊 FINAL: ${allQuestions.length} questions. Auto-skipped: ${autoSkippedCount}. Failed Batches: ${failedBatches.join(', ') || 'None'}`, failedBatchDetails);
+    return { questions: allQuestions, duplicates: allDuplicates, failedBatches, failedBatchDetails, autoSkippedCount };
 
   } catch (error: any) {
     throw new Error(translateErrorForUser(error, 'Trích xuất'));
@@ -1115,7 +1183,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
         })
       });
 
-      if (!response.ok) throw new Error(`${providerName} API Error: ${response.status}`); // translateErrorForUser sẽ dịch mã lỗi này
+      if (!response.ok) throw await createProviderApiError(providerName, response, settings.model); // translateErrorForUser sẽ dịch mã lỗi này
       const data = await response.json();
       return JSON.parse(extractJson(data.choices[0].message.content));
     });
@@ -1193,7 +1261,7 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
         })
       });
 
-      if (!response.ok) throw new Error(`${providerName} API Error: ${response.status}`); // translateErrorForUser sẽ dịch mã lỗi này
+      if (!response.ok) throw await createProviderApiError(providerName, response, settings.model); // translateErrorForUser sẽ dịch mã lỗi này
       const data = await response.json();
       return JSON.parse(extractJson(data.choices[0].message.content)) as AuditResult;
     });

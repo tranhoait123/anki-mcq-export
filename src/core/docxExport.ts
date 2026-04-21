@@ -2,6 +2,9 @@ import { MCQ } from '../types';
 import { isOptionCorrect } from '../utils/text';
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E'];
+const ACCENT_COLOR = '0F766E';
+const ACCENT_FILL = 'DFF7EF';
+const SECTION_COLOR = '1E293B';
 
 export const sanitizeDocxText = (value: unknown): string => {
   if (value === null || value === undefined) return '';
@@ -50,28 +53,143 @@ const paragraph = async (text: string, options: any = {}) => {
     spacing: options.spacing ?? { after: 120 },
     heading: options.heading,
     bullet: options.bullet,
+    shading: options.shading,
   });
 };
 
-const labeledParagraph = async (label: string, text: string) => {
+const sectionHeading = async (label: string) => {
+  const { Paragraph, TextRun } = await import('docx');
+  return new Paragraph({
+    children: [new TextRun({ text: label, bold: true, color: SECTION_COLOR })],
+    spacing: { before: 180, after: 80 },
+  });
+};
+
+const labeledParagraph = async (label: string, text: string, options: any = {}) => {
   const { Paragraph, TextRun } = await import('docx');
   return new Paragraph({
     children: [
-      new TextRun({ text: `${label}: `, bold: true }),
+      new TextRun({ text: `${label}: `, bold: true, color: options.labelColor }),
       ...(await createRuns(text)),
     ],
-    spacing: { after: 100 },
+    spacing: options.spacing ?? { after: 100 },
+    shading: options.shading,
+  });
+};
+
+interface MarkdownTableBlock {
+  type: 'table';
+  rows: string[][];
+}
+
+interface TextBlock {
+  type: 'text';
+  lines: string[];
+}
+
+type ContentBlock = MarkdownTableBlock | TextBlock;
+
+const isMarkdownTableLine = (line: string): boolean => {
+  const trimmed = line.trim();
+  return trimmed.startsWith('|') && trimmed.endsWith('|') && trimmed.split('|').length >= 4;
+};
+
+const isSeparatorRow = (cells: string[]): boolean =>
+  cells.length > 0 && cells.every(cell => /^:?-{3,}:?$/.test(cell.trim()));
+
+const parseTableRow = (line: string): string[] =>
+  line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map(cell => sanitizeDocxText(cell));
+
+export const splitMarkdownBlocks = (text: string): ContentBlock[] => {
+  const lines = sanitizeDocxText(text).split('\n');
+  const blocks: ContentBlock[] = [];
+  let textLines: string[] = [];
+  let tableRows: string[][] = [];
+
+  const flushText = () => {
+    const cleanLines = textLines.map(line => line.trim()).filter(Boolean);
+    if (cleanLines.length > 0) blocks.push({ type: 'text', lines: cleanLines });
+    textLines = [];
+  };
+
+  const flushTable = () => {
+    const rows = tableRows.filter(row => !isSeparatorRow(row) && row.some(cell => cell.trim()));
+    if (rows.length >= 2) {
+      blocks.push({ type: 'table', rows });
+    } else if (rows.length === 1) {
+      blocks.push({ type: 'text', lines: [rows[0].join(' - ')] });
+    }
+    tableRows = [];
+  };
+
+  for (const line of lines) {
+    if (isMarkdownTableLine(line)) {
+      flushText();
+      tableRows.push(parseTableRow(line));
+      continue;
+    }
+    flushTable();
+    textLines.push(line);
+  }
+
+  flushTable();
+  flushText();
+  return blocks;
+};
+
+const createDocxTable = async (rows: string[][]) => {
+  const { BorderStyle, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } = await import('docx');
+  const maxColumns = Math.max(...rows.map(row => row.length));
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: {
+      top: { style: BorderStyle.SINGLE, size: 1, color: 'CBD5E1' },
+      bottom: { style: BorderStyle.SINGLE, size: 1, color: 'CBD5E1' },
+      left: { style: BorderStyle.SINGLE, size: 1, color: 'CBD5E1' },
+      right: { style: BorderStyle.SINGLE, size: 1, color: 'CBD5E1' },
+      insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: 'E2E8F0' },
+      insideVertical: { style: BorderStyle.SINGLE, size: 1, color: 'E2E8F0' },
+    },
+    rows: rows.map((row, rowIndex) => new TableRow({
+      children: Array.from({ length: maxColumns }, (_, cellIndex) => new TableCell({
+        shading: rowIndex === 0 ? { fill: 'F1F5F9' } : undefined,
+        margins: { top: 90, bottom: 90, left: 120, right: 120 },
+        children: [
+          new Paragraph({
+            children: [new TextRun({ text: sanitizeDocxText(row[cellIndex] || ''), bold: rowIndex === 0 })],
+            spacing: { after: 0 },
+          }),
+        ],
+      })),
+    })),
   });
 };
 
 const textBlockParagraphs = async (label: string, text: string) => {
   const value = sanitizeDocxText(text);
   if (!value) return [];
-  const paragraphs = [await labeledParagraph(label, value.split('\n')[0])];
-  for (const line of value.split('\n').slice(1)) {
-    if (line.trim()) paragraphs.push(await paragraph(line.trim(), { spacing: { after: 80 } }));
+  const children: any[] = [await sectionHeading(label)];
+
+  for (const block of splitMarkdownBlocks(value)) {
+    if (block.type === 'table') {
+      try {
+        children.push(await createDocxTable(block.rows));
+      } catch (e) {
+        for (const row of block.rows) children.push(await paragraph(row.join(' - '), { spacing: { after: 80 } }));
+      }
+      continue;
+    }
+
+    for (const line of block.lines) {
+      children.push(await paragraph(line, { spacing: { after: 80 } }));
+    }
   }
-  return paragraphs;
+  return children;
 };
 
 export const buildStudyDocxBlob = async (mcqs: MCQ[], sourceName = 'MCQ Study Export'): Promise<Blob> => {
@@ -124,7 +242,11 @@ export const buildStudyDocxBlob = async (mcqs: MCQ[], sourceName = 'MCQ Study Ex
       }));
     }
 
-    children.push(await labeledParagraph('Đáp án đúng', correctLetter));
+    children.push(await labeledParagraph('Đáp án đúng', correctLetter, {
+      labelColor: ACCENT_COLOR,
+      shading: { fill: ACCENT_FILL },
+      spacing: { before: 160, after: 120 },
+    }));
     children.push(...await textBlockParagraphs('Đáp án cốt lõi', explanation.core));
     children.push(...await textBlockParagraphs('Bằng chứng', explanation.evidence));
     children.push(...await textBlockParagraphs('Phân tích sâu', explanation.analysis));

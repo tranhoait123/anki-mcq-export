@@ -387,17 +387,6 @@ const App: React.FC = () => {
         });
       });
 
-      const count = res.questions.length;
-      const skipCount = res.autoSkippedCount || 0;
-      
-      if (count > 0) {
-        toast.success(`Hoàn tất! Trích xuất được ${count} câu hỏi.${skipCount > 0 ? ` (Đã tự động bỏ qua ${skipCount} câu trùng 100%)` : ''}`);
-      } else if (res.questions.length === 0 && skipCount > 0) {
-        toast.info(`Toàn bộ tài liệu (${skipCount} câu) đã trùng lặp trong danh sách, không trích xuất thêm.`);
-      } else if (res.questions.length === 0) {
-        toast.error("Không tìm thấy câu hỏi nào hoặc lỗi trích xuất.");
-      }
-
       // 2. Auto-Fallback Check
       // If we used Gemini (Cloud) AND got bad results (< 60% of estimate), try Tesseract
       if (ocrMode === 'gemini' && analysis && analysis.estimatedCount > 0) {
@@ -434,6 +423,47 @@ const App: React.FC = () => {
         }
       }
 
+      let autoRescuedCount = 0;
+      if (res.failedBatches && res.failedBatches.length > 0) {
+        const initialFailed = [...res.failedBatches];
+        try {
+          setProgressStatus(`Đang tự cứu ${initialFailed.length} phần lỗi • đã thêm 0 câu`);
+          const rescueRes = await generateQuestions(
+            filesToUse,
+            settings,
+            0,
+            (status, count) => {
+              setProgressStatus(status);
+              setCurrentCount(count);
+            },
+            analysis?.estimatedCount || 0,
+            (newBatch) => {
+              setMcqs(prev => {
+                const uniqueNew = deduplicateQuestions(newBatch, prev);
+                autoRescuedCount += uniqueNew.length;
+                return [...prev, ...uniqueNew].sort((a, b) => (extractQuestionNumber(a.question) || 999999) - (extractQuestionNumber(b.question) || 999999));
+              });
+            },
+            initialFailed,
+            true,
+            { retryProfile: 'rescue', autoRescue: true }
+          );
+
+          const uniqueRescued = deduplicateQuestions(rescueRes.questions as MCQ[], res.questions as MCQ[]);
+          autoRescuedCount = Math.max(autoRescuedCount, uniqueRescued.length);
+          res = {
+            ...res,
+            questions: [...res.questions, ...uniqueRescued],
+            duplicates: [...(res.duplicates || []), ...(rescueRes.duplicates || [])],
+            failedBatches: rescueRes.failedBatches || [],
+            failedBatchDetails: rescueRes.failedBatchDetails || [],
+            autoSkippedCount: (res.autoSkippedCount || 0) + (rescueRes.autoSkippedCount || 0),
+          };
+        } catch (rescueError) {
+          console.warn("Auto-rescue failed:", rescueError);
+        }
+      }
+
       const formatted = res.questions.map((q, i) => ({
         ...q, id: `q - ${Date.now()} -${i} `
       }));
@@ -442,12 +472,19 @@ const App: React.FC = () => {
       // 3. Thông báo lỗi cho các Batch thất bại (nếu có)
       if (res.failedBatches && res.failedBatches.length > 0) {
         setFailedBatchIndices(res.failedBatches);
-        toast.warning(`⚠️ Hoàn thành ${formatted.length} câu hỏi, nhưng có ${res.failedBatches.length} phần (Phần ${res.failedBatches.join(', ')}) bị lỗi do server AI quá tải. Nhấn nút "Quét lại phần lỗi" để thử lại.`, {
+        toast.warning(`⚠️ Còn ${res.failedBatches.length} phần lỗi sau khi quét${autoRescuedCount > 0 ? `, đã tự cứu thêm ${autoRescuedCount} câu` : ''}. ${summarizeBatchFailures(res.failedBatchDetails, res.failedBatches)}`, {
           duration: 15000,
         });
       } else {
         setFailedBatchIndices([]);
-        toast.success(`Trích xuất hoàn tất! Tìm thấy tổng cộng ${formatted.length} câu hỏi.`);
+        const skipCount = res.autoSkippedCount || 0;
+        if (formatted.length > 0) {
+          toast.success(`Trích xuất hoàn tất! Tìm thấy tổng cộng ${formatted.length} câu hỏi.${autoRescuedCount > 0 ? ` Đã tự cứu thêm ${autoRescuedCount} câu từ batch lỗi.` : ''}${skipCount > 0 ? ` Đã bỏ qua ${skipCount} câu trùng.` : ''}`);
+        } else if (skipCount > 0) {
+          toast.info(`Toàn bộ tài liệu (${skipCount} câu) đã trùng lặp trong danh sách, không trích xuất thêm.`);
+        } else {
+          toast.error("Không tìm thấy câu hỏi nào hoặc lỗi trích xuất.");
+        }
       }
 
       // Store duplicates for display
@@ -474,6 +511,25 @@ const App: React.FC = () => {
     return uniqueNew;
   };
 
+  const summarizeBatchFailures = (details?: GeneratedResponse['failedBatchDetails'], failedBatches: number[] = []) => {
+    if (!details || details.length === 0) {
+      return `Phần lỗi: ${failedBatches.join(', ')}. Lý do chưa xác định rõ; hãy thử quét lại phần lỗi hoặc đổi model nếu lặp lại.`;
+    }
+
+    const labelsByReason: Record<string, string[]> = {};
+    for (const detail of details) {
+      const label = detail.label || String(detail.index);
+      labelsByReason[detail.message] = labelsByReason[detail.message] || [];
+      if (!labelsByReason[detail.message].includes(label)) labelsByReason[detail.message].push(label);
+    }
+
+    const reasons = Object.entries(labelsByReason)
+      .map(([message, labels]) => `${labels.join(', ')}: ${message}`)
+      .join(' • ');
+    const advice = Array.from(new Set(details.map(detail => detail.advice))).slice(0, 2).join(' ');
+    return `${reasons}. ${advice}`;
+  };
+
   const handleRetryFailed = async () => {
     if (files.length === 0 || failedBatchIndices.length === 0) return;
     
@@ -498,12 +554,13 @@ const App: React.FC = () => {
           });
         },
         failedBatchIndices,
-        true // Enable isAdvancedMode (Resilience 2.0)
+        true, // Enable isAdvancedMode (Resilience 2.0)
+        { retryProfile: 'rescue' }
       );
 
       if (res.failedBatches && res.failedBatches.length > 0) {
         setFailedBatchIndices(res.failedBatches);
-        toast.error(`⚠️ Quét lại vẫn còn ${res.failedBatches.length} phần lỗi (Phần ${res.failedBatches.join(', ')}). Server AI đang quá tải — hãy chờ 2-3 phút rồi thử lại.`);
+        toast.error(`⚠️ Quét lại vẫn còn ${res.failedBatches.length} phần lỗi. ${summarizeBatchFailures(res.failedBatchDetails, res.failedBatches)}`);
       } else {
         setFailedBatchIndices([]);
         toast.success("Đã quét lại thành công tất cả các phần lỗi!");

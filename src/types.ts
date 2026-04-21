@@ -78,7 +78,8 @@ export type BatchCallback = (newQuestions: MCQ[]) => void;
 export interface AppSettings {
   apiKey: string;
   shopAIKeyKey: string;
-  provider: 'google' | 'shopaikey';
+  openRouterKey?: string;
+  provider: 'google' | 'shopaikey' | 'openrouter';
   model: string;
   customPrompt: string;
   skipAnalysis?: boolean;

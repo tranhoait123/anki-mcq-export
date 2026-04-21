@@ -62,9 +62,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                             </button>
                             <button
                                 onClick={() => setSettings({ ...settings, provider: 'shopaikey' })}
-                                className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all ${settings.provider === 'shopaikey' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+                                className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${settings.provider === 'shopaikey' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
                             >
                                 ShopAIKey
+                            </button>
+                            <button
+                                onClick={() => setSettings({ ...settings, provider: 'openrouter' })}
+                                className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${settings.provider === 'openrouter' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+                            >
+                                OpenRouter
                             </button>
                         </div>
                     </section>
@@ -72,23 +78,26 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                     {/* API Key - Contextual */}
                     <section className="animate-in slide-in-from-top-2 duration-300">
                         <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-                            {settings.provider === 'google' ? 'Google Gemini API Key' : 'ShopAIKey API Key'}
+                            {settings.provider === 'google' ? 'Google Gemini API Key' : settings.provider === 'shopaikey' ? 'ShopAIKey API Key' : 'OpenRouter API Key'}
                         </label>
                         <input
                             type="password"
-                            value={settings.provider === 'google' ? settings.apiKey : settings.shopAIKeyKey}
+                            value={settings.provider === 'google' ? settings.apiKey : settings.provider === 'shopaikey' ? settings.shopAIKeyKey : (settings.openRouterKey || '')}
                             onChange={e => {
                                 if (settings.provider === 'google') setSettings({ ...settings, apiKey: e.target.value });
-                                else setSettings({ ...settings, shopAIKeyKey: e.target.value });
+                                else if (settings.provider === 'shopaikey') setSettings({ ...settings, shopAIKeyKey: e.target.value });
+                                else setSettings({ ...settings, openRouterKey: e.target.value });
                             }}
-                            placeholder={settings.provider === 'google' ? "Dán key từ Google AI Studio..." : "Dán key từ shopaikey.com..."}
+                            placeholder={settings.provider === 'google' ? "Dán key từ Google AI Studio..." : settings.provider === 'shopaikey' ? "Dán key từ shopaikey.com..." : "Dán key từ openrouter.ai..."}
                             className="w-full border dark:border-slate-700 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-800 dark:text-white transition-all shadow-sm"
                         />
                         <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1.5 flex items-center gap-1">
                             <Zap size={10} className="text-amber-500" />
                             {settings.provider === 'google' 
                                 ? 'Hệ thống tự động xoay vòng nếu nhập nhiều Key (phân cách bằng dấu phẩy).' 
-                                : 'Này của Admin và phải tốn tiền nên các bạn đừng quan tâm nhé!'}
+                                : settings.provider === 'shopaikey' 
+                                    ? 'Này của Admin và phải tốn tiền nên các bạn đừng quan tâm nhé!'
+                                    : 'Truy cập hàng loạt model đỉnh nhất như Claude 3.7, GPT-4o, DeepSeek.'}
                         </p>
                     </section>
 
@@ -110,12 +119,23 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                     <option value="gemini-2.5-flash">Gemini 2.5 Flash (Sắp xếp dự phòng - Tương thích)</option>
                                     <option value="gemini-2.0-flash">Gemini 2.0 Flash (Cực nhanh)</option>
                                 </>
-                            ) : (
+                            ) : settings.provider === 'shopaikey' ? (
                                 <optgroup label="Hệ thống ShopAIKey (2026)">
                                     <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Mạnh nhất 2026)</option>
                                     <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash-Lite (Tối ưu chi phí)</option>
                                     <option value="gemini-2.5-pro">Gemini 2.5 Pro (Rất ổn định)</option>
                                     <option value="gemini-2.5-flash">Gemini 2.5 Flash (Cân bằng hiệu suất)</option>
+                                </optgroup>
+                            ) : (
+                                <optgroup label="Hệ thống OpenRouter">
+                                    <option value="anthropic/claude-3.7-sonnet">Claude 3.7 Sonnet (Siêu việt lập luận)</option>
+                                    <option value="openai/gpt-4o">GPT-4o (Thông minh, toàn diện)</option>
+                                    <option value="deepseek/deepseek-chat">DeepSeek Chat (V3 - Giá rẻ hiệu năng cao)</option>
+                                    <option value="deepseek/deepseek-r1">DeepSeek Reasoner (R1 - Suy luận y khoa sâu)</option>
+                                    <option value="google/gemini-2.5-pro">Gemini 2.5 Pro (OpenRouter API)</option>
+                                    <option value="google/gemini-2.5-flash">Gemini 2.5 Flash (OpenRouter API)</option>
+                                    <option value="anthropic/claude-3.5-haiku">Claude 3.5 Haiku (Siêu tốc)</option>
+                                    <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B Instruct</option>
                                 </optgroup>
                             )}
                         </select>

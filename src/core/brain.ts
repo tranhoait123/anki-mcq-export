@@ -79,6 +79,22 @@ export const translateErrorForUser = (error: any, context?: string): string => {
     return `${prefix}📄 Không tìm thấy câu hỏi trắc nghiệm trong tài liệu. Hãy kiểm tra file đúng chưa (cần file có nội dung MCQ).`;
   }
 
+  // --- OpenRouter Specific ---
+  if (msgLow.includes("openrouter api error")) {
+    const code = msg.match(/:\s*(\d+)/)?.[1] || "?";
+    const orMsgs: Record<string, string> = {
+      "400": "Dữ liệu gửi lên sai định dạng (Mã 400).",
+      "401": "API Key OpenRouter không hợp lệ. Kiểm tra lại Key (Mã 401).",
+      "402": "Tài khoản OpenRouter hết số dư. Vui lòng nạp thêm (Mã 402).",
+      "403": "API Key OpenRouter bị giới hạn hoặc chặn nội dung. Cảnh báo an toàn (Mã 403).",
+      "429": "OpenRouter hoặc AI model này đang bị giới hạn tốc độ. Chờ 1-2 phút (Mã 429).",
+      "500": "Đứt kết nối tạm thời tới nhà cung cấp (Mã 500).",
+      "502": "Lỗi kết nối từ OpenRouter tới AI Model đang chọn (Mã 502).",
+      "503": "Nhà cung cấp quá tải. Thử chọn model khác trên OpenRouter (Mã 503).",
+    };
+    return `${prefix}🤖 Lỗi OpenRouter: ${orMsgs[code] || `Máy chủ phản hồi mã ${code}. Vui lòng thử lại sau.`}`;
+  }
+
   // --- ShopAIKey Specific ---
   if (msgLow.includes("shopaikey api error")) {
     const code = msg.match(/:\s*(\d+)/)?.[1] || "?";
@@ -972,7 +988,7 @@ export const generateQuestions = async (
         // Per-batch key assignment: Mỗi batch nhận key riêng theo round-robin
         const batchStartingKey = settings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
 
-        const rawNewQs = await (settings.provider === 'shopaikey'
+        const rawNewQs = await (settings.provider === 'shopaikey' || settings.provider === 'openrouter'
           ? executeWithUserRotation(
               isAdvancedMode ? 'gemini-2.5-flash' : settings.model,
               async (dummyKey, activeModel) => {
@@ -981,12 +997,22 @@ export const generateQuestions = async (
                     { role: "system", content: isAdvancedMode ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction },
                     { role: "user", content: [{ type: "text", text: `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).` }, ...(part.inlineData ? [{ type: "image_url", image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` } }] : [{ type: "text", text: part.text }])] }
                   ];
-                  const response = await fetch("https://api.shopaikey.com/v1/chat/completions", {
+
+                  const apiUrl = settings.provider === 'shopaikey' ? "https://api.shopaikey.com/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
+                  const apiKey = settings.provider === 'shopaikey' ? settings.shopAIKeyKey : settings.openRouterKey;
+                  const providerName = settings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
+
+                  const response = await fetch(apiUrl, {
                     method: "POST",
-                    headers: { "Authorization": `Bearer ${settings.shopAIKeyKey}`, "Content-Type": "application/json" },
+                    headers: { 
+                      "Authorization": `Bearer ${apiKey}`, 
+                      "HTTP-Referer": window.location.origin,
+                      "X-Title": "MCQ AnkiGen Pro",
+                      "Content-Type": "application/json" 
+                    },
                     body: JSON.stringify({ model: activeModel, messages, temperature: 0.1, response_format: { type: "json_object" } })
                   });
-                  if (!response.ok) throw new Error(`ShopAIKey API Error: ${response.status}`); // translateErrorForUser sẽ dịch mã lỗi này
+                  if (!response.ok) throw new Error(`${providerName} API Error: ${response.status}`); // translateErrorForUser sẽ dịch mã lỗi này
                   const data = await response.json();
                   return extractAndParseQuestions(data.choices[0].message.content, index);
               }
@@ -1116,7 +1142,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
   - Mô tả cấu trúc (vd: có đáp án đi kèm không).
   ${SYSTEM_INSTRUCTION_ANALYZE}`;
 
-  if (settings.provider === 'shopaikey') {
+  if (settings.provider === 'shopaikey' || settings.provider === 'openrouter') {
     return await executeWithRetry(async () => {
       const parts: any[] = files.map(file => {
         if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
@@ -1128,10 +1154,16 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
         return { type: "text", text: `FILE: ${file.name}\n${file.content}\n` };
       });
 
-      const response = await fetch("https://api.shopaikey.com/v1/chat/completions", {
+      const apiUrl = settings.provider === 'shopaikey' ? "https://api.shopaikey.com/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
+      const apiKey = settings.provider === 'shopaikey' ? settings.shopAIKeyKey : settings.openRouterKey;
+      const providerName = settings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
+
+      const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${settings.shopAIKeyKey}`,
+          "Authorization": `Bearer ${apiKey}`,
+          "HTTP-Referer": window.location.origin,
+          "X-Title": "MCQ AnkiGen Pro",
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
@@ -1145,7 +1177,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
         })
       });
 
-      if (!response.ok) throw new Error(`ShopAIKey API Error: ${response.status}`); // translateErrorForUser sẽ dịch mã lỗi này
+      if (!response.ok) throw new Error(`${providerName} API Error: ${response.status}`); // translateErrorForUser sẽ dịch mã lỗi này
       const data = await response.json();
       return JSON.parse(extractJson(data.choices[0].message.content));
     });
@@ -1180,7 +1212,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
 };
 
 export const auditMissingQuestions = async (files: UploadedFile[], count: number, settings: AppSettings): Promise<AuditResult> => {
-  if (settings.provider === 'shopaikey') {
+  if (settings.provider === 'shopaikey' || settings.provider === 'openrouter') {
     return await executeWithRetry(async () => {
       const parts: any[] = files.map(file => {
         if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
@@ -1189,10 +1221,16 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
         return { type: "text", text: `FILE: ${file.name}\n${file.content}\n` };
       });
 
-      const response = await fetch("https://api.shopaikey.com/v1/chat/completions", {
+      const apiUrl = settings.provider === 'shopaikey' ? "https://api.shopaikey.com/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
+      const apiKey = settings.provider === 'shopaikey' ? settings.shopAIKeyKey : settings.openRouterKey;
+      const providerName = settings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
+
+      const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${settings.shopAIKeyKey}`,
+          "Authorization": `Bearer ${apiKey}`,
+          "HTTP-Referer": window.location.origin,
+          "X-Title": "MCQ AnkiGen Pro",
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
@@ -1212,7 +1250,7 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
         })
       });
 
-      if (!response.ok) throw new Error(`ShopAIKey API Error: ${response.status}`); // translateErrorForUser sẽ dịch mã lỗi này
+      if (!response.ok) throw new Error(`${providerName} API Error: ${response.status}`); // translateErrorForUser sẽ dịch mã lỗi này
       const data = await response.json();
       return JSON.parse(extractJson(data.choices[0].message.content)) as AuditResult;
     });

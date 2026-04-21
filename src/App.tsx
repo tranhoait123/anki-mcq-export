@@ -77,6 +77,7 @@ const App: React.FC = () => {
           // Ensure new fields exist
           if (!persistedSettings.provider) persistedSettings.provider = 'google';
           if (persistedSettings.shopAIKeyKey === undefined) persistedSettings.shopAIKeyKey = '';
+          if (persistedSettings.openRouterKey === undefined) persistedSettings.openRouterKey = '';
           if (persistedSettings.skipAnalysis === undefined) persistedSettings.skipAnalysis = true;
           
           setSettings(persistedSettings);
@@ -261,6 +262,10 @@ const App: React.FC = () => {
       toast.error("🔑 Vui lòng nhập ShopAIKey API Key trong phần Cài đặt (⚙️) để bắt đầu.");
       return;
     }
+    if (settings.provider === 'openrouter' && !settings.openRouterKey?.trim()) {
+      toast.error("🔑 Vui lòng nhập OpenRouter API Key trong phần Cài đặt (⚙️) để bắt đầu.");
+      return;
+    }
 
     setAnalyzing(true);
     setAnalysis(null);
@@ -298,6 +303,10 @@ const App: React.FC = () => {
     }
     if (settings.provider === 'shopaikey' && !settings.shopAIKeyKey) {
       toast.error("🔑 Vui lòng nhập ShopAIKey API Key trong phần Cài đặt (⚙️) để bắt đầu.");
+      return;
+    }
+    if (settings.provider === 'openrouter' && !settings.openRouterKey?.trim()) {
+      toast.error("🔑 Vui lòng nhập OpenRouter API Key trong phần Cài đặt (⚙️) để bắt đầu.");
       return;
     }
 

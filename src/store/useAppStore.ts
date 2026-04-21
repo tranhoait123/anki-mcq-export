@@ -24,6 +24,7 @@ export const useAppStore = create<AppState>((set) => ({
   settings: {
     apiKey: '',
     shopAIKeyKey: '',
+    openRouterKey: '',
     provider: 'google',
     model: 'gemini-3.1-flash-lite-preview',
     customPrompt: '',

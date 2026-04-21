@@ -11,6 +11,7 @@ import { db } from './core/db';
 import { BrainCircuit, Loader2, Download, CheckCircle2, AlertTriangle, ScanText, Moon, Sun, Settings as SettingsIcon, Columns, FileText, DownloadCloud, Sparkles, Filter, Trash2, Copy, RotateCcw, Info } from 'lucide-react';
 import { extractTextWithTesseract } from './core/vision';
 import { buildAnkiHtml, formatRichText } from './core/anki';
+import { buildStudyDocxBlob } from './core/docxExport';
 import { isOptionCorrect } from './utils/text';
 import { findDuplicate } from './utils/dedupe';
 import { DEFAULT_GEMINI_MODEL, isModelAllowedForProvider } from './utils/models';
@@ -695,6 +696,34 @@ const App: React.FC = () => {
     });
   };
 
+  const downloadDOCX = async () => {
+    if (mcqs.length === 0) {
+      toast.error("Chưa có câu hỏi để xuất DOCX.");
+      return;
+    }
+
+    try {
+      let filename = "MCQ_Study";
+      let sourceName = "MCQ Study Export";
+      if (files.length > 0) {
+        const baseName = files[0].name.replace(/\.[^/.]+$/, "");
+        sourceName = baseName;
+        filename = `[DOCX]_${baseName.replace(/[^a-zA-Z0-9]/g, "_")}`;
+      }
+
+      const blob = await buildStudyDocxBlob(mcqs, sourceName);
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.href = url;
+      link.download = `${filename}_${new Date().toISOString().slice(0, 10)}.docx`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success("Đã xuất file DOCX để học trực tiếp.");
+    } catch (e: any) {
+      toast.error(`📄 Lỗi tạo file DOCX: ${e.message || 'Không rõ lỗi'}. CSV hiện tại không bị ảnh hưởng.`);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#020617] font-sans text-slate-800 dark:text-slate-100 transition-colors duration-300">
       <header className="glass sticky top-0 z-50 px-6 py-4 flex justify-between items-center transition-all">
@@ -992,6 +1021,13 @@ const App: React.FC = () => {
                   className="px-4 py-2 bg-emerald-600 text-white font-medium text-sm rounded-lg hover:bg-emerald-700 shadow-sm flex items-center gap-2 transition-all"
                 >
                   <Download size={16} /> Xuất CSV Anki
+                </button>
+                <button
+                  onClick={downloadDOCX}
+                  className="px-4 py-2 bg-sky-600 text-white font-medium text-sm rounded-lg hover:bg-sky-700 shadow-sm flex items-center gap-2 transition-all"
+                  title="Xuất file Word để học trực tiếp"
+                >
+                  <FileText size={16} /> Xuất DOCX
                 </button>
               </div>
             </div>

@@ -79,6 +79,20 @@ export const translateErrorForUser = (error: any, context?: string): string => {
     return `${prefix}📄 Không tìm thấy câu hỏi trắc nghiệm trong tài liệu. Hãy kiểm tra file đúng chưa (cần file có nội dung MCQ).`;
   }
 
+  // --- Vertex AI Specific ---
+  if (msgLow.includes("vertex ai api error")) {
+    const code = msg.match(/:\s*(\d+)/)?.[1] || "?";
+    const vxMsgs: Record<string, string> = {
+      "400": "Dữ liệu cấu hình Vertex không đúng (Project ID, Vùng, hoặc Token bị sai định dạng).",
+      "401": "Access Token của Google Cloud đã HẾT HẠN hoặc sai. Vui lòng lấy Token mới.",
+      "403": "Token không đủ quyền (Permission Denied) hoặc chưa bật Vertex AI API.",
+      "404": "Không tìm thấy URL Endpoint. Kiểm tra lại Project ID và Location.",
+      "429": "Vertex AI Quota Exceeded (Hết lượng truy cập cho phép).",
+      "500": "Lỗi nội bộ từ máy chủ Google Cloud Vertex AI.",
+    };
+    return `${prefix}🔷 Lỗi Vertex AI: ${vxMsgs[code] || `Máy chủ phản hồi mã ${code}.`}`;
+  }
+
   // --- OpenRouter Specific ---
   if (msgLow.includes("openrouter api error")) {
     const code = msg.match(/:\s*(\d+)/)?.[1] || "?";
@@ -988,7 +1002,7 @@ export const generateQuestions = async (
         // Per-batch key assignment: Mỗi batch nhận key riêng theo round-robin
         const batchStartingKey = settings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
 
-        const rawNewQs = await (settings.provider === 'shopaikey' || settings.provider === 'openrouter'
+        const rawNewQs = await (settings.provider === 'shopaikey' || settings.provider === 'openrouter' || settings.provider === 'vertexai'
           ? executeWithUserRotation(
               isAdvancedMode ? 'gemini-2.5-flash' : settings.model,
               async (dummyKey, activeModel) => {
@@ -998,9 +1012,13 @@ export const generateQuestions = async (
                     { role: "user", content: [{ type: "text", text: `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).` }, ...(part.inlineData ? [{ type: "image_url", image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` } }] : [{ type: "text", text: part.text }])] }
                   ];
 
-                  const apiUrl = settings.provider === 'shopaikey' ? "https://api.shopaikey.com/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
-                  const apiKey = settings.provider === 'shopaikey' ? settings.shopAIKeyKey : settings.openRouterKey;
-                  const providerName = settings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
+                  const apiUrl = settings.provider === 'vertexai'
+                    ? `https://${settings.vertexLocation}-aiplatform.googleapis.com/v1/projects/${settings.vertexProjectId}/locations/${settings.vertexLocation}/endpoints/openapi/chat/completions`
+                    : settings.provider === 'shopaikey' 
+                      ? "https://api.shopaikey.com/v1/chat/completions" 
+                      : "https://openrouter.ai/api/v1/chat/completions";
+                  const apiKey = settings.provider === 'vertexai' ? settings.vertexAccessToken : settings.provider === 'shopaikey' ? settings.shopAIKeyKey : settings.openRouterKey;
+                  const providerName = settings.provider === 'vertexai' ? "Vertex AI" : settings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
 
                   const response = await fetch(apiUrl, {
                     method: "POST",
@@ -1142,7 +1160,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
   - Mô tả cấu trúc (vd: có đáp án đi kèm không).
   ${SYSTEM_INSTRUCTION_ANALYZE}`;
 
-  if (settings.provider === 'shopaikey' || settings.provider === 'openrouter') {
+  if (settings.provider === 'shopaikey' || settings.provider === 'openrouter' || settings.provider === 'vertexai') {
     return await executeWithRetry(async () => {
       const parts: any[] = files.map(file => {
         if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
@@ -1154,9 +1172,13 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
         return { type: "text", text: `FILE: ${file.name}\n${file.content}\n` };
       });
 
-      const apiUrl = settings.provider === 'shopaikey' ? "https://api.shopaikey.com/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
-      const apiKey = settings.provider === 'shopaikey' ? settings.shopAIKeyKey : settings.openRouterKey;
-      const providerName = settings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
+      const apiUrl = settings.provider === 'vertexai'
+        ? `https://${settings.vertexLocation}-aiplatform.googleapis.com/v1/projects/${settings.vertexProjectId}/locations/${settings.vertexLocation}/endpoints/openapi/chat/completions`
+        : settings.provider === 'shopaikey' 
+          ? "https://api.shopaikey.com/v1/chat/completions" 
+          : "https://openrouter.ai/api/v1/chat/completions";
+      const apiKey = settings.provider === 'vertexai' ? settings.vertexAccessToken : settings.provider === 'shopaikey' ? settings.shopAIKeyKey : settings.openRouterKey;
+      const providerName = settings.provider === 'vertexai' ? "Vertex AI" : settings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
 
       const response = await fetch(apiUrl, {
         method: "POST",
@@ -1212,7 +1234,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
 };
 
 export const auditMissingQuestions = async (files: UploadedFile[], count: number, settings: AppSettings): Promise<AuditResult> => {
-  if (settings.provider === 'shopaikey' || settings.provider === 'openrouter') {
+  if (settings.provider === 'shopaikey' || settings.provider === 'openrouter' || settings.provider === 'vertexai') {
     return await executeWithRetry(async () => {
       const parts: any[] = files.map(file => {
         if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
@@ -1221,9 +1243,13 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
         return { type: "text", text: `FILE: ${file.name}\n${file.content}\n` };
       });
 
-      const apiUrl = settings.provider === 'shopaikey' ? "https://api.shopaikey.com/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
-      const apiKey = settings.provider === 'shopaikey' ? settings.shopAIKeyKey : settings.openRouterKey;
-      const providerName = settings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
+      const apiUrl = settings.provider === 'vertexai'
+        ? `https://${settings.vertexLocation}-aiplatform.googleapis.com/v1/projects/${settings.vertexProjectId}/locations/${settings.vertexLocation}/endpoints/openapi/chat/completions`
+        : settings.provider === 'shopaikey' 
+          ? "https://api.shopaikey.com/v1/chat/completions" 
+          : "https://openrouter.ai/api/v1/chat/completions";
+      const apiKey = settings.provider === 'vertexai' ? settings.vertexAccessToken : settings.provider === 'shopaikey' ? settings.shopAIKeyKey : settings.openRouterKey;
+      const providerName = settings.provider === 'vertexai' ? "Vertex AI" : settings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
 
       const response = await fetch(apiUrl, {
         method: "POST",

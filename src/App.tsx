@@ -78,6 +78,9 @@ const App: React.FC = () => {
           if (!persistedSettings.provider) persistedSettings.provider = 'google';
           if (persistedSettings.shopAIKeyKey === undefined) persistedSettings.shopAIKeyKey = '';
           if (persistedSettings.openRouterKey === undefined) persistedSettings.openRouterKey = '';
+          if (persistedSettings.vertexProjectId === undefined) persistedSettings.vertexProjectId = '';
+          if (persistedSettings.vertexLocation === undefined) persistedSettings.vertexLocation = 'us-central1';
+          if (persistedSettings.vertexAccessToken === undefined) persistedSettings.vertexAccessToken = '';
           if (persistedSettings.skipAnalysis === undefined) persistedSettings.skipAnalysis = true;
           
           setSettings(persistedSettings);
@@ -266,6 +269,10 @@ const App: React.FC = () => {
       toast.error("🔑 Vui lòng nhập OpenRouter API Key trong phần Cài đặt (⚙️) để bắt đầu.");
       return;
     }
+    if (settings.provider === 'vertexai' && (!settings.vertexProjectId?.trim() || !settings.vertexLocation?.trim() || !settings.vertexAccessToken?.trim())) {
+      toast.error("🔗 Vui lòng nhập đủ Project ID, Location và Token của Vertex AI trong (⚙️).");
+      return;
+    }
 
     setAnalyzing(true);
     setAnalysis(null);
@@ -307,6 +314,10 @@ const App: React.FC = () => {
     }
     if (settings.provider === 'openrouter' && !settings.openRouterKey?.trim()) {
       toast.error("🔑 Vui lòng nhập OpenRouter API Key trong phần Cài đặt (⚙️) để bắt đầu.");
+      return;
+    }
+    if (settings.provider === 'vertexai' && (!settings.vertexProjectId?.trim() || !settings.vertexLocation?.trim() || !settings.vertexAccessToken?.trim())) {
+      toast.error("🔗 Vui lòng nhập đủ Project ID, Location và Token của Vertex AI trong (⚙️).");
       return;
     }
 

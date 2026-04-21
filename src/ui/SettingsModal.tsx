@@ -68,37 +68,86 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                             </button>
                             <button
                                 onClick={() => setSettings({ ...settings, provider: 'openrouter' })}
-                                className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${settings.provider === 'openrouter' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+                                className={`flex-1 py-2 px-3 rounded-lg text-[13px] font-bold transition-all ${settings.provider === 'openrouter' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
                             >
                                 OpenRouter
+                            </button>
+                            <button
+                                onClick={() => setSettings({ ...settings, provider: 'vertexai' })}
+                                className={`flex-1 py-2 px-3 rounded-lg text-[13px] font-bold transition-all ${settings.provider === 'vertexai' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+                            >
+                                Vertex AI
                             </button>
                         </div>
                     </section>
 
                     {/* API Key - Contextual */}
                     <section className="animate-in slide-in-from-top-2 duration-300">
-                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-                            {settings.provider === 'google' ? 'Google Gemini API Key' : settings.provider === 'shopaikey' ? 'ShopAIKey API Key' : 'OpenRouter API Key'}
-                        </label>
-                        <input
-                            type="password"
-                            value={settings.provider === 'google' ? settings.apiKey : settings.provider === 'shopaikey' ? settings.shopAIKeyKey : (settings.openRouterKey || '')}
-                            onChange={e => {
-                                if (settings.provider === 'google') setSettings({ ...settings, apiKey: e.target.value });
-                                else if (settings.provider === 'shopaikey') setSettings({ ...settings, shopAIKeyKey: e.target.value });
-                                else setSettings({ ...settings, openRouterKey: e.target.value });
-                            }}
-                            placeholder={settings.provider === 'google' ? "Dán key từ Google AI Studio..." : settings.provider === 'shopaikey' ? "Dán key từ shopaikey.com..." : "Dán key từ openrouter.ai..."}
-                            className="w-full border dark:border-slate-700 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-800 dark:text-white transition-all shadow-sm"
-                        />
-                        <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1.5 flex items-center gap-1">
-                            <Zap size={10} className="text-amber-500" />
-                            {settings.provider === 'google' 
-                                ? 'Hệ thống tự động xoay vòng nếu nhập nhiều Key (phân cách bằng dấu phẩy).' 
-                                : settings.provider === 'shopaikey' 
-                                    ? 'Này của Admin và phải tốn tiền nên các bạn đừng quan tâm nhé!'
-                                    : 'Truy cập hàng loạt model đỉnh nhất như Claude 3.7, GPT-4o, DeepSeek.'}
-                        </p>
+                        {settings.provider === 'vertexai' ? (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">GCP Project ID</label>
+                                    <input
+                                        type="text"
+                                        value={settings.vertexProjectId || ''}
+                                        onChange={e => setSettings({ ...settings, vertexProjectId: e.target.value })}
+                                        placeholder="Ví dụ: my-genai-project-123..."
+                                        className="w-full border dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none dark:bg-slate-800 dark:text-white transition-all shadow-sm focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                </div>
+                                <div className="flex gap-3">
+                                    <div className="w-1/3">
+                                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">Location</label>
+                                        <input
+                                            type="text"
+                                            value={settings.vertexLocation || 'us-central1'}
+                                            onChange={e => setSettings({ ...settings, vertexLocation: e.target.value })}
+                                            placeholder="us-central1"
+                                            className="w-full border dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none dark:bg-slate-800 dark:text-white transition-all shadow-sm focus:ring-2 focus:ring-indigo-500"
+                                        />
+                                    </div>
+                                    <div className="w-2/3">
+                                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">OAuth Access Token</label>
+                                        <input
+                                            type="password"
+                                            value={settings.vertexAccessToken || ''}
+                                            onChange={e => setSettings({ ...settings, vertexAccessToken: e.target.value })}
+                                            placeholder="$(gcloud auth print-access-token)..."
+                                            className="w-full border dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none dark:bg-slate-800 dark:text-white transition-all shadow-sm focus:ring-2 focus:ring-indigo-500"
+                                        />
+                                    </div>
+                                </div>
+                                <p className="text-[10px] text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                                    <Zap size={10} className="text-amber-500" />
+                                    Access token thường hết hạn sau 60 phút. Dùng riêng cho cấp độ Enterprise.
+                                </p>
+                            </div>
+                        ) : (
+                            <>
+                                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                                    {settings.provider === 'google' ? 'Google Gemini API Key' : settings.provider === 'shopaikey' ? 'ShopAIKey API Key' : 'OpenRouter API Key'}
+                                </label>
+                                <input
+                                    type="password"
+                                    value={settings.provider === 'google' ? settings.apiKey : settings.provider === 'shopaikey' ? settings.shopAIKeyKey : (settings.openRouterKey || '')}
+                                    onChange={e => {
+                                        if (settings.provider === 'google') setSettings({ ...settings, apiKey: e.target.value });
+                                        else if (settings.provider === 'shopaikey') setSettings({ ...settings, shopAIKeyKey: e.target.value });
+                                        else setSettings({ ...settings, openRouterKey: e.target.value });
+                                    }}
+                                    placeholder={settings.provider === 'google' ? "Dán key từ Google AI Studio..." : settings.provider === 'shopaikey' ? "Dán key từ shopaikey.com..." : "Dán key từ openrouter.ai..."}
+                                    className="w-full border dark:border-slate-700 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-800 dark:text-white transition-all shadow-sm"
+                                />
+                                <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1.5 flex items-center gap-1">
+                                    <Zap size={10} className="text-amber-500" />
+                                    {settings.provider === 'google' 
+                                        ? 'Hệ thống tự động xoay vòng nếu nhập nhiều Key (phân cách bằng dấu phẩy).' 
+                                        : settings.provider === 'shopaikey' 
+                                            ? 'Này của Admin và phải tốn tiền nên các bạn đừng quan tâm nhé!'
+                                            : 'Truy cập hàng loạt model đỉnh nhất như Claude 3.7, GPT-4o, DeepSeek.'}
+                                </p>
+                            </>
+                        )}
                     </section>
 
                     {/* Model Selection */}
@@ -125,6 +174,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                     <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash-Lite (Tối ưu chi phí)</option>
                                     <option value="gemini-2.5-pro">Gemini 2.5 Pro (Rất ổn định)</option>
                                     <option value="gemini-2.5-flash">Gemini 2.5 Flash (Cân bằng hiệu suất)</option>
+                                </optgroup>
+                            ) : settings.provider === 'vertexai' ? (
+                                <optgroup label="Google Cloud Vertex AI">
+                                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (Nền tảng GCP)</option>
+                                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                                    <option value="gemini-2.0-pro-exp-0205">Gemini 2.0 Pro Experimental</option>
+                                    <option value="gemini-2.0-flash-001">Gemini 2.0 Flash 001</option>
+                                    <option value="gemini-2.0-flash-lite-preview-02-05">Gemini 2.0 Flash-Lite</option>
                                 </optgroup>
                             ) : (
                                 <optgroup label="Hệ thống OpenRouter">

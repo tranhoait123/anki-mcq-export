@@ -4,7 +4,10 @@ import {
   getModelValues,
   getProviderFallbackModel,
   coerceModelForProvider,
+  coerceModelForProviderInput,
+  isVisionCapableModel,
   isModelAllowedForProvider,
+  normalizeModelForProvider,
 } from './models';
 
 describe('AI model registry', () => {
@@ -53,14 +56,15 @@ describe('AI model registry', () => {
   it('keeps existing ShopAIKey models and appends OpenAI-compatible newest models', () => {
     const values = getModelValues('shopaikey');
 
-    expect(values).toContain('openai/gpt-4.5-preview');
-    expect(values).toContain('openai/o3-pro');
-    expect(values).toContain('anthropic/claude-3.7-sonnet');
-    expect(values).toContain('deepseek/deepseek-v3.2');
-    expect(values).toContain('openai/gpt-5.4-mini');
-    expect(values).toContain('openai/gpt-5.4-nano');
-    expect(values).toContain('anthropic/claude-sonnet-4.6');
-    expect(values).toContain('deepseek/deepseek-reasoner');
+    expect(values).toContain('o3-pro');
+    expect(values).toContain('claude-sonnet-4-20250514');
+    expect(values).toContain('deepseek-v3.2');
+    expect(values).toContain('gpt-5.4-mini');
+    expect(values).toContain('gpt-5.4-nano');
+    expect(values).toContain('claude-sonnet-4-6');
+    expect(values).toContain('deepseek-reasoner');
+    expect(values).not.toContain('openai/gpt-5.4-mini');
+    expect(values).not.toContain('anthropic/claude-sonnet-4.6');
   });
 
   it('renders newest groups first for every provider', () => {
@@ -89,6 +93,21 @@ describe('AI model registry', () => {
     expect(coerceModelForProvider('google', 'deepseek/deepseek-v3.2')).toBe('gemini-3.1-flash-lite-preview');
     expect(coerceModelForProvider('vertexai', 'openai/gpt-5.4')).toBe('gemini-3.1-flash-lite-preview');
     expect(coerceModelForProvider('openrouter', 'deepseek/deepseek-v3.2')).toBe('deepseek/deepseek-v3.2');
-    expect(coerceModelForProvider('shopaikey', 'deepseek/deepseek-v3.2')).toBe('deepseek/deepseek-v3.2');
+    expect(coerceModelForProvider('shopaikey', 'deepseek/deepseek-v3.2')).toBe('deepseek-v3.2');
+  });
+
+  it('coerces text-only gateway models to vision fallbacks for image or PDF input', () => {
+    expect(isVisionCapableModel('openrouter', 'deepseek/deepseek-chat')).toBe(false);
+    expect(isVisionCapableModel('shopaikey', 'gpt-5.4-mini')).toBe(true);
+    expect(coerceModelForProviderInput('openrouter', 'deepseek/deepseek-chat', true)).toBe('google/gemini-2.5-flash');
+    expect(coerceModelForProviderInput('shopaikey', 'deepseek/deepseek-v3.2', true)).toBe('gemini-2.5-flash');
+    expect(coerceModelForProviderInput('openrouter', 'deepseek/deepseek-chat', false)).toBe('deepseek/deepseek-chat');
+  });
+
+  it('normalizes legacy OpenRouter-style ShopAIKey model ids to official ShopAIKey ids', () => {
+    expect(normalizeModelForProvider('shopaikey', 'openai/gpt-5.4-mini')).toBe('gpt-5.4-mini');
+    expect(normalizeModelForProvider('shopaikey', 'anthropic/claude-opus-4.7')).toBe('claude-opus-4-7');
+    expect(normalizeModelForProvider('shopaikey', 'deepseek/deepseek-reasoner')).toBe('deepseek-reasoner');
+    expect(normalizeModelForProvider('openrouter', 'openai/gpt-5.4-mini')).toBe('openai/gpt-5.4-mini');
   });
 });

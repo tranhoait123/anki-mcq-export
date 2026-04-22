@@ -14,7 +14,7 @@ import { buildAnkiHtml, formatRichText } from './core/anki';
 import { buildStudyDocxBlob } from './core/docxExport';
 import { isOptionCorrect } from './utils/text';
 import { findDuplicate } from './utils/dedupe';
-import { coerceModelForProvider, DEFAULT_GEMINI_MODEL, isModelAllowedForProvider } from './utils/models';
+import { coerceModelForProvider, coerceModelForProviderInput, DEFAULT_GEMINI_MODEL, isModelAllowedForProvider } from './utils/models';
 import { toast } from 'sonner';
 import { convertPdfToImages } from './utils/pdfProcessor';
 
@@ -179,12 +179,16 @@ const App: React.FC = () => {
     }
   };
 
-  const getRequestSettings = () => {
-    const coercedModel = coerceModelForProvider(settings.provider, settings.model);
+  const currentFilesRequireVision = () => files.some(file => file.type === 'application/pdf' || file.type.startsWith('image/'));
+
+  const getRequestSettings = (requiresVision: boolean = false) => {
+    const coercedModel = coerceModelForProviderInput(settings.provider, settings.model, requiresVision);
     if (coercedModel !== settings.model) {
       const nextSettings = { ...settings, model: coercedModel };
       setSettings(nextSettings);
-      toast.info("Đã tự đổi model cho khớp provider hiện tại để tránh lỗi endpoint.");
+      toast.info(requiresVision
+        ? "Đã tự đổi sang model hỗ trợ ảnh/PDF để tránh lỗi quét."
+        : "Đã tự đổi model cho khớp provider hiện tại để tránh lỗi endpoint.");
       return nextSettings;
     }
     return settings;
@@ -303,7 +307,7 @@ const App: React.FC = () => {
 
   const handleAnalyze = async () => {
     if (files.length === 0) return;
-    const requestSettings = getRequestSettings();
+    const requestSettings = getRequestSettings(currentFilesRequireVision());
 
     // Validation for Provider Keys (Fix Pack 2026)
     if (requestSettings.provider === 'google' && !requestSettings.apiKey?.trim()) {
@@ -351,7 +355,7 @@ const App: React.FC = () => {
 
   const handleGenerate = async () => {
     if (files.length === 0) return;
-    const requestSettings = getRequestSettings();
+    const requestSettings = getRequestSettings(currentFilesRequireVision());
     
     // Validation for Provider Keys
     if (requestSettings.provider === 'google' && !requestSettings.apiKey) {
@@ -545,7 +549,7 @@ const App: React.FC = () => {
 
   const handleRetryFailed = async () => {
     if (files.length === 0 || failedBatchIndices.length === 0) return;
-    const requestSettings = getRequestSettings();
+    const requestSettings = getRequestSettings(currentFilesRequireVision());
     
     setLoading(true);
     setProgressStatus(`Đang quét lại ${failedBatchIndices.length} phần lỗi...`);
@@ -595,7 +599,7 @@ const App: React.FC = () => {
   const runAudit = async (count: number, processedFiles?: UploadedFile[]) => {
     setAuditing(true);
     try {
-      const requestSettings = getRequestSettings();
+      const requestSettings = getRequestSettings((processedFiles || files).some(file => file.type === 'application/pdf' || file.type.startsWith('image/')));
       const filesToUse = processedFiles || await prepareFiles();
       const res = await auditMissingQuestions(filesToUse, count, requestSettings);
       setAudit(res);

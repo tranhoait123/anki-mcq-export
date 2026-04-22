@@ -3,7 +3,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo } from "../types";
 import { db } from './db';
 import { findDuplicate } from '../utils/dedupe';
-import { coerceModelForProvider, getProviderFallbackModel, getProviderModelMismatchMessage } from '../utils/models';
+import { coerceModelForProvider, coerceModelForProviderInput, getProviderFallbackModel, getProviderModelMismatchMessage } from '../utils/models';
 import {
   classifyBatchError,
   describeBatchError,
@@ -46,6 +46,49 @@ export const translateErrorForUser = (error: any, context?: string): string => {
   const providerModel = msg.match(/model=([^|]+)/)?.[1]?.trim();
   const providerDetail = msg.includes('|') ? msg.split('|').slice(2).join('|').trim() : '';
   const providerSuffix = `${providerModel ? ` Model: ${providerModel}.` : ''}${providerDetail ? ` Chi tiết: ${providerDetail}` : ''}`;
+
+  // --- Provider-specific errors first, so users see the right key/token/project guidance ---
+  if (msgLow.includes("vertex ai api error")) {
+    const code = msg.match(/:\s*(\d+)/)?.[1] || "?";
+    const vxMsgs: Record<string, string> = {
+      "400": "Dữ liệu cấu hình Vertex không đúng (Project ID, Vùng, hoặc Token bị sai định dạng).",
+      "401": "Access Token của Google Cloud đã HẾT HẠN hoặc sai. Vui lòng lấy Token mới.",
+      "403": "Token không đủ quyền (Permission Denied) hoặc chưa bật Vertex AI API.",
+      "404": "Không tìm thấy Vertex OpenAI endpoint. Kiểm tra Project ID, Location và model.",
+      "429": "Vertex AI Quota Exceeded (Hết lượng truy cập cho phép).",
+      "500": "Lỗi nội bộ từ máy chủ Google Cloud Vertex AI.",
+    };
+    return `${prefix}🔷 Lỗi Vertex AI: ${vxMsgs[code] || `Máy chủ phản hồi mã ${code}.`}${providerSuffix}`;
+  }
+
+  if (msgLow.includes("openrouter api error")) {
+    const code = msg.match(/:\s*(\d+)/)?.[1] || "?";
+    const orMsgs: Record<string, string> = {
+      "400": "Dữ liệu gửi lên sai định dạng hoặc model không hỗ trợ ảnh/JSON mode (Mã 400).",
+      "401": "API Key OpenRouter không hợp lệ. Kiểm tra lại Key (Mã 401).",
+      "402": "Tài khoản OpenRouter hết số dư. Vui lòng nạp thêm (Mã 402).",
+      "403": "API Key OpenRouter bị giới hạn hoặc chặn nội dung. Cảnh báo an toàn (Mã 403).",
+      "429": "OpenRouter hoặc AI model này đang bị giới hạn tốc độ. Chờ 1-2 phút (Mã 429).",
+      "500": "Đứt kết nối tạm thời tới nhà cung cấp (Mã 500).",
+      "502": "Lỗi kết nối từ OpenRouter tới AI Model đang chọn (Mã 502).",
+      "503": "Nhà cung cấp quá tải. Thử chọn model khác trên OpenRouter (Mã 503).",
+    };
+    return `${prefix}🤖 Lỗi OpenRouter: ${orMsgs[code] || `Máy chủ phản hồi mã ${code}. Vui lòng thử lại sau.`}${providerSuffix}`;
+  }
+
+  if (msgLow.includes("shopaikey api error")) {
+    const code = msg.match(/:\s*(\d+)/)?.[1] || "?";
+    const shopMsgs: Record<string, string> = {
+      "400": "Dữ liệu gửi lên bị từ chối do sai định dạng hoặc model không hỗ trợ ảnh/JSON mode (Mã 400).",
+      "401": "API Key ShopAIKey không hợp lệ. Kiểm tra lại Key (Mã 401).",
+      "402": "Tài khoản ShopAIKey hết số dư. Vui lòng nạp thêm (Mã 402).",
+      "403": "API Key ShopAIKey không có quyền truy cập. Kiểm tra Key (Mã 403).",
+      "429": "ShopAIKey quá tải. Chờ 1-2 phút rồi thử lại (Mã 429).",
+      "500": "Server ShopAIKey đang gặp sự cố nội bộ. Thử lại sau (Mã 500).",
+      "503": "Server ShopAIKey quá tải tạm thời. Thử lại sau (Mã 503).",
+    };
+    return `${prefix}🤖 Lỗi ShopAIKey: ${shopMsgs[code] || `Server phản hồi mã ${code}. Vui lòng thử lại sau.`}${providerSuffix}`;
+  }
 
   // --- API Key & Authentication ---
   if (statusCode === 403 || msgLow.includes("403") || msgLow.includes("permission denied") || msgLow.includes("forbidden")) {
@@ -100,51 +143,6 @@ export const translateErrorForUser = (error: any, context?: string): string => {
   }
   if (msgLow.includes("không tìm thấy câu hỏi") || msgLow.includes("không tìm thấy văn bản")) {
     return `${prefix}📄 Không tìm thấy câu hỏi trắc nghiệm trong tài liệu. Hãy kiểm tra file đúng chưa (cần file có nội dung MCQ).`;
-  }
-
-  // --- Vertex AI Specific ---
-  if (msgLow.includes("vertex ai api error")) {
-    const code = msg.match(/:\s*(\d+)/)?.[1] || "?";
-    const vxMsgs: Record<string, string> = {
-      "400": "Dữ liệu cấu hình Vertex không đúng (Project ID, Vùng, hoặc Token bị sai định dạng).",
-      "401": "Access Token của Google Cloud đã HẾT HẠN hoặc sai. Vui lòng lấy Token mới.",
-      "403": "Token không đủ quyền (Permission Denied) hoặc chưa bật Vertex AI API.",
-      "404": "Không tìm thấy URL Endpoint. Kiểm tra lại Project ID và Location.",
-      "429": "Vertex AI Quota Exceeded (Hết lượng truy cập cho phép).",
-      "500": "Lỗi nội bộ từ máy chủ Google Cloud Vertex AI.",
-    };
-    return `${prefix}🔷 Lỗi Vertex AI: ${vxMsgs[code] || `Máy chủ phản hồi mã ${code}.`}${providerSuffix}`;
-  }
-
-  // --- OpenRouter Specific ---
-  if (msgLow.includes("openrouter api error")) {
-    const code = msg.match(/:\s*(\d+)/)?.[1] || "?";
-    const orMsgs: Record<string, string> = {
-      "400": "Dữ liệu gửi lên sai định dạng (Mã 400).",
-      "401": "API Key OpenRouter không hợp lệ. Kiểm tra lại Key (Mã 401).",
-      "402": "Tài khoản OpenRouter hết số dư. Vui lòng nạp thêm (Mã 402).",
-      "403": "API Key OpenRouter bị giới hạn hoặc chặn nội dung. Cảnh báo an toàn (Mã 403).",
-      "429": "OpenRouter hoặc AI model này đang bị giới hạn tốc độ. Chờ 1-2 phút (Mã 429).",
-      "500": "Đứt kết nối tạm thời tới nhà cung cấp (Mã 500).",
-      "502": "Lỗi kết nối từ OpenRouter tới AI Model đang chọn (Mã 502).",
-      "503": "Nhà cung cấp quá tải. Thử chọn model khác trên OpenRouter (Mã 503).",
-    };
-    return `${prefix}🤖 Lỗi OpenRouter: ${orMsgs[code] || `Máy chủ phản hồi mã ${code}. Vui lòng thử lại sau.`}${providerSuffix}`;
-  }
-
-  // --- ShopAIKey Specific ---
-  if (msgLow.includes("shopaikey api error")) {
-    const code = msg.match(/:\s*(\d+)/)?.[1] || "?";
-    const shopMsgs: Record<string, string> = {
-      "400": "Dữ liệu gửi lên bị từ chối do sai định dạng (Mã 400).",
-      "401": "API Key ShopAIKey không hợp lệ. Kiểm tra lại Key (Mã 401).",
-      "402": "Tài khoản ShopAIKey hết số dư. Vui lòng nạp thêm (Mã 402).",
-      "403": "API Key ShopAIKey không có quyền truy cập. Kiểm tra Key (Mã 403).",
-      "429": "ShopAIKey quá tải. Chờ 1-2 phút rồi thử lại (Mã 429).",
-      "500": "Server ShopAIKey đang gặp sự cố nội bộ. Thử lại sau (Mã 500).",
-      "503": "Server ShopAIKey quá tải tạm thời. Thử lại sau (Mã 503).",
-    };
-    return `${prefix}🤖 Lỗi ShopAIKey: ${shopMsgs[code] || `Server phản hồi mã ${code}. Vui lòng thử lại sau.`}${providerSuffix}`;
   }
 
   // --- PDF / File Processing ---
@@ -705,6 +703,205 @@ export const buildGoogleBatchMessage = (part: any, batchPrompt: string, cachedCo
   return [part, { text: batchPrompt }];
 };
 
+type OpenAICompatibleProvider = 'shopaikey' | 'openrouter' | 'vertexai';
+
+interface ProviderRequestConfig {
+  url: string;
+  providerName: string;
+  model: string;
+  apiKey: string;
+  headers: Record<string, string>;
+  body: Record<string, any>;
+}
+
+const JSON_MODE_FALLBACK_INSTRUCTION = 'QUAN TRỌNG: Endpoint hiện tại không hỗ trợ response_format. Bạn vẫn PHẢI trả về JSON hợp lệ duy nhất, không markdown, không giải thích ngoài JSON.';
+
+const isOpenAICompatibleProvider = (provider: AppSettings['provider']): provider is OpenAICompatibleProvider =>
+  provider === 'shopaikey' || provider === 'openrouter' || provider === 'vertexai';
+
+const getProviderName = (provider: OpenAICompatibleProvider): string => {
+  if (provider === 'vertexai') return 'Vertex AI';
+  if (provider === 'shopaikey') return 'ShopAIKey';
+  return 'OpenRouter';
+};
+
+const normalizeVertexLocation = (location?: string): string => (location || 'global').trim() || 'global';
+
+export const normalizeVertexOpenAIModel = (model: string): string => {
+  if (!model) return 'google/gemini-2.5-flash';
+  if (model.startsWith('google/')) return model;
+  return `google/${model}`;
+};
+
+const normalizeProviderModel = (provider: OpenAICompatibleProvider, model: string): string => {
+  if (provider === 'vertexai') return normalizeVertexOpenAIModel(model);
+  return model;
+};
+
+const buildProviderUrl = (settings: AppSettings): string => {
+  if (settings.provider === 'vertexai') {
+    const location = normalizeVertexLocation(settings.vertexLocation);
+    const projectId = settings.vertexProjectId?.trim();
+    return `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/endpoints/openapi/chat/completions`;
+  }
+  if (settings.provider === 'shopaikey') return 'https://api.shopaikey.com/v1/chat/completions';
+  return 'https://openrouter.ai/api/v1/chat/completions';
+};
+
+const getProviderApiKey = (settings: AppSettings): string | undefined => {
+  if (settings.provider === 'vertexai') return settings.vertexAccessToken;
+  if (settings.provider === 'shopaikey') return settings.shopAIKeyKey;
+  return settings.openRouterKey;
+};
+
+const buildProviderHeaders = (settings: AppSettings, apiKey: string): Record<string, string> => {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+  };
+
+  if (settings.provider !== 'vertexai' && typeof window !== 'undefined') {
+    headers['HTTP-Referer'] = window.location.origin;
+    headers['X-Title'] = 'MCQ AnkiGen Pro';
+    if (settings.provider === 'openrouter') headers['X-OpenRouter-Title'] = 'MCQ AnkiGen Pro';
+  }
+
+  return headers;
+};
+
+export const buildOpenAICompatibleProviderRequest = (
+  settings: AppSettings,
+  modelName: string,
+  messages: any[],
+  includeResponseFormat: boolean = true
+): ProviderRequestConfig => {
+  if (!isOpenAICompatibleProvider(settings.provider)) {
+    throw new Error(`Unsupported OpenAI-compatible provider: ${settings.provider}`);
+  }
+
+  const apiKey = getProviderApiKey(settings) || '';
+  const model = normalizeProviderModel(settings.provider, modelName);
+  const body: Record<string, any> = {
+    model,
+    messages,
+    temperature: 0.1,
+  };
+
+  if (includeResponseFormat) {
+    body.response_format = { type: 'json_object' };
+  }
+
+  return {
+    url: buildProviderUrl(settings),
+    providerName: getProviderName(settings.provider),
+    model,
+    apiKey,
+    headers: buildProviderHeaders(settings, apiKey),
+    body,
+  };
+};
+
+const isResponseFormatUnsupportedError = (error: Error): boolean => {
+  const msg = error.message.toLowerCase();
+  return (
+    (msg.includes('response_format') || msg.includes('json_object') || msg.includes('json mode')) &&
+    (msg.includes('not support') || msg.includes('unsupported') || msg.includes('invalid') || msg.includes('unrecognized'))
+  );
+};
+
+const withJsonModeFallbackPrompt = (messages: any[]): any[] => {
+  const next = messages.map(message => ({ ...message }));
+  const systemIndex = next.findIndex(message => message.role === 'system');
+  if (systemIndex >= 0) {
+    next[systemIndex] = {
+      ...next[systemIndex],
+      content: `${next[systemIndex].content}\n\n${JSON_MODE_FALLBACK_INSTRUCTION}`,
+    };
+  } else {
+    next.unshift({ role: 'system', content: JSON_MODE_FALLBACK_INSTRUCTION });
+  }
+  return next;
+};
+
+export const extractProviderMessageContent = (data: any): string => {
+  const content = data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? data?.content;
+  if (Array.isArray(content)) {
+    return content
+      .map(part => (typeof part === 'string' ? part : part?.text || part?.content || ''))
+      .join('');
+  }
+  if (typeof content === 'string' && content.trim()) return content;
+  throw new Error('AI_FORMAT_ERROR_EMPTY_PROVIDER_RESPONSE: Provider không trả về choices[0].message.content.');
+};
+
+export const callOpenAICompatibleProvider = async (
+  settings: AppSettings,
+  modelName: string,
+  messages: any[],
+  includeResponseFormat: boolean = true
+): Promise<string> => {
+  const request = buildOpenAICompatibleProviderRequest(settings, modelName, messages, includeResponseFormat);
+  const response = await fetch(request.url, {
+    method: 'POST',
+    headers: request.headers,
+    body: JSON.stringify(request.body),
+  });
+
+  if (!response.ok) {
+    const error = await createProviderApiError(request.providerName, response, request.model);
+    if (includeResponseFormat && isResponseFormatUnsupportedError(error)) {
+      console.warn(`${request.providerName}: response_format unsupported for ${request.model}. Retrying with prompt-only JSON mode.`);
+      return callOpenAICompatibleProvider(settings, modelName, withJsonModeFallbackPrompt(messages), false);
+    }
+    throw error;
+  }
+
+  const data = await response.json();
+  return extractProviderMessageContent(data);
+};
+
+const toOpenAIContentFromPart = (part: any): any[] => {
+  if (part.inlineData) {
+    if (part.inlineData.mimeType === 'application/pdf') {
+      throw new Error('PDF_PROVIDER_RASTERIZATION_REQUIRED: Provider OpenAI-compatible không nhận PDF thô. Hãy để hệ thống chuyển PDF sang ảnh trước khi quét.');
+    }
+    return [{ type: 'image_url', image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` } }];
+  }
+  return [{ type: 'text', text: part.text || '' }];
+};
+
+const toOpenAIContentFromFile = (file: UploadedFile): any => {
+  if (file.type.startsWith('image/')) {
+    return {
+      type: 'image_url',
+      image_url: { url: `data:${file.type};base64,${file.content.includes(',') ? file.content.split(',')[1] : file.content}` },
+    };
+  }
+  if (file.type === 'application/pdf') {
+    return { type: 'text', text: `FILE: ${file.name}\n[PDF chưa được chuyển sang ảnh. Vui lòng quét lại để hệ thống rasterize PDF trước.]\n` };
+  }
+  return { type: 'text', text: `FILE: ${file.name}\n${file.content}\n` };
+};
+
+const filesRequireVision = (files: UploadedFile[]): boolean =>
+  files.some(file => file.type === 'application/pdf' || file.type.startsWith('image/'));
+
+const partsRequireVision = (parts: any[]): boolean => parts.some(part => Boolean(part.inlineData));
+
+const normalizeAnalysisResult = (raw: any): AnalysisResult => {
+  const confidence = raw?.confidence;
+  const confidenceText = typeof confidence === 'number'
+    ? `${Math.round((confidence <= 1 ? confidence * 100 : confidence))}%`
+    : String(confidence || 'N/A');
+
+  return {
+    topic: raw?.topic || raw?.specialty || 'Tài liệu y khoa',
+    estimatedCount: Number(raw?.estimatedCount ?? raw?.count ?? 0) || 0,
+    questionRange: raw?.questionRange || raw?.structureNote || 'Toàn bộ tài liệu',
+    confidence: confidenceText,
+  };
+};
+
 // --- Execution with Retry & Rotation ---
 
 async function executeWithUserRotation<T>(
@@ -754,6 +951,9 @@ async function executeWithUserRotation<T>(
         // === CHIẾN LƯỢC XỬ LÝ LỖI THÔNG MINH ===
         
         if (isPermissionDenied || isKeyError) {
+          if (msg.includes("vertex ai api error") || msg.includes("openrouter api error") || msg.includes("shopaikey api error")) {
+            throw error;
+          }
           console.warn(`🚫 403/Invalid Key detected! Key #${userKeyRotator.getKeyIndex() + 1} is broken. Rotating IMMEDIATELY...`);
           userKeyRotator.markKeyFailed(currentKey);
           if (userKeyRotator.availableKeyCount > 0) {
@@ -824,7 +1024,7 @@ export const generateQuestions = async (
 ): Promise<{ questions: MCQ[], duplicates: DuplicateInfo[], failedBatches: number[], failedBatchDetails: BatchFailureInfo[], autoSkippedCount: number }> => {
   try {
     const mismatchMessage = getProviderModelMismatchMessage(settings.provider, settings.model);
-    const runtimeSettings = mismatchMessage ? { ...settings, model: coerceModelForProvider(settings.provider, settings.model) } : settings;
+    let runtimeSettings = mismatchMessage ? { ...settings, model: coerceModelForProvider(settings.provider, settings.model) } : settings;
     const retryProfile = getRetryProfile(options.retryProfile || (isAdvancedMode ? 'rescue' : 'normal'));
     const isRescueMode = retryProfile.name === 'rescue';
     userKeyRotator.init(runtimeSettings.apiKey);
@@ -874,6 +1074,14 @@ export const generateQuestions = async (
 
     if (allParts.length === 0) {
       return { questions: [], duplicates: [], failedBatches: [], failedBatchDetails: [], autoSkippedCount: 0 };
+    }
+
+    if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
+      const coercedModel = coerceModelForProviderInput(runtimeSettings.provider, runtimeSettings.model, partsRequireVision(allParts));
+      if (coercedModel !== runtimeSettings.model) {
+        console.warn(`🛡️ ${runtimeSettings.provider}: model ${runtimeSettings.model} không phù hợp với input ảnh/PDF. Đổi sang ${coercedModel}.`);
+        runtimeSettings = { ...runtimeSettings, model: coercedModel };
+      }
     }
 
     const questionSchema = {
@@ -986,35 +1194,13 @@ export const generateQuestions = async (
               async (dummyKey, activeModel) => {
                   const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
                   
-                  // PDF Rasterization is now handled by App.tsx prepareFiles() for OpenAI-compatible providers.
-                  // We remove the rigid guard to allow the data to flow through as images.
-
                   const messages = [
                     { role: "system", content: isAdvancedMode ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction },
-                    { role: "user", content: [{ type: "text", text: `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).` }, ...(part.inlineData ? [{ type: "image_url", image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` } }] : [{ type: "text", text: part.text }])] }
+                    { role: "user", content: [{ type: "text", text: `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).` }, ...toOpenAIContentFromPart(part)] }
                   ];
 
-                  const apiUrl = runtimeSettings.provider === 'vertexai'
-                    ? `https://${runtimeSettings.vertexLocation}-aiplatform.googleapis.com/v1beta1/projects/${runtimeSettings.vertexProjectId}/locations/${runtimeSettings.vertexLocation}/publishers/google/models/${activeModel}/chat/completions`
-                    : runtimeSettings.provider === 'shopaikey' 
-                      ? "https://api.shopaikey.com/v1/chat/completions" 
-                      : "https://openrouter.ai/api/v1/chat/completions";
-                  const apiKey = runtimeSettings.provider === 'vertexai' ? runtimeSettings.vertexAccessToken : runtimeSettings.provider === 'shopaikey' ? runtimeSettings.shopAIKeyKey : runtimeSettings.openRouterKey;
-                  const providerName = runtimeSettings.provider === 'vertexai' ? "Vertex AI" : runtimeSettings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
-
-                  const response = await fetch(apiUrl, {
-                    method: "POST",
-                    headers: { 
-                      "Authorization": `Bearer ${apiKey}`, 
-                      "HTTP-Referer": window.location.origin,
-                      "X-Title": "MCQ AnkiGen Pro",
-                      "Content-Type": "application/json" 
-                    },
-                    body: JSON.stringify({ model: activeModel, messages, temperature: 0.1, response_format: { type: "json_object" } })
-                  });
-                  if (!response.ok) throw await createProviderApiError(providerName, response, activeModel); // translateErrorForUser sẽ dịch mã lỗi này
-                  const data = await response.json();
-                  return extractAndParseQuestions(data.choices[0].message.content, index);
+                  const text = await callOpenAICompatibleProvider(runtimeSettings, activeModel, messages);
+                  return extractAndParseQuestions(text, index);
               }
               ,
               undefined,
@@ -1148,56 +1334,25 @@ export const generateQuestions = async (
 
 export const analyzeDocument = async (files: UploadedFile[], settings: AppSettings): Promise<AnalysisResult> => {
   const mismatchMessage = getProviderModelMismatchMessage(settings.provider, settings.model);
-  const runtimeSettings = mismatchMessage ? { ...settings, model: coerceModelForProvider(settings.provider, settings.model) } : settings;
+  let runtimeSettings = mismatchMessage ? { ...settings, model: coerceModelForProvider(settings.provider, settings.model) } : settings;
+  if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
+    const coercedModel = coerceModelForProviderInput(runtimeSettings.provider, runtimeSettings.model, filesRequireVision(files));
+    if (coercedModel !== runtimeSettings.model) runtimeSettings = { ...runtimeSettings, model: coercedModel };
+  }
   const finalPrompt = `PHÂN TÍCH TÀI LIỆU Y KHOA:
   - Dự đoán TỔNG SỐ CÂU HỎI trắc nghiệm có trong toàn bộ tài liệu.
   - Phân loại chuyên khoa chính.
   - Mô tả cấu trúc (vd: có đáp án đi kèm không).
   ${SYSTEM_INSTRUCTION_ANALYZE}`;
 
-  if (runtimeSettings.provider === 'shopaikey' || runtimeSettings.provider === 'openrouter' || runtimeSettings.provider === 'vertexai') {
+  if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
     return await executeWithRetry(async () => {
-      const parts: any[] = files.map(file => {
-        // PDF Rasterization is handled upstream in App.tsx prepareFiles()
-        if (file.type.startsWith('image/')) {
-          return {
-            type: "image_url",
-            image_url: { url: `data:${file.type};base64,${file.content.includes(',') ? file.content.split(',')[1] : file.content}` }
-          };
-        }
-        return { type: "text", text: `FILE: ${file.name}\n${file.content}\n` };
-      });
-
-      const apiUrl = runtimeSettings.provider === 'vertexai'
-        ? `https://${runtimeSettings.vertexLocation}-aiplatform.googleapis.com/v1beta1/projects/${runtimeSettings.vertexProjectId}/locations/${runtimeSettings.vertexLocation}/publishers/google/models/${runtimeSettings.model}/chat/completions`
-        : runtimeSettings.provider === 'shopaikey' 
-          ? "https://api.shopaikey.com/v1/chat/completions" 
-          : "https://openrouter.ai/api/v1/chat/completions";
-      const apiKey = runtimeSettings.provider === 'vertexai' ? runtimeSettings.vertexAccessToken : runtimeSettings.provider === 'shopaikey' ? runtimeSettings.shopAIKeyKey : runtimeSettings.openRouterKey;
-      const providerName = runtimeSettings.provider === 'vertexai' ? "Vertex AI" : runtimeSettings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
-
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "HTTP-Referer": window.location.origin,
-          "X-Title": "MCQ AnkiGen Pro",
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: runtimeSettings.model,
-          messages: [
-            { role: "system", content: finalPrompt },
-            { role: "user", content: parts }
-          ],
-          temperature: 0.1,
-          response_format: { type: "json_object" }
-        })
-      });
-
-      if (!response.ok) throw await createProviderApiError(providerName, response, runtimeSettings.model); // translateErrorForUser sẽ dịch mã lỗi này
-      const data = await response.json();
-      return JSON.parse(extractJson(data.choices[0].message.content));
+      const parts = files.map(toOpenAIContentFromFile);
+      const text = await callOpenAICompatibleProvider(runtimeSettings, runtimeSettings.model, [
+        { role: "system", content: finalPrompt },
+        { role: "user", content: parts }
+      ]);
+      return normalizeAnalysisResult(JSON.parse(extractJson(text)));
     });
   }
 
@@ -1226,59 +1381,31 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
 
     const chat = ai.chats.create(getModelConfig(apiKey, finalPrompt, schema, activeModel));
     const result = await chat.sendMessage({ message: parts });
-    return JSON.parse(extractJson(result.text));
+    return normalizeAnalysisResult(JSON.parse(extractJson(result.text)));
   }, undefined, getProviderFallbackModel(runtimeSettings.provider));
 };
 
 export const auditMissingQuestions = async (files: UploadedFile[], count: number, settings: AppSettings): Promise<AuditResult> => {
   const mismatchMessage = getProviderModelMismatchMessage(settings.provider, settings.model);
-  const runtimeSettings = mismatchMessage ? { ...settings, model: coerceModelForProvider(settings.provider, settings.model) } : settings;
-  if (runtimeSettings.provider === 'shopaikey' || runtimeSettings.provider === 'openrouter' || runtimeSettings.provider === 'vertexai') {
+  let runtimeSettings = mismatchMessage ? { ...settings, model: coerceModelForProvider(settings.provider, settings.model) } : settings;
+  if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
+    const coercedModel = coerceModelForProviderInput(runtimeSettings.provider, runtimeSettings.model, filesRequireVision(files));
+    if (coercedModel !== runtimeSettings.model) runtimeSettings = { ...runtimeSettings, model: coercedModel };
+  }
+  if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
     return await executeWithRetry(async () => {
-      const parts: any[] = files.map(file => {
-        // PDF Rasterization is handled upstream in App.tsx prepareFiles()
-        if (file.type.startsWith('image/')) {
-          return { type: "image_url", image_url: { url: `data:${file.type};base64,${file.content.includes(',') ? file.content.split(',')[1] : file.content}` } };
+      const parts = files.map(toOpenAIContentFromFile);
+      const text = await callOpenAICompatibleProvider(runtimeSettings, runtimeSettings.model, [
+        { role: "system", content: SYSTEM_INSTRUCTION_AUDIT },
+        {
+          role: "user",
+          content: [
+            ...parts,
+            { type: "text", text: `Quá trình trích xuất chỉ lấy được ${count} câu hỏi. Hãy phân tích lý do.` }
+          ]
         }
-        return { type: "text", text: `FILE: ${file.name}\n${file.content}\n` };
-      });
-
-      const apiUrl = runtimeSettings.provider === 'vertexai'
-        ? `https://${runtimeSettings.vertexLocation}-aiplatform.googleapis.com/v1beta1/projects/${runtimeSettings.vertexProjectId}/locations/${runtimeSettings.vertexLocation}/publishers/google/models/${runtimeSettings.model}/chat/completions`
-        : runtimeSettings.provider === 'shopaikey' 
-          ? "https://api.shopaikey.com/v1/chat/completions" 
-          : "https://openrouter.ai/api/v1/chat/completions";
-      const apiKey = runtimeSettings.provider === 'vertexai' ? runtimeSettings.vertexAccessToken : runtimeSettings.provider === 'shopaikey' ? runtimeSettings.shopAIKeyKey : runtimeSettings.openRouterKey;
-      const providerName = runtimeSettings.provider === 'vertexai' ? "Vertex AI" : runtimeSettings.provider === 'shopaikey' ? "ShopAIKey" : "OpenRouter";
-
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "HTTP-Referer": window.location.origin,
-          "X-Title": "MCQ AnkiGen Pro",
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: runtimeSettings.model,
-          messages: [
-            { role: "system", content: SYSTEM_INSTRUCTION_AUDIT },
-            {
-              role: "user",
-              content: [
-                ...parts,
-                { type: "text", text: `Quá trình trích xuất chỉ lấy được ${count} câu hỏi. Hãy phân tích lý do.` }
-              ]
-            }
-          ],
-          temperature: 0.1,
-          response_format: { type: "json_object" }
-        })
-      });
-
-      if (!response.ok) throw await createProviderApiError(providerName, response, runtimeSettings.model); // translateErrorForUser sẽ dịch mã lỗi này
-      const data = await response.json();
-      return JSON.parse(extractJson(data.choices[0].message.content)) as AuditResult;
+      ]);
+      return JSON.parse(extractJson(text)) as AuditResult;
     });
   }
 

@@ -14,16 +14,37 @@ import {
   shouldSplitForError,
   splitTextIntoNaturalParts,
 } from '../utils/retryStrategy';
+import { buildNativeMcqBatchText, getNativeMcqBlocks, splitNativeMcqTextIntoBatches } from './docxNative';
 
 interface GenerateQuestionsOptions {
   retryProfile?: RetryProfileName;
   autoRescue?: boolean;
 }
 
+const getFileTextContent = (file: UploadedFile): string =>
+  file.nativeText?.trim() || file.content || '';
+
+const getNativeBatchExpectedCount = (text: string): number => {
+  const match = String(text || '').match(/^\[DOCX_NATIVE_BATCH_COUNT:\s*(\d+)\]/i);
+  return match ? Number(match[1]) || 0 : 0;
+};
+
+const getNativePartBatches = (text: string, targetParts: number): string[] => {
+  const blocks = getNativeMcqBlocks(text);
+  if (blocks.length <= 1) return [];
+  const parts = Math.min(Math.max(2, targetParts), blocks.length);
+  const batchSize = Math.ceil(blocks.length / parts);
+  const batches: string[] = [];
+  for (let i = 0; i < blocks.length; i += batchSize) {
+    batches.push(buildNativeMcqBatchText(blocks.slice(i, i + batchSize)));
+  }
+  return batches;
+};
+
 // Helper: Hashing for cache identification
 const hashFiles = async (files: UploadedFile[]): Promise<string> => {
   const sortedFiles = [...files].sort((a, b) => a.name.localeCompare(b.name));
-  const combined = sortedFiles.map(f => `${f.name}:${f.content}`).join('|');
+  const combined = sortedFiles.map(f => `${f.name}:${getFileTextContent(f)}`).join('|');
   const msgUint8 = new TextEncoder().encode(combined);
   const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
@@ -236,7 +257,7 @@ const getOrSetContextCache = async (ai: any, files: UploadedFile[], modelName: s
       if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
         return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
       }
-      return { text: `FILE: ${file.name}\n${file.content}\n` };
+      return { text: `FILE: ${file.name}\n${getFileTextContent(file)}\n` };
     });
 
     // Estimate tokens (rough estimate: 4 chars per token)
@@ -446,7 +467,7 @@ const normalizeToMarkdown = async (ai: any, files: UploadedFile[], onProgress?: 
       if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
         return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
       }
-      return { text: `FILE: ${file.name}\n${file.content}\n` };
+      return { text: `FILE: ${file.name}\n${getFileTextContent(file)}\n` };
     });
 
     const result = await ai.models.generateContent({
@@ -880,7 +901,7 @@ const toOpenAIContentFromFile = (file: UploadedFile): any => {
   if (file.type === 'application/pdf') {
     return { type: 'text', text: `FILE: ${file.name}\n[PDF chưa được chuyển sang ảnh. Vui lòng quét lại để hệ thống rasterize PDF trước.]\n` };
   }
-  return { type: 'text', text: `FILE: ${file.name}\n${file.content}\n` };
+  return { type: 'text', text: `FILE: ${file.name}\n${getFileTextContent(file)}\n` };
 };
 
 const filesRequireVision = (files: UploadedFile[]): boolean =>
@@ -1054,17 +1075,31 @@ export const generateQuestions = async (
         }
       } else if (file.type.startsWith('image/')) {
         allParts.push({ inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } });
+      } else if (file.nativeText?.trim()) {
+        const nativeBatches = splitNativeMcqTextIntoBatches(file.nativeText, 10);
+        if (nativeBatches.length > 0) {
+          nativeBatches.forEach((text, batchIndex) => {
+            allParts.push({
+              text: `[TÀI LIỆU DOCX NATIVE: "${file.name}" (Nhóm ${batchIndex + 1}/${nativeBatches.length})]\n\n${text}`,
+              nativeMcqBatch: true,
+              expectedQuestions: getNativeBatchExpectedCount(text),
+            });
+          });
+        } else {
+          allParts.push({ text: `[TÀI LIỆU: "${file.name}" (DOCX native fallback)]\n\n${file.nativeText}` });
+        }
       } else {
         const MAX_CHARS = 15000;
         const OVERLAP = 1000;
         let offset = 0;
         let partIdx = 1;
-        while (offset < file.content.length) {
-          allParts.push({ text: `[TÀI LIỆU: "${file.name}" (Phần ${partIdx++})]\n\n` + file.content.substring(offset, offset + MAX_CHARS) });
+        const textContent = getFileTextContent(file);
+        while (offset < textContent.length) {
+          allParts.push({ text: `[TÀI LIỆU: "${file.name}" (Phần ${partIdx++})]\n\n` + textContent.substring(offset, offset + MAX_CHARS) });
           offset += (MAX_CHARS - OVERLAP);
-          if (offset >= file.content.length - OVERLAP) {
-            if (offset < file.content.length) {
-              allParts.push({ text: `[TÀI LIỆU: "${file.name}" (Phần cuối)]\n\n` + file.content.substring(offset, file.content.length) });
+          if (offset >= textContent.length - OVERLAP) {
+            if (offset < textContent.length) {
+              allParts.push({ text: `[TÀI LIỆU: "${file.name}" (Phần cuối)]\n\n` + textContent.substring(offset, textContent.length) });
             }
             break;
           }
@@ -1143,7 +1178,7 @@ export const generateQuestions = async (
     let completedBatches = 0;
     const CONCURRENCY_LIMIT = runtimeSettings.concurrencyLimit || 2;
 
-    const extractAndParseQuestions = (text: string, batchIndex: number) => {
+    const extractAndParseQuestions = (text: string, batchIndex: number, expectedQuestions = 0) => {
       let jsonStr = extractJson(text);
       if (!jsonStr) throw new Error("📄 AI không trả về dữ liệu đúng định dạng. Batch này sẽ được tự động chia nhỏ và thử lại.");
 
@@ -1160,6 +1195,9 @@ export const generateQuestions = async (
         const parsed = JSON.parse(jsonStr);
         const questions = Array.isArray(parsed) ? parsed : (parsed?.questions || []);
         if (questions.length === 0) throw new Error("📄 AI đã xử lý nhưng không tìm thấy câu hỏi trắc nghiệm nào trong phần này. Batch sẽ được chia nhỏ để quét kỹ hơn.");
+        if (expectedQuestions > 0 && questions.length < expectedQuestions) {
+          throw new Error(`AI_FORMAT_ERROR_TRUNCATED: DOCX native batch cần ${expectedQuestions} câu nhưng AI chỉ trả ${questions.length} câu.`);
+        }
         return questions;
       } catch (e) {
         console.error("JSON Parse Error info:", e, "Raw string:", jsonStr.substring(0, 100) + "...");
@@ -1187,6 +1225,11 @@ export const generateQuestions = async (
 
         // Per-batch key assignment: Mỗi batch nhận key riêng theo round-robin
         const batchStartingKey = runtimeSettings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
+        const expectedQuestions = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
+        const nativePrompt = expectedQuestions > 0
+          ? `NỘI DUNG DOCX NATIVE ĐÃ ĐƯỢC TÁCH SẴN THÀNH ${expectedQuestions} CÂU MCQ. Mỗi block <<<MCQ n>>> là đúng 1 câu. Option có ký hiệu ✅ là đáp án đúng lấy từ highlight vàng trong Word; TUYỆT ĐỐI không đổi đáp án này. Hãy trả về ĐÚNG ${expectedQuestions} câu theo cùng thứ tự, không bỏ câu nào.`
+          : '';
+        const scanPrompt = `${nativePrompt ? `${nativePrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
 
         const rawNewQs = await (runtimeSettings.provider === 'shopaikey' || runtimeSettings.provider === 'openrouter' || runtimeSettings.provider === 'vertexai'
           ? executeWithUserRotation(
@@ -1196,11 +1239,11 @@ export const generateQuestions = async (
                   
                   const messages = [
                     { role: "system", content: isAdvancedMode ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction },
-                    { role: "user", content: [{ type: "text", text: `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).` }, ...toOpenAIContentFromPart(part)] }
+                    { role: "user", content: [{ type: "text", text: scanPrompt }, ...toOpenAIContentFromPart(part)] }
                   ];
 
                   const text = await callOpenAICompatibleProvider(runtimeSettings, activeModel, messages);
-                  return extractAndParseQuestions(text, index);
+                  return extractAndParseQuestions(text, index, expectedQuestions);
               }
               ,
               undefined,
@@ -1215,17 +1258,17 @@ export const generateQuestions = async (
                   const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
                   // Cache key bao gồm cả modelName để tránh dùng cache của model cũ khi fallback
                   const cacheSessionKey = `${hashApiKey(currentKey)}_${activeModel}`;
-                  if (!sessionCache[cacheSessionKey]) {
+                  if (!part.text && !sessionCache[cacheSessionKey]) {
                     sessionCache[cacheSessionKey] = (async () => {
                       try { return await getOrSetContextCache(aiInstance, files, activeModel, finalInstruction, currentKey); } catch (e) { return null; }
                     })();
                   }
-                  const kCacheName = await sessionCache[cacheSessionKey];
+                  const kCacheName = part.text ? null : await sessionCache[cacheSessionKey];
                   const config = getModelConfig(currentKey, isAdvancedMode ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction, questionSchema, activeModel, kCacheName || undefined);
                   const chat = aiInstance.chats.create(config);
-                  const batchPrompt = kCacheName ? `Dựa trên tài liệu đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${batchLabel}.` : `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
+                  const batchPrompt = kCacheName ? `Dựa trên tài liệu đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${batchLabel}.` : scanPrompt;
                   const response = await chat.sendMessage({ message: buildGoogleBatchMessage(part, batchPrompt, kCacheName || undefined) });
-                  return extractAndParseQuestions(response.text, index);
+                  return extractAndParseQuestions(response.text, index, expectedQuestions);
               },
               batchStartingKey, // Per-batch key assignment
               stableFallbackModel,
@@ -1269,13 +1312,18 @@ export const generateQuestions = async (
         }
       } catch (e: any) {
         const errorKind = classifyBatchError(e);
+        const nativeParts = part.nativeMcqBatch && depth < retryProfile.maxDepth && shouldSplitForError(errorKind)
+          ? getNativePartBatches(part.text || '', retryProfile.targetSplitParts)
+          : [];
         const canSplitText = depth < retryProfile.maxDepth && part.text && part.text.length > retryProfile.splitThresholdChars && shouldSplitForError(errorKind);
-        if (canSplitText) {
+        if (nativeParts.length > 1 || canSplitText) {
           console.warn(`🚀 Batch ${batchLabel} fail (${errorKind}). Triggering NATURAL-SUBDIVISION (${retryProfile.targetSplitParts} parts, Depth ${depth + 1})...`);
           const progressBeforeSplit = allQuestions.length + allDuplicates.length + autoSkippedCount;
-          const parts = splitTextIntoNaturalParts(part.text, retryProfile.targetSplitParts, retryProfile.splitThresholdChars)
-            .map(text => ({ ...part, text }))
-            .filter(p => p.text.trim().length > 0);
+          const parts = (nativeParts.length > 1
+            ? nativeParts.map(text => ({ ...part, text, expectedQuestions: getNativeBatchExpectedCount(text) }))
+            : splitTextIntoNaturalParts(part.text, retryProfile.targetSplitParts, retryProfile.splitThresholdChars)
+              .map(text => ({ ...part, text }))
+          ).filter(p => p.text.trim().length > 0);
 
           // Chạy song song cả 4 phần để tối ưu thời gian
           await Promise.all(parts.map((p, i) => processBatch(p, index, depth + 1)));
@@ -1364,7 +1412,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
       if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
         return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
       }
-      return { text: `FILE: ${file.name}\n${file.content}\n` };
+      return { text: `FILE: ${file.name}\n${getFileTextContent(file)}\n` };
     });
 
     const schema = {
@@ -1416,7 +1464,7 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
       if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
         return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
       }
-      return { text: `FILE: ${file.name}\n${file.content}\n` };
+      return { text: `FILE: ${file.name}\n${getFileTextContent(file)}\n` };
     });
 
     const ai = new GoogleGenAI({ apiKey });

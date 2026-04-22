@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { UploadCloud, FileText, X, Loader2, Image as ImageIcon } from 'lucide-react';
 import { UploadedFile } from '../types';
 import { toast } from 'sonner';
+import { parseNativeDocxMcqs } from '../core/docxNative';
 
 interface FileUploaderProps {
   files: UploadedFile[];
@@ -143,10 +144,24 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
         }
 
         updateFileProgress(file.name, 95);
-        const mammoth = await import('mammoth');
-        const result = await mammoth.convertToHtml({ arrayBuffer: fullBuffer.buffer });
+        const docxBuffer = fullBuffer.buffer.slice(0);
+        const [mammoth, nativeDocx] = await Promise.all([
+          import('mammoth'),
+          parseNativeDocxMcqs(docxBuffer).catch((error) => {
+            console.warn('DOCX native parser fallback:', error);
+            return null;
+          }),
+        ]);
+        const result = await mammoth.convertToHtml({ arrayBuffer: docxBuffer });
         content = sanitizeUploadedHtml(result.value);
         if (!content.trim()) throw new Error("Không tìm thấy văn bản trong file Word");
+
+        setFiles(prev => prev.map(f => {
+          if (f.name === file.name && nativeDocx?.nativeText) {
+            return { ...f, nativeText: nativeDocx.nativeText, nativeMcqCount: nativeDocx.mcqs.length };
+          }
+          return f;
+        }));
 
       } else {
         // Text Processing (txt, md, etc.)
@@ -256,7 +271,9 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
                         <span className="text-xs text-amber-600 font-medium w-8 text-right">{file.progress || 0}%</span>
                       </div>
                     ) : (
-                      <span className="text-xs text-gray-400">Đã sẵn sàng</span>
+                      <span className="text-xs text-gray-400">
+                        Đã sẵn sàng{file.nativeMcqCount ? ` • DOCX native: ${file.nativeMcqCount} câu` : ''}
+                      </span>
                     )}
                   </div>
                 </div>

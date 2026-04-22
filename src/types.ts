@@ -89,6 +89,8 @@ export interface UploadedFile {
   name: string;
   type: string;
   content: string;
+  nativeText?: string;
+  nativeMcqCount?: number;
   size?: number; // Added to fix lint error
   isProcessing?: boolean;
   progress?: number;

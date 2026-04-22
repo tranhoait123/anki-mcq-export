@@ -11,14 +11,18 @@
 
 1. [Giới thiệu](#-giới-thiệu)
 2. [⚡ Dùng Online — Không Cần Cài Đặt](#-dùng-online--không-cần-cài-đặt)
-3. [🎬 Video Hướng Dẫn & File Mẫu](#-video-hướng-dẫn--file-mẫu)
-4. [🔑 Lấy Google Gemini API Key (Miễn phí)](#-lấy-google-gemini-api-key-miễn-phí)
-5. [🌐 Hướng dẫn sử dụng chi tiết](#-hướng-dẫn-sử-dụng-chi-tiết)
-6. [📲 Import CSV vào Anki](#-import-csv-vào-anki)
-7. [💻 Cài đặt chạy trên máy (Tùy chọn)](#-cài-đặt-chạy-trên-máy-tùy-chọn)
-8. [🐍 Phiên bản Streamlit (Python)](#-phiên-bản-streamlit-python)
-9. [🎯 Mẹo nâng cao & Xử lý lỗi](#-mẹo-nâng-cao--xử-lý-lỗi)
-10. [❓ Câu hỏi thường gặp (FAQ)](#-câu-hỏi-thường-gặp-faq)
+3. [🧩 Tính Năng Chính](#-tính-năng-chính)
+4. [📥 Định Dạng Hỗ Trợ](#-định-dạng-hỗ-trợ)
+5. [🎬 Video Hướng Dẫn & File Mẫu](#-video-hướng-dẫn--file-mẫu)
+6. [🔑 Lấy Google Gemini API Key (Miễn phí)](#-lấy-google-gemini-api-key-miễn-phí)
+7. [🌐 Hướng dẫn sử dụng chi tiết](#-hướng-dẫn-sử-dụng-chi-tiết)
+8. [📤 Xuất File](#-xuất-file)
+9. [📲 Import CSV vào Anki](#-import-csv-vào-anki)
+10. [💻 Cài đặt chạy trên máy (Tùy chọn)](#-cài-đặt-chạy-trên-máy-tùy-chọn)
+11. [🐍 Phiên bản Streamlit (Python)](#-phiên-bản-streamlit-python)
+12. [🧪 Kiểm Thử & Build](#-kiểm-thử--build)
+13. [🎯 Mẹo nâng cao & Xử lý lỗi](#-mẹo-nâng-cao--xử-lý-lỗi)
+14. [❓ Câu hỏi thường gặp (FAQ)](#-câu-hỏi-thường-gặp-faq)
 
 ---
 
@@ -34,6 +38,12 @@
 | 💾 **Pro Storage (IndexedDB)** | Dữ liệu được lưu an toàn với ID duy nhất — không lo mất dữ liệu khi reload hay lỗi trình duyệt |
 | 🔄 **Lọc trùng Y khoa (95%)** | Thuật toán so sánh nội dung đạt độ chính xác 95%, nhận diện logic phủ định (KHÔNG/NGOẠI TRỪ) |
 | 🌙 **Dark Mode & Split View** | Học đêm không mỏi mắt, đối chiếu tài liệu gốc và kết quả song song |
+
+### Quy trình tổng quát
+
+```text
+Tài liệu gốc → AI quét/ước tính số câu → AI trích xuất MCQ → lọc trùng → chỉnh sửa → xuất CSV/DOCX → học hoặc import Anki
+```
 
 **Có 3 cách sử dụng:**
 
@@ -67,12 +77,49 @@
 |:---|:---|
 | ✅ **Không cần cài đặt** | Mở link, dùng ngay |
 | ✅ **Miễn phí 100%** | Chỉ cần API Key Google (miễn phí) |
-| ✅ **Đầy đủ tính năng** | Dark Mode, Split View, chỉnh sửa, lọc, xuất CSV |
+| ✅ **Đầy đủ tính năng** | Dark Mode, Split View, chỉnh sửa, lọc, xuất CSV/DOCX |
 | ✅ **Mọi thiết bị** | PC, Mac, điện thoại, tablet — chỉ cần trình duyệt |
 | ✅ **Dữ liệu an toàn** | Mọi xử lý diễn ra trên trình duyệt, không lưu trên server |
 | ✅ **Luôn cập nhật** | Tự động có phiên bản mới nhất mỗi khi truy cập |
 
 > 💡 **Trên điện thoại:** Bạn có thể thêm trang web vào màn hình chính (Add to Home Screen) để sử dụng như một ứng dụng native!
+
+---
+
+## 🧩 Tính Năng Chính
+
+| Nhóm | Chi tiết |
+|:---|:---|
+| **AI Engine linh hoạt** | Hỗ trợ Google Gemini, OpenRouter, Vertex AI và ShopAIKey. Khi chọn provider mới, app tự đổi model tương thích để tránh lỗi endpoint. |
+| **Tự xử lý PDF/ảnh** | PDF được chia phần nhỏ có gối đầu; với provider không nhận PDF raw, app rasterize PDF thành ảnh để model vision đọc ổn định hơn. |
+| **Chế độ nhanh** | Có tùy chọn bỏ qua bước phân tích ban đầu để tiết kiệm token và bắt đầu trích xuất nhanh hơn. |
+| **Giải thích giàu ngữ cảnh** | Mỗi câu có `Đáp án cốt lõi`, `Bằng chứng`, `Phân tích sâu`, `Cảnh báo lâm sàng`, `Nguồn`, `Độ khó`, `Tư duy`. |
+| **Duplicate Review** | Câu nghi trùng không bị xóa mù; bạn có thể so sánh câu cũ/câu mới, chọn giữ cả hai, bỏ qua hoặc ghi đè bằng câu mới. |
+| **Export kép** | CSV chuẩn Anki và DOCX để học/in trực tiếp, có xử lý bảng Markdown và căn chỉnh đẹp. |
+| **Bảo toàn dữ liệu** | Câu hỏi, cài đặt và cache được lưu local bằng IndexedDB/localStorage; reload trang không làm mất kết quả. |
+| **PWA** | Có thể cài như app trên desktop/mobile nếu trình duyệt hỗ trợ. |
+
+---
+
+## 📥 Định Dạng Hỗ Trợ
+
+### Đầu vào
+
+| Định dạng | Ghi chú |
+|:---|:---|
+| **PDF** | Phù hợp đề scan, tài liệu nhiều trang; app tự chia nhỏ để xử lý. |
+| **Ảnh** | PNG, JPG, JPEG, WebP, HEIC. Nên chụp thẳng góc, đủ sáng. |
+| **Word** | DOCX, dùng tốt với tài liệu đã có text sẵn. |
+| **Text/Markdown** | TXT, MD. |
+| **CSV** | Có thể nhập lại dữ liệu đã xuất hoặc dữ liệu MCQ dạng bảng để tiếp tục chỉnh/sàng lọc. |
+
+### Đầu ra
+
+| Định dạng | Dùng để làm gì |
+|:---|:---|
+| **CSV Anki** | Import vào Anki với note type `3MCQ`; hỗ trợ HTML trong phần giải thích. |
+| **DOCX Study Export** | Tài liệu học trực tiếp, dễ in, có câu hỏi, đáp án, giải thích, bảng và metadata. |
+| **Copy CSV** | Dán nhanh vào Excel, Google Sheets hoặc công cụ xử lý khác. |
 
 ---
 
@@ -163,7 +210,10 @@ Hệ thống sẽ **tự động xoay vòng** — khi Key nào hết quota (lỗ
 
 | Mục | Hướng dẫn |
 |:---|:---|
+| **AI Engine** | Chọn provider: Google Gemini, OpenRouter, Vertex AI hoặc ShopAIKey. Người mới nên dùng Google Gemini. |
 | **Google Gemini API Key** | Dán API Key bạn đã lấy ở bước trên. *Có thể nhập nhiều key cách nhau bằng dấu phẩy để bypass giới hạn miễn phí.* |
+| **OpenRouter / ShopAIKey API Key** | Dùng khi muốn gọi model qua gateway khác. OpenRouter hữu ích nếu muốn thử Claude, GPT, DeepSeek hoặc Gemini qua router. |
+| **Vertex AI** | Dành cho môi trường enterprise: cần GCP Project ID, Location và OAuth Access Token. |
 | **Mô hình AI (Model)** | Chọn model phù hợp. **Khuyên dùng: `Gemini 3.1 Flash-Lite`** — nhanh và chính xác nhất. |
 | **Vai trò AI** | Chọn vai trò cho AI theo môn học: **Y Khoa**, **Tiếng Anh**, **Luật**, **CNTT** — hoặc tự viết vai trò riêng. |
 
@@ -173,6 +223,14 @@ Hệ thống sẽ **tự động xoay vòng** — khi Key nào hết quota (lỗ
 > - **Gemini 3.1 Flash-Lite** — Nhanh nhất, phù hợp phần lớn trường hợp *(khuyên dùng)*
 > - **Gemini 2.5 Flash (Thinking)** — **Model ổn định nhất** cho việc quét lỗi và trích xuất y khoa chuyên sâu
 > - **Gemini 3 Pro** — Tư duy Y khoa sâu nhất, nhưng chậm hơn
+
+### Thiết lập nâng cao
+
+| Tùy chọn | Khi nào nên dùng |
+|:---|:---|
+| **Trích xuất nhanh (Skip Analysis)** | Khi đã biết rõ file có bao nhiêu câu hoặc muốn tiết kiệm token. |
+| **Xóa bộ nhớ đệm** | Khi muốn làm mới dữ liệu cache, đổi tài liệu/model nhiều lần, hoặc nghi cache cũ làm kết quả không khớp. |
+| **System Instruction tùy chỉnh** | Khi làm môn khác Y khoa hoặc muốn AI giải thích theo phong cách riêng của giảng viên/bộ môn. |
 
 ---
 
@@ -252,7 +310,7 @@ Nhấn nút **📊 (Columns)** ở Header để bật **Split View**:
 
 ---
 
-### Bước 5: Xuất file CSV
+### Bước 5: Xuất file
 
 Khi đã hài lòng với kết quả:
 
@@ -260,6 +318,7 @@ Khi đã hài lòng với kết quả:
 |:---|:---|
 | **📋 Copy CSV** | Copy toàn bộ nội dung CSV vào clipboard — paste trực tiếp vào Excel/Google Sheets |
 | **📥 Xuất CSV Anki** | Tải file `.csv` về máy, sẵn sàng import vào Anki |
+| **📄 Xuất DOCX** | Tạo tài liệu học trực tiếp dạng `.docx`, có câu hỏi, đáp án, giải thích, bảng Markdown và metadata |
 
 File CSV có các cột:
 ```
@@ -272,11 +331,39 @@ Question | A | B | C | D | E | CorrectAnswer | ExplanationHTML | Source | Diffic
 
 ### 🌙 Các tính năng bổ sung
 
+| Tính năng | Mô tả |
+|:---|:---|
 | **Dark Mode** | Nhấn icon ☀️/🌙 ở Header để chuyển đổi |
 | **Lưu trữ Pro (Safe)** | Dữ liệu được gán ID duy nhất và lưu trong IndexedDB — tuyệt đối không mất dữ liệu |
 | **Trung tâm Trùng lặp** | Giao diện Review chuyên nghiệp để đối chiếu và quyết định Giữ lại/Bỏ qua/Ghi đè câu hỏi trùng |
 | **Cài đặt PWA** | Nếu trình duyệt hỗ trợ, nút **"📲 Tải App"** xuất hiện — cài app về máy như ứng dụng native |
 | **Xoay tua API Key** | Tự động đổi Key khi gặp lỗi 429 để quá trình trích xuất không bị gián đoạn |
+
+---
+
+## 📤 Xuất File
+
+### CSV cho Anki
+
+CSV là định dạng chính để đưa câu hỏi vào Anki. App tự:
+
+1. Chuẩn hóa câu hỏi và đáp án A-E.
+2. Quy đổi đáp án đúng thành chữ cái A/B/C/D/E khi có thể.
+3. Escape dấu ngoặc kép để CSV không vỡ cột.
+4. Thêm UTF-8 BOM để tiếng Việt hiển thị đúng.
+5. Đóng gói giải thích thành HTML đẹp cho mặt sau thẻ.
+
+### DOCX để học trực tiếp
+
+DOCX phù hợp khi bạn muốn đọc/in tài liệu mà chưa cần import Anki. File DOCX gồm:
+
+- Tiêu đề tài liệu, ngày xuất và số câu.
+- Câu hỏi, phương án, dấu chọn đáp án đúng.
+- Đáp án cốt lõi, bằng chứng, phân tích sâu, cảnh báo.
+- Bảng Markdown được chuyển thành bảng Word.
+- Metadata: nguồn, độ khó, tư duy.
+
+> Mẹo nhỏ: nếu nội dung AI trả về có bảng Markdown trong phần `Bằng chứng` hoặc `Phân tích sâu`, DOCX sẽ cố giữ bảng đúng dạng thay vì biến thành text thô.
 
 ---
 
@@ -365,6 +452,32 @@ npm run dev
 
 Mở trình duyệt → truy cập **http://localhost:5173** → Sử dụng giống hệt bản online!
 
+### Lệnh phát triển hữu ích
+
+```bash
+# chạy app dev
+npm run dev
+
+# chạy test
+npm test
+
+# build production
+npm run build
+```
+
+### Công nghệ chính
+
+| Thành phần | Công dụng |
+|:---|:---|
+| **React + Vite** | Giao diện web/PWA tốc độ cao. |
+| **Zustand** | Quản lý state nhẹ, dễ bảo trì. |
+| **IndexedDB** | Lưu MCQ/cache cục bộ trên trình duyệt. |
+| **Google GenAI / OpenAI-compatible APIs** | Gọi Gemini/OpenRouter/Vertex/ShopAIKey. |
+| **pdf-lib + pdfjs-dist** | Chia PDF, rasterize PDF khi provider cần ảnh. |
+| **mammoth** | Đọc nội dung DOCX đầu vào. |
+| **docx** | Xuất tài liệu học `.docx`. |
+| **Vitest** | Kiểm thử logic xuất Anki, DOCX, model registry, retry và dedupe. |
+
 ---
 
 ## 🐍 Phiên Bản Streamlit (Python)
@@ -387,6 +500,28 @@ Trình duyệt sẽ tự mở tại **http://localhost:8501**
 
 ---
 
+## 🧪 Kiểm Thử & Build
+
+Trước khi deploy hoặc sửa code lớn, nên chạy:
+
+```bash
+npm test
+npm run build
+```
+
+Bộ test hiện bao phủ các phần quan trọng:
+
+| Nhóm test | Mục tiêu |
+|:---|:---|
+| **Anki HTML** | Escape HTML nguy hiểm, format bảng/blockquote/markdown cơ bản. |
+| **DOCX Export** | Tạo blob DOCX thật, xử lý thiếu option E, sanitize text, parse bảng Markdown. |
+| **Dedupe** | Nhận diện câu trùng có nhiễu OCR, bỏ qua trường hợp logic phủ định bị đảo. |
+| **Model Registry** | Kiểm tra model theo provider, fallback vision và normalize alias. |
+| **Retry Strategy** | Phân loại lỗi quota/server/format và chia nhỏ nội dung khi cần rescue. |
+| **Brain/API** | Dịch lỗi provider, build request OpenAI-compatible, fallback JSON mode. |
+
+---
+
 ## 🎯 Mẹo Nâng Cao & Xử Lý Lỗi
 
 ### ❌ Lỗi thường gặp
@@ -398,6 +533,10 @@ Trình duyệt sẽ tự mở tại **http://localhost:8501**
 | **Số câu trích xuất ít** | Tài liệu mờ / viết tay nhiều | Chụp lại rõ hơn; thử model `Gemini 3 Pro` |
 | **Kết quả rỗng** | File bị hỏng hoặc mã hóa | Thử convert sang PDF mới, hoặc chụp ảnh lại |
 | **Lỗi "Empty response"** | API không phản hồi | Thử lại sau vài giây, hoặc đổi sang Key/Model khác |
+| **Model không khớp provider** | Chọn model OpenRouter nhưng provider đang là Google/Vertex, hoặc ngược lại | Vào Cài đặt chọn đúng AI Engine; app thường sẽ tự coerce model tương thích. |
+| **OpenRouter báo không hỗ trợ response_format** | Một số model không hỗ trợ JSON mode native | App tự retry bằng prompt-only JSON mode; nếu vẫn lỗi, đổi model Gemini/DeepSeek khác. |
+| **PDF không đọc được qua OpenRouter/ShopAIKey** | Provider không nhận PDF raw | App sẽ chuyển PDF thành ảnh; nếu file quá nặng, chia nhỏ PDF trước khi tải lên. |
+| **DOCX căn lề xấu sau bảng** | Word/preview giữ style căn giữa từ bảng | Đã ép căn trái cho các paragraph export; hãy xuất lại DOCX bằng phiên bản mới nhất. |
 
 ### 💡 Mẹo tối ưu
 
@@ -407,6 +546,7 @@ Trình duyệt sẽ tự mở tại **http://localhost:8501**
 4. **Chế độ Review** — Xem trước giao diện Anki thực tế trước khi xuất CSV
 5. **IndexedDB** — Tất cả câu hỏi lưu trên trình duyệt, reload không mất dữ liệu
 6. **Cơ chế Resilience 2.1 (Siêu phục hồi)** — Tự động nhận diện lỗi định dạng sớm để chia nhỏ tài liệu thành 4 phần xử lý song song, giúp tiết kiệm 70% token lãng phí và đảm bảo không bỏ sót câu hỏi nào.
+7. **Dùng DOCX để rà lại trước khi import** — Với đề dài, xuất DOCX đọc nhanh một lượt sẽ dễ phát hiện câu thiếu hoặc giải thích lệch hơn.
 
 ---
 
@@ -418,11 +558,22 @@ Trình duyệt sẽ tự mở tại **http://localhost:8501**
 ### 🗨️ "Dữ liệu của tôi có bị gửi đi đâu không?"
 Tài liệu của bạn được gửi đến **Google Gemini API** để xử lý. Ứng dụng **không lưu trữ dữ liệu trên server** — mọi thứ xử lý trên trình duyệt của bạn.
 
+Nếu bạn chọn OpenRouter, ShopAIKey hoặc Vertex AI, dữ liệu sẽ được gửi đến provider tương ứng theo API key/token bạn cấu hình.
+
 ### 🗨️ "File scan quá mờ, AI có đọc được không?"
 AI được huấn luyện với vai trò **"Chuyên gia Pháp y Tài liệu"** — đọc xuyên chữ viết tay, sửa lỗi OCR thông minh, khôi phục câu hỏi bị ngắt trang. Nếu file **quá mờ (>70% bị che)**, AI sẽ bỏ qua câu đó thay vì bịa.
 
 ### 🗨️ "Tôi có thể dùng cho môn khác ngoài Y khoa không?"
 **Có!** Trong phần Cài đặt, chọn vai trò: Y Khoa | Tiếng Anh | Luật | CNTT — hoặc tự viết vai trò tùy chỉnh.
+
+### 🗨️ "CSV và DOCX khác nhau thế nào?"
+**CSV** dùng để import Anki. **DOCX** dùng để đọc/in/học trực tiếp hoặc gửi cho bạn học/giảng viên rà lại nội dung.
+
+### 🗨️ "Tôi có thể nhập lại CSV đã xuất không?"
+**Có.** App có thể đọc CSV như một nguồn đầu vào để bạn tiếp tục lọc trùng, chỉnh sửa hoặc xuất lại.
+
+### 🗨️ "Có cần bật Allow HTML trong Anki không?"
+**Có.** Khi import CSV vào Anki, hãy bật **Allow HTML in fields** để phần giải thích giữ được bảng, màu sắc, xuống dòng và định dạng đẹp.
 
 ### 🗨️ "Sự khác biệt giữa 3 cách sử dụng?"
 
@@ -434,6 +585,7 @@ AI được huấn luyện với vai trò **"Chuyên gia Pháp y Tài liệu"** 
 | **Lưu trữ** | IndexedDB (vĩnh viễn) | IndexedDB (vĩnh viễn) | Mất khi reload |
 | **Chống trùng** | ✅ Có | ✅ Có | ❌ Không |
 | **Xoay vòng Key** | ✅ Tự động | ✅ Tự động | ❌ Không |
+| **Xuất DOCX** | ✅ Có | ✅ Có | ❌ Không |
 | **PWA** | ✅ Cài đặt như app | ✅ Cài đặt như app | ❌ Không |
 | **Chạy Offline** | ❌ Cần internet | ✅ Có thể | ✅ Có thể |
 
@@ -450,7 +602,7 @@ AI được huấn luyện với vai trò **"Chuyên gia Pháp y Tài liệu"** 
  │  5. Quét         →  Nhấn "Quét tài liệu"                    │
  │  6. Trích xuất   →  Nhấn "Trích xuất câu hỏi"               │
  │  7. Kiểm tra     →  Xem, sửa, lọc kết quả                   │
- │  8. Xuất         →  Nhấn "Xuất CSV Anki"                     │
+ │  8. Xuất         →  CSV cho Anki hoặc DOCX để học/in          │
  │  9. Import Anki  →  File → Import → Chọn "3MCQ" → Done!      │
  └──────────────────────────────────────────────────────────────┘
 ```
@@ -459,6 +611,9 @@ AI được huấn luyện với vai trò **"Chuyên gia Pháp y Tài liệu"** 
 
 ## 📜 Nhật Ký Cập Nhật
 
+| Phiên bản | Ngày | Nội dung |
+|:---|:---|:---|
+| **v5.4 (Export Polish)** | 22/04/2026 | Bổ sung DOCX Study Export, căn trái ổn định sau bảng, README đầy đủ hơn |
 | **v5.3 (Resilience)** | 09/04/2026 | **Resilience 2.1: Fast-Failure Logic, Quarter-Subdivision (4-way Parallel), Gemini 2.5 Flash Integration** |
 | **v5.2 (Ultima)** | 07/04/2026 | **Medical Extraction 3.0: 95% Content Precision, Robust DB Storage, Duplicate Review UI** |
 | **v5.1 (Robust)** | 04/04/2026 | **Robust MCQ Normalization (A., (B), 1., etc.), Logic so sánh đáp án chính xác 100%** |

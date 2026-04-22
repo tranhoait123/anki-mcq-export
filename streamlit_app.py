@@ -412,10 +412,16 @@ with col_left:
                         - evidence: Nêu rõ cơ chế bệnh sinh hoặc trích dẫn lý thuyết trực tiếp từ tài liệu hoặc trích dẫn nguồn uy tín (Harrison, Nelson, Bộ Y tế, Dược thư...).
                         - warning: Cảnh báo bẫy lâm sàng.
 
-                        🎯 CHỈ THỊ CUỐI CÙNG:
+                        🎯 CHỈ THỊ CUỐI CÙNG (QUAN TRỌNG):
+                        - QUY TẮC BẮT BUỘC (NGHIÊM NGẶT) - CHỐNG HALLUCINATION:
+                          + KHÔNG ĐƯỢC PHÉP thêm bất kỳ Tag hoặc nội dung nào không có trong tài liệu trừ khi để phục vụ giải thích chuyên môn.
+                          + TUYỆT ĐỐI CẤM trả về các trường rỗng hoặc placeholder (VD: "...", "đang cập nhật").
+                          + GIỚI HẠN TAG: Chỉ sử dụng các Tag chuyên khoa đã được định nghĩa. Không tự bịa thêm các Tag con hoặc Tag biến thể.
+                          + PHẢI giữ nguyên thuật ngữ Y khoa gốc từ tài liệu, chỉ sửa lỗi chính tả rõ ràng.
                         - Chỉ trả về duy nhất mảng JSON. Không giải thích thêm.
                         - Đảm bảo các trường "evidence" và "analysis" luôn có nội dung học thuật.
                         - Nếu có nhiều đáp án đúng, chọn đáp án "Đúng nhất" theo tiêu chuẩn lâm sàng.
+                        - Nếu không có câu hỏi, trả về [].
 
                         ⛔ HÀNG RÀO AN TOÀN: 
                         - Tuyệt đối không sử dụng văn bản giả. Không bịa đặt.

@@ -458,6 +458,11 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
    - **depthAnalysis**: Tư duy lâm sàng chuyên sâu.
 
 🎯 **CHỈ THỊ CUỐI CÙNG (FINAL COMMAND - QUAN TRỌNG)**:
+- **QUY TẮC BẮT BUỘC (NGHIÊM NGẶT) - CHỐNG HALLUCINATION**:
+  + **KHÔNG ĐƯỢC PHÉP** thêm bất kỳ Tag hoặc nội dung nào không có trong tài liệu trừ khi để phục vụ giải thích chuyên môn.
+  + **TUYỆT ĐỐI CẤM** trả về các trường rỗng hoặc placeholder (VD: "...", "đang cập nhật").
+  + **GIỚI HẠN TAG**: Chỉ sử dụng các Tag chuyên khoa đã được định nghĩa trong System Prompt (Y Khoa, Tiếng Anh, v.v.). Không tự bịa thêm các Tag con hoặc Tag biến thể.
+  + **PHẢI** giữ nguyên thuật ngữ Y khoa gốc từ tài liệu, chỉ sửa lỗi chính tả rõ ràng.
 - **TRƯỜNG HỢP KHÔNG CÓ CÂU HỎI**: Nếu đoạn văn được cung cấp hoàn toàn KHÔNG chứa câu hỏi trắc nghiệm nào, hãy trả về chính xác: {"questions": []}. Tuyệt đối không được giải thích, xin lỗi hay phản hồi bằng văn bản thường.
 - CHỈ trả về duy nhất một đối tượng JSON có khóa "questions". KHÔNG được có bất kỳ văn bản giải thích nào trước hoặc sau khối JSON.
 - ĐÂY LÀ GIỚI HẠN TÀI NGUYÊN: Nếu bạn sắp hết không gian trả về (Tokens), hãy kết thúc khối JSON hiện tại một cách sạch sẽ (đóng đầy đủ ngoặc } và ]) thay vì để nó bị cắt cụt giữa chừng.
@@ -1160,7 +1165,9 @@ export const generateQuestions = async (
     userKeyRotator.init(runtimeSettings.apiKey);
     const adaptiveBatching = runtimeSettings.adaptiveBatching !== false;
     const tokenProfile = getModelTokenProfile(runtimeSettings.provider, runtimeSettings.model);
-    let adaptiveQuestionCap = getAdaptiveQuestionBatchSize(tokenProfile, adaptiveBatching);
+    let adaptiveQuestionCap = runtimeSettings.batchSize && runtimeSettings.batchSize > 0 
+      ? runtimeSettings.batchSize 
+      : getAdaptiveQuestionBatchSize(tokenProfile, adaptiveBatching);
     let adaptiveLargeBatchFailures = 0;
     const visionPagesPerChunk = getAdaptiveVisionPagesPerChunk(tokenProfile, adaptiveBatching);
     const textCharBudget = getAdaptiveTextCharBudget(tokenProfile, adaptiveBatching);

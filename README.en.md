@@ -11,14 +11,18 @@
 
 1. [Introduction](#-introduction)
 2. [⚡ Use Online — No Installation Required](#-use-online--no-installation-required)
-3. [🎬 Video Tutorial & Sample Files](#-video-tutorial--sample-files)
-4. [🔑 Get Google Gemini API Key (Free)](#-get-google-gemini-api-key-free)
-5. [🌐 Detailed User Guide](#-detailed-user-guide)
-6. [📲 Import CSV into Anki](#-import-csv-into-anki)
-7. [💻 Local Installation (Optional)](#-local-installation-optional)
-8. [🐍 Streamlit Version (Python)](#-streamlit-version-python)
-9. [🎯 Advanced Tips & Troubleshooting](#-advanced-tips--troubleshooting)
-10. [❓ Frequently Asked Questions (FAQ)](#-frequently-asked-questions-faq)
+3. [🧩 Key Features](#-key-features)
+4. [📥 Supported Formats](#-supported-formats)
+5. [🎬 Video Tutorial & Sample Files](#-video-tutorial--sample-files)
+6. [🔑 Get Google Gemini API Key (Free)](#-get-google-gemini-api-key-free)
+7. [🌐 Detailed User Guide](#-detailed-user-guide)
+8. [📤 Export Files](#-export-files)
+9. [📲 Import CSV into Anki](#-import-csv-into-anki)
+10. [💻 Local Installation (Optional)](#-local-installation-optional)
+11. [🐍 Streamlit Version (Python)](#-streamlit-version-python)
+12. [🧪 Tests & Build](#-tests--build)
+13. [🎯 Advanced Tips & Troubleshooting](#-advanced-tips--troubleshooting)
+14. [❓ Frequently Asked Questions (FAQ)](#-frequently-asked-questions-faq)
 
 ---
 
@@ -30,9 +34,15 @@
 |:---|:---|
 | 🤖 **AI MCQ Extraction** | Uses Google Gemini AI to "read" scanned documents, photos, PDFs and extract multiple-choice questions. |
 | 🩺 **Professor-level Explanations** | Every question includes: core answer, deep analysis, medical evidence, and clinical warnings. |
-| 💾 **Anki-ready CSV Export** | Generates a CSV file ready to be imported into Anki — no additional editing needed. |
+| 💾 **Anki-ready CSV/DOCX Export** | Generates Anki-ready CSV and study DOCX files — no additional editing needed. |
 | 🔄 **Smart Deduplication** | Automatically detects and manages duplicate questions when processing multiple tests. |
 | 🌙 **Dark Mode & Split View** | Easy on the eyes for night studying, view original documents and extracted results side-by-side. |
+
+### Overall Flow
+
+```text
+Source document → scan/estimate → extract MCQs → dedupe → edit/review → export CSV/DOCX → study or import into Anki
+```
 
 **3 ways to use it:**
 
@@ -66,11 +76,48 @@ The app is deployed online. You can use it **instantly** on any device (PC, Mac,
 |:---|:---|
 | ✅ **No Installation** | Open the link and use it instantly |
 | ✅ **100% Free** | Only requires a Google API Key (free) |
-| ✅ **Fully Featured** | Dark Mode, Split View, Editing, Filtering, CSV Export |
+| ✅ **Fully Featured** | Dark Mode, Split View, Editing, Filtering, CSV/DOCX Export |
 | ✅ **Cross-device** | PC, Mac, phone, tablet — just needs a browser |
 | ✅ **Secure Data** | All processing happens in your browser, nothing is saved to a server |
 
 > 💡 **On Mobile:** You can "Add to Home Screen" to use it as a native app!
+
+---
+
+## 🧩 Key Features
+
+| Area | Details |
+|:---|:---|
+| **Flexible AI Engine** | Supports Google Gemini, OpenRouter, Vertex AI, and ShopAIKey. The app coerces incompatible model choices before runtime. |
+| **PDF/Image Handling** | PDFs are split into overlapping chunks; providers that do not accept raw PDFs can receive rasterized page images. |
+| **DOCX Native + Smart Fallback** | Real-text Word files are parsed from `word/document.xml`; yellow highlights are preserved as correct answers; scanned Word files are flagged for PDF/image Vision mode. |
+| **Fast Mode** | Skip the initial analysis step when you already know the file and want faster extraction. |
+| **Rich Explanations** | Each card can include core answer, evidence, deep analysis, warning, source, difficulty, and reasoning key point. |
+| **Duplicate Review** | Suspected duplicates are reviewed instead of silently deleted; keep both, skip, or replace. |
+| **Dual Export** | Export Anki CSV or a readable DOCX study document with tables and metadata. |
+| **Local Persistence** | MCQs, settings, and cache data are stored locally with IndexedDB/localStorage. |
+
+---
+
+## 📥 Supported Formats
+
+### Input
+
+| Format | Notes |
+|:---|:---|
+| **PDF** | Good for scans or long documents; the app chunks PDFs automatically. |
+| **Images** | PNG, JPG, JPEG, WebP, HEIC. Use straight, well-lit images. |
+| **Word** | DOCX. Real-text Word uses native parsing; scanned Word should be exported to PDF/image for Vision. |
+| **Text/Markdown** | TXT, MD. |
+| **CSV** | Can be re-imported for dedupe, editing, or re-export. |
+
+### Output
+
+| Format | Use |
+|:---|:---|
+| **Anki CSV** | Import into Anki with the `3MCQ` note type; supports HTML explanations. |
+| **DOCX Study Export** | Read, print, or share a study document with questions, answers, explanations, tables, and metadata. |
+| **Copy CSV** | Paste quickly into Excel, Google Sheets, or other tools. |
 
 ---
 
@@ -152,7 +199,10 @@ The system will **automatically rotate** — if a key runs out of quota (429 Err
 
 | Option | Guide |
 |:---|:---|
+| **AI Engine** | Choose Google Gemini, OpenRouter, Vertex AI, or ShopAIKey. New users should start with Google Gemini. |
 | **Google Gemini API Key** | Paste the API Key you generated. *Can input multiple keys separated by commas.* |
+| **OpenRouter / ShopAIKey API Key** | Use gateway providers when you want access to other model families. |
+| **Vertex AI** | Enterprise path requiring GCP Project ID, Location, and OAuth Access Token. |
 | **AI Model** | Choose an appropriate model. **Recommended: `Gemini 3.1 Flash-Lite`** — fastest and sharpest. |
 | **AI Persona** | Select the domain: **Medical**, **English**, **Law**, **IT** — or write a custom prompt. |
 
@@ -175,6 +225,16 @@ In the **Control Panel** (left side):
 > ⚠️ **For scanned/photographed exams**: For best results:
 > - Take **straight, well-lit** non-blurry photos.
 > - Ensure **fingers aren't blocking text**.
+
+#### DOCX Processing Status
+
+When uploading a Word file, the app automatically shows one of three states:
+
+| Status | Meaning | Best action |
+|:---|:---|:---|
+| **DOCX native: N questions** | The app parsed Word XML directly, found MCQs, and preserved yellow highlights as correct answers. | Use it directly; this is the fastest and most accurate path. |
+| **DOCX text fallback** | The file has text, but the A/B/C/D structure is not clear enough for native splitting. | Let the app scan the clean text fallback. |
+| **Use PDF/Image** | The Word file has little or no real text, usually because it contains scanned images. | Export Word to PDF or clear page images and upload again for Vision mode. |
 
 ---
 
@@ -228,7 +288,7 @@ Click the **📊 (Columns)** button in the Header to enable **Split View**:
 
 ---
 
-### Step 5: Export CSV
+### Step 5: Export Files
 
 When satisfied:
 
@@ -236,6 +296,7 @@ When satisfied:
 |:---|:---|
 | **📋 Copy CSV** | Copy everything to clipboard — directly paste to Excel/Sheets |
 | **📥 Export CSV** | Download `.csv` file, ready for Anki |
+| **📄 Export DOCX** | Download a readable study `.docx` with questions, answers, explanations, tables, and metadata |
 
 CSV Format:
 ```text
@@ -243,6 +304,18 @@ Question | A | B | C | D | E | CorrectAnswer | ExplanationHTML | Source | Diffic
 ```
 
 > The CSV is **UTF-8 BOM** formatted to ensure Vietnamese/Foreign characters display properly anywhere.
+
+---
+
+## 📤 Export Files
+
+### CSV for Anki
+
+The CSV export normalizes question/options, resolves the correct answer letter, escapes quotes safely, includes UTF-8 BOM, and packages explanations as Anki-friendly HTML.
+
+### DOCX for Direct Study
+
+DOCX export is useful for reading, printing, or sending a review copy before Anki import. It includes question text, options, correct answer marks, explanation sections, Markdown tables converted to Word tables, and source/difficulty/reasoning metadata.
 
 ---
 
@@ -300,6 +373,19 @@ Open your browser at **http://localhost:5173**!
 
 ---
 
+## 🧪 Tests & Build
+
+Before deploying or making large changes, run:
+
+```bash
+npm test
+npm run build
+```
+
+Current tests cover Anki HTML escaping/formatting, DOCX export, DOCX native parsing, dedupe, model registry, retry strategy, and provider request/error handling.
+
+---
+
 ## 🐍 Streamlit Version (Python)
 
 A simpler alternative dashboard.
@@ -310,6 +396,18 @@ streamlit run streamlit_app.py
 ```
 
 Runs on **http://localhost:8501**.
+
+---
+
+## 🎯 Advanced Tips & Troubleshooting
+
+| Issue | Likely cause | Fix |
+|:---|:---|:---|
+| **Only a few questions extracted from DOCX** | Old HTML/text batching or unclear Word structure | Use the latest version; native DOCX mode splits MCQs before AI. |
+| **DOCX text fallback** | Word has text but not clear question → A/B/C/D blocks | It can still scan; if missing questions, make each option a separate line or export to PDF/image. |
+| **Use PDF/Image shown for DOCX** | Word contains scanned images instead of real text | Export the Word file to PDF or clear images, then upload again for Vision. |
+| **PDF fails on a gateway provider** | Provider does not accept raw PDFs | The app rasterizes PDF pages for compatible Vision models. |
+| **Quota/rate limit** | API key reached provider limits | Add multiple Google keys separated by commas or switch model/provider. |
 
 ---
 
@@ -324,12 +422,20 @@ Documents are sent to **Google Gemini API** for OCR/inference. The app **does no
 ### 🗨️ "Can I use it for other subjects like IT or Law?"
 **Yes!** In Settings, change the AI Persona to Law, IT, English, etc.
 
+### 🗨️ "Should I convert Word to PDF or images?"
+Only when the app shows **Use PDF/Image** or the DOCX is a scanned-image document. If it shows **DOCX native: N questions**, keep native mode because it is faster, cheaper, and preserves yellow-highlighted answers.
+
+### 🗨️ "What is the difference between CSV and DOCX export?"
+**CSV** is for importing into Anki. **DOCX** is for direct reading, printing, or sharing a review copy.
+
 ---
 
 ## 📜 Changelog
 
 | Version | Date | Highlights |
 | :--- | :--- | :--- |
+| **v5.5 (DOCX Native)** | 04/22/2026 | Native DOCX parser, yellow-highlight answer detection, 10-question batching, text fallback, and PDF/image warning for scanned Word files |
+| **v5.4 (Export Polish)** | 04/22/2026 | DOCX Study Export, stable left alignment after tables, expanded documentation |
 | **v5.0 (Atomic)** | 04/04/2026 | **Zustand Architecture, Sonner Toasts, Review-First UI, Enhanced Markdown Tables** |
 | **v4.7 (Gemini)** | 03/28/2026 | Added **Gemini 3.1 Flash-Lite** as default, **Gemini 2.5 Flash** fallback |
 | **v4.6 (Native)** | 02/04/2026 | **Native PDF Engine**, Overlap Scanning |

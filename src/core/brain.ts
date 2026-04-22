@@ -709,6 +709,39 @@ export const salvageCompleteQuestionsFromJson = (text: string): any[] => {
   return questions;
 };
 
+export const parseQuestionsFromModelText = (text: string, batchIndex: number, expectedQuestions = 0): any[] => {
+  let jsonStr = extractJson(text);
+  if (!jsonStr) throw new Error("📄 AI không trả về dữ liệu đúng định dạng. Batch này sẽ được tự động chia nhỏ và thử lại.");
+
+  try {
+    jsonStr = jsonStr.replace(/,\s*([\]\}])/g, '$1');
+
+    const parsed = JSON.parse(jsonStr);
+    const questions = Array.isArray(parsed) ? parsed : (parsed?.questions || []);
+    if (questions.length === 0) {
+      if (expectedQuestions > 0) {
+        throw new Error("📄 AI đã xử lý nhưng không tìm thấy câu hỏi trắc nghiệm nào trong phần này. Batch sẽ được chia nhỏ để quét kỹ hơn.");
+      }
+      return questions;
+    }
+    if (expectedQuestions > 0 && questions.length < expectedQuestions) {
+      (questions as any).__salvagedPartial = true;
+      (questions as any).__missingCount = expectedQuestions - questions.length;
+    }
+    return questions;
+  } catch (e) {
+    const salvaged = salvageCompleteQuestionsFromJson(text);
+    if (salvaged.length > 0) {
+      (salvaged as any).__salvagedPartial = true;
+      (salvaged as any).__missingCount = expectedQuestions > 0 ? Math.max(0, expectedQuestions - salvaged.length) : 0;
+      console.warn(`🧩 Salvaged ${salvaged.length}${expectedQuestions > 0 ? `/${expectedQuestions}` : ''} complete questions from malformed JSON in batch ${batchIndex + 1}.`);
+      return salvaged;
+    }
+    console.error("JSON Parse Error info:", e, "Raw string:", jsonStr.substring(0, 100) + "...");
+    throw new Error(`📄 Dữ liệu AI ở Phần ${batchIndex + 1} bị lỗi cấu trúc (JSON). Hệ thống đang tự động chia nhỏ và thử lại...`);
+  }
+};
+
 // --- Deduplication Helpers ---
 
 const extractQuestionNumber = (text: string): number | null => {
@@ -1312,41 +1345,6 @@ export const generateQuestions = async (
     let completedBatches = 0;
     const CONCURRENCY_LIMIT = runtimeSettings.concurrencyLimit || 2;
 
-    const extractAndParseQuestions = (text: string, batchIndex: number, expectedQuestions = 0) => {
-      let jsonStr = extractJson(text);
-      if (!jsonStr) throw new Error("📄 AI không trả về dữ liệu đúng định dạng. Batch này sẽ được tự động chia nhỏ và thử lại.");
-
-      try {
-        // Cố gắng tự vá một số lỗi JSON phổ biến của AI trước khi parse
-        // Vá lỗi thiếu dấu ngoặc đóng mảng/đối tượng
-        if (jsonStr.trim().endsWith('}') && !jsonStr.includes(']')) {
-          // Maybe it was supposed to be an array but it's an object?
-        }
-
-        // Loại bỏ dấu phẩy thừa ở cuối mảng trước dấu đóng ] hoặc }
-        jsonStr = jsonStr.replace(/,\s*([\]\}])/g, '$1');
-
-        const parsed = JSON.parse(jsonStr);
-        const questions = Array.isArray(parsed) ? parsed : (parsed?.questions || []);
-        if (questions.length === 0) throw new Error("📄 AI đã xử lý nhưng không tìm thấy câu hỏi trắc nghiệm nào trong phần này. Batch sẽ được chia nhỏ để quét kỹ hơn.");
-        if (expectedQuestions > 0 && questions.length < expectedQuestions) {
-          (questions as any).__salvagedPartial = true;
-          (questions as any).__missingCount = expectedQuestions - questions.length;
-        }
-        return questions;
-      } catch (e) {
-        const salvaged = salvageCompleteQuestionsFromJson(text);
-        if (salvaged.length > 0) {
-          (salvaged as any).__salvagedPartial = true;
-          (salvaged as any).__missingCount = expectedQuestions > 0 ? Math.max(0, expectedQuestions - salvaged.length) : 0;
-          console.warn(`🧩 Salvaged ${salvaged.length}${expectedQuestions > 0 ? `/${expectedQuestions}` : ''} complete questions from malformed JSON in batch ${batchIndex + 1}.`);
-          return salvaged;
-        }
-        console.error("JSON Parse Error info:", e, "Raw string:", jsonStr.substring(0, 100) + "...");
-        throw new Error(`📄 Dữ liệu AI ở Phần ${batchIndex + 1} bị lỗi cấu trúc (JSON). Hệ thống đang tự động chia nhỏ và thử lại...`);
-      }
-    };
-
     const totalBatches = allParts.length;
     const stableFallbackModel = getProviderFallbackModel(runtimeSettings.provider);
     const extractionModel = isAdvancedMode || isRescueMode ? stableFallbackModel : runtimeSettings.model;
@@ -1401,7 +1399,7 @@ export const generateQuestions = async (
                   ];
 
                   const text = await callOpenAICompatibleProvider(runtimeSettings, activeModel, messages);
-                  return extractAndParseQuestions(text, index, expectedQuestions);
+                  return parseQuestionsFromModelText(text, index, expectedQuestions);
               }
               ,
               undefined,
@@ -1427,7 +1425,7 @@ export const generateQuestions = async (
                   const chat = aiInstance.chats.create(config);
                   const batchPrompt = kCacheName ? `Dựa trên tài liệu đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${batchLabel}.` : scanPrompt;
                   const response = await chat.sendMessage({ message: buildGoogleBatchMessage(part, batchPrompt, kCacheName || undefined) });
-                  return extractAndParseQuestions(response.text, index, expectedQuestions);
+                  return parseQuestionsFromModelText(response.text, index, expectedQuestions);
               },
               batchStartingKey, // Per-batch key assignment
               stableFallbackModel,

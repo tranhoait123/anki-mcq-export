@@ -6,6 +6,7 @@ import {
   extractProviderMessageContent,
   getAdaptiveQuestionBatchSize,
   getModelConfig,
+  parseQuestionsFromModelText,
   salvageCompleteQuestionsFromJson,
   translateErrorForUser,
 } from './brain';
@@ -185,5 +186,14 @@ describe('Core Logic', () => {
 
     expect(questions).toHaveLength(2);
     expect(questions.map((q) => q.question)).toEqual(['Câu 1: Nội dung câu hỏi', 'Câu 2: Nội dung câu hỏi']);
+  });
+
+  it('keeps empty optional responses as valid JSON payloads', () => {
+    expect(parseQuestionsFromModelText('{"questions":[]}', 0, 0)).toEqual([]);
+    expect(() => parseQuestionsFromModelText('{"questions":[]}', 0, 2)).toThrow('Dữ liệu AI');
+    expect(salvageCompleteQuestionsFromJson('{"questions":[]}')).toEqual([]);
+    expect(extractProviderMessageContent({
+      choices: [{ message: { content: '{"questions":[]}' } }],
+    })).toBe('{"questions":[]}');
   });
 });

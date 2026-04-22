@@ -5,6 +5,7 @@ import { db } from './db';
 import { findDuplicate } from '../utils/dedupe';
 import { coerceModelForProvider, coerceModelForProviderInput, getProviderFallbackModel, getProviderModelMismatchMessage } from '../utils/models';
 import { analyzePdfTextLayer, convertPdfToImages, PdfPageRange } from '../utils/pdfProcessor';
+import { UserKeyRotator } from '../utils/keyRotator';
 import {
   classifyBatchError,
   describeBatchError,
@@ -502,91 +503,6 @@ const normalizeToMarkdown = async (ai: any, files: UploadedFile[], onProgress?: 
   }
 };
 
-// --- Key Management ---
-class UserKeyRotator {
-  private keys: string[] = [];
-  private currentIndex: number = 0;
-  private failedKeys: Set<string> = new Set(); // Track permanently failed keys (403/invalid)
-  private batchKeyCounter: number = 0; // For round-robin per-batch key distribution
-
-  constructor() { }
-
-  init(apiKeyString: string) {
-    if (!apiKeyString || typeof apiKeyString !== 'string') {
-      this.keys = [];
-      return;
-    }
-    // Hỗ trợ dấu phẩy, dấu chấm phẩy, hoặc xuống dòng
-    let parts = apiKeyString.split(/[,;\n\r]+/);
-    this.keys = parts.map(k => k.trim()).filter(k => k.length > 5);
-    this.currentIndex = 0;
-    this.failedKeys.clear(); // Reset failed keys khi init lại session
-    this.batchKeyCounter = 0;
-    console.log(`🔑 Loaded ${this.keys.length} API Keys.`);
-  }
-
-  getCurrentKey(): string {
-    if (this.keys.length === 0) {
-      return ""; // Trả về chuỗi rỗng, để logic operation xử lý hoặc validation UI đã kiểm tra
-    }
-    return this.keys[this.currentIndex];
-  }
-
-  rotate(): string {
-    if (this.keys.length <= 1) return this.getCurrentKey();
-    
-    // Tìm key tiếp theo chưa bị đánh dấu failed
-    let attempts = 0;
-    do {
-      this.currentIndex = (this.currentIndex + 1) % this.keys.length;
-      attempts++;
-      // Nếu đã duyệt hết vòng mà tất cả đều failed, reset và chọn random
-      if (attempts >= this.keys.length) {
-        console.warn(`⚠️ All ${this.keys.length} keys have been marked as failed. Resetting failed list...`);
-        this.failedKeys.clear();
-        // Chọn random key thay vì key kế tiếp (tránh chọn key vừa mới failed)
-        this.currentIndex = Math.floor(Math.random() * this.keys.length);
-        break;
-      }
-    } while (this.failedKeys.has(this.keys[this.currentIndex]));
-    
-    console.log(`🔄 Rotating to API Key #${this.currentIndex + 1}/${this.keys.length}`);
-    return this.keys[this.currentIndex];
-  }
-
-  // Đánh dấu key bị lỗi vĩnh viễn (403 Permission Denied, Invalid Key)
-  markKeyFailed(key: string): void {
-    this.failedKeys.add(key);
-    console.warn(`🚫 API Key #${this.keys.indexOf(key) + 1} marked as FAILED (403/Invalid). ${this.availableKeyCount} keys remaining.`);
-  }
-
-  // Lấy key theo round-robin cho mỗi batch (tránh thundering herd)
-  getKeyForBatch(): string {
-    if (this.keys.length === 0) return "";
-    const availableKeys = this.keys.filter(k => !this.failedKeys.has(k));
-    if (availableKeys.length === 0) {
-      // Nếu tất cả đều failed, reset và dùng lại
-      this.failedKeys.clear();
-      this.batchKeyCounter = this.batchKeyCounter % this.keys.length; // Prevent overflow
-      return this.keys[this.batchKeyCounter++ % this.keys.length];
-    }
-    this.batchKeyCounter = this.batchKeyCounter % availableKeys.length; // Prevent overflow
-    return availableKeys[this.batchKeyCounter++ % availableKeys.length];
-  }
-
-  get keyCount(): number {
-    return this.keys.length;
-  }
-
-  get availableKeyCount(): number {
-    return this.keys.filter(k => !this.failedKeys.has(k)).length;
-  }
-
-  getKeyIndex(): number {
-    return this.currentIndex;
-  }
-}
-
 const userKeyRotator = new UserKeyRotator();
 
 // --- Helpers ---
@@ -949,6 +865,17 @@ async function executeWithUserRotation<T>(
   let currentKey = startingKey || userKeyRotator.getCurrentKey();
 
   while (attempts < ATTEMPTS_LIMIT) {
+    if (!currentKey && userKeyRotator.keyCount > 0) {
+      const cooldownDelay = userKeyRotator.getNextCooldownDelayMs();
+      if (cooldownDelay > 0) {
+        const waitMs = Math.min(cooldownDelay, retryProfile.singleKeyBackoffCapMs);
+        console.log(`⏳ All API keys are cooling down. Waiting ${Math.round(waitMs / 1000)}s before retrying.`);
+        await new Promise(r => setTimeout(r, waitMs));
+        currentKey = userKeyRotator.getKeyForBatch() || userKeyRotator.getCurrentKey();
+        continue;
+      }
+    }
+
     attempts++;
 
     // Nếu sau 6 lần thử (hết khoảng 1/2 số Key trung bình) mà vẫn lỗi 503, 
@@ -984,7 +911,7 @@ async function executeWithUserRotation<T>(
           if (msg.includes("vertex ai api error") || msg.includes("openrouter api error") || msg.includes("shopaikey api error")) {
             throw error;
           }
-          console.warn(`🚫 403/Invalid Key detected! Key #${userKeyRotator.getKeyIndex() + 1} is broken. Rotating IMMEDIATELY...`);
+          console.warn(`🚫 403/Invalid Key detected! Key #${userKeyRotator.getKeyNumber(currentKey)} is broken. Rotating IMMEDIATELY...`);
           userKeyRotator.markKeyFailed(currentKey);
           if (userKeyRotator.availableKeyCount > 0) {
             currentKey = userKeyRotator.rotate();
@@ -999,9 +926,12 @@ async function executeWithUserRotation<T>(
         console.warn(`⚠️ ${reason} (Lần thử ${attempts}/${ATTEMPTS_LIMIT}). Đang xoay vòng/thử lại...`);
 
         let backoffMs = 0;
+        if (isRateLimit || isServerBusy) {
+          userKeyRotator.markKeyCooldown(currentKey, isRateLimit ? 'rateLimit' : 'serverBusy');
+        }
         
-        // Luôn xoay key nếu có nhiều hơn 1 key khả dụng
-        if (userKeyRotator.availableKeyCount > 1) {
+        // Luôn xoay nếu còn bất kỳ key khả dụng nào sau khi key hiện tại bị cooldown.
+        if (userKeyRotator.availableKeyCount > 0) {
           currentKey = userKeyRotator.rotate();
           let hasFreshKey = false;
           
@@ -1023,14 +953,22 @@ async function executeWithUserRotation<T>(
             backoffMs = getBackoffDelayMs(retryProfile, attempts, 0, isServerBusy, isRateLimit, isFormatError, hasFreshKey);
           }
         } else {
-          // Chỉ có 1 key: Áp dụng Exponential Backoff bình thường
-          backoffMs = Math.min(
-            retryProfile.singleKeyBackoffCapMs,
-            getBackoffDelayMs(retryProfile, attempts, attempts - 1, isServerBusy, isRateLimit, isFormatError, false)
-          );
+          const cooldownDelay = userKeyRotator.getNextCooldownDelayMs();
+          if (cooldownDelay > 0) {
+            backoffMs = Math.min(cooldownDelay, retryProfile.singleKeyBackoffCapMs);
+            await new Promise(r => setTimeout(r, backoffMs));
+            currentKey = userKeyRotator.getKeyForBatch() || userKeyRotator.getCurrentKey();
+            continue;
+          } else {
+            // Chỉ có 1 key: Áp dụng Exponential Backoff bình thường
+            backoffMs = Math.min(
+              retryProfile.singleKeyBackoffCapMs,
+              getBackoffDelayMs(retryProfile, attempts, attempts - 1, isServerBusy, isRateLimit, isFormatError, false)
+            );
+          }
         }
         
-        console.log(`⏳ Backoff: ${Math.round(backoffMs / 1000)}s (Key #${userKeyRotator.getKeyIndex() + 1}/${userKeyRotator.keyCount}, Distinct tried: ${distinctKeysTried})`);
+        console.log(`⏳ Backoff: ${Math.round(backoffMs / 1000)}s (Key #${userKeyRotator.getKeyNumber(currentKey)}/${userKeyRotator.keyCount}, Distinct tried: ${distinctKeysTried})`);
         await new Promise(r => setTimeout(r, backoffMs));
         continue;
       }
@@ -1299,7 +1237,7 @@ export const generateQuestions = async (
         const expectedQuestions = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
         const structuredSourceLabel = part.sourceMode === 'pdfText' ? 'PDF TEXT STRUCTURED' : 'DOCX';
         const nativePrompt = expectedQuestions > 0
-          ? `NỘI DUNG ${structuredSourceLabel} ĐÃ ĐƯỢC TÁCH SẴN THÀNH ${expectedQuestions} CÂU MCQ. Mỗi block <<<MCQ n>>> là đúng 1 câu. Option có ký hiệu ✅ là đáp án đúng lấy từ marker trong tài liệu; TUYỆT ĐỐI không đổi đáp án này. Nếu một câu không có ký hiệu ✅, hãy suy luận đáp án đúng từ nội dung. Hãy trả về ĐÚNG ${expectedQuestions} câu theo cùng thứ tự, không bỏ câu nào.`
+          ? `NỘI DUNG ${structuredSourceLabel} ĐÃ ĐƯỢC TÁCH SẴN THÀNH ${expectedQuestions} BLOCK CÂU. Mỗi block <<<MCQ n>>> là đúng 1 câu hoặc 1 mục câu hỏi trong tài liệu. Option có ký hiệu ✅ là đáp án đúng lấy từ marker trong tài liệu; TUYỆT ĐỐI không đổi đáp án này. Nếu block có A/B/C/D thì trích đúng các lựa chọn đó. Nếu block chỉ có Question và Answer/Notes, hãy giữ nguyên câu hỏi, dùng Answer/Notes làm đáp án/giải thích, và chỉ tạo lựa chọn nhiễu khi tài liệu không cung cấp đủ options. Hãy trả về ĐÚNG ${expectedQuestions} câu theo cùng thứ tự, không bỏ câu nào.`
           : '';
         const imagePrompt = part.sourceMode === 'docxImage'
           ? `${part.docxImageLabel || '[DOCX IMAGE]'}\nẢnh này được nhúng trong file Word. Nếu ảnh chỉ là minh họa và KHÔNG chứa câu hỏi trắc nghiệm, hãy trả về chính xác {"questions":[]}. Nếu ảnh chứa MCQ, hãy trích xuất đầy đủ mọi câu hỏi, lựa chọn và đáp án nếu nhìn thấy.`

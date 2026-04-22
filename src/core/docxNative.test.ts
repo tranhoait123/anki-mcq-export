@@ -249,6 +249,29 @@ describe('DOCX native MCQ parser', () => {
     expect(batches).toHaveLength(4);
     expect(getNativeMcqBlocks(batches[0])).toHaveLength(10);
   });
+
+  it('creates structured batches for DOCX answer-key notes without full A-D options', () => {
+    const xml = `
+      <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body>
+          ${Array.from({ length: 29 }, (_, index) => `
+            ${p(`Câu ${index + 1}: Câu hỏi giải phẫu ${index + 1}?`)}
+            ${p(`Đáp án/ghi chú của câu ${index + 1}`)}
+          `).join('')}
+        </w:body>
+      </w:document>
+    `;
+
+    const result = parseDocxDocumentXml(xml);
+    const batches = splitNativeMcqTextIntoBatches(result.structuredText, 10);
+
+    expect(result.mcqs).toHaveLength(0);
+    expect(result.structuredBlockCount).toBe(29);
+    expect(result.structuredText).toContain('Answer/Notes:');
+    expect(batches).toHaveLength(3);
+    expect(getNativeMcqBlocks(batches[0])).toHaveLength(10);
+    expect(getNativeMcqBlocks(batches[2])).toHaveLength(9);
+  });
 });
 
 describe('DOCX embedded image extraction', () => {

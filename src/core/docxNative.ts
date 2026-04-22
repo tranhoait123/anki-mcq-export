@@ -31,6 +31,7 @@ export interface NativeDocxParseResult {
   mcqs: NativeDocxMcq[];
   embeddedImages: DocxEmbeddedImage[];
   unsupportedImageCount: number;
+  structuredBlockCount: number;
   nativeText: string;
   structuredText: string;
   plainText: string;
@@ -204,13 +205,18 @@ export const parseDocxDocumentXml = (documentXml: string, numberingXml = '', sty
     .filter((paragraph) => paragraph.text.length > 0);
 
   const mcqs = parseMcqsFromParagraphs(paragraphs);
+  const questionMarkerText = buildQuestionMarkerStructuredText(paragraphs);
+  const questionMarkerBlocks = getNativeMcqBlocks(questionMarkerText);
+  const nativeText = buildNativeMcqText(mcqs);
+  const structuredText = questionMarkerBlocks.length > mcqs.length ? questionMarkerText : nativeText;
   return {
     paragraphs,
     mcqs,
     embeddedImages: [],
     unsupportedImageCount: 0,
-    nativeText: buildNativeMcqText(mcqs),
-    structuredText: buildNativeMcqText(mcqs),
+    structuredBlockCount: Math.max(mcqs.length, questionMarkerBlocks.length),
+    nativeText,
+    structuredText,
     plainText: paragraphs.map((paragraph) => paragraph.text).join('\n').trim(),
   };
 };
@@ -371,6 +377,44 @@ export const buildNativeMcqText = (mcqs: NativeDocxMcq[]): string => {
   });
 
   return `[DOCX_NATIVE_MCQ_COUNT: ${mcqs.length}]\n\n${blocks.join('\n\n')}`;
+};
+
+export const buildQuestionMarkerStructuredText = (paragraphs: DocxParagraph[]): string => {
+  const blocks: string[][] = [];
+  let current: string[] = [];
+
+  const flush = () => {
+    if (current.length > 0) blocks.push(current);
+    current = [];
+  };
+
+  for (const paragraph of paragraphs) {
+    const text = normalizeParagraphText(paragraph.text);
+    if (!text) continue;
+
+    if (QUESTION_PATTERN.test(text)) {
+      flush();
+      current.push(text);
+      continue;
+    }
+
+    if (current.length > 0) current.push(text);
+  }
+  flush();
+
+  if (blocks.length === 0) return '';
+
+  const structuredBlocks = blocks.map((block, index) => {
+    const [question, ...rest] = block;
+    const lines = [`<<<MCQ ${index + 1}>>>`, `Question: ${question}`];
+    if (rest.length > 0) {
+      lines.push('Answer/Notes:');
+      lines.push(...rest);
+    }
+    return lines.join('\n');
+  });
+
+  return `[DOCX_NATIVE_MCQ_COUNT: ${structuredBlocks.length}]\n\n${structuredBlocks.join('\n\n')}`;
 };
 
 export const getNativeMcqBlocks = (nativeText: string): string[] => {

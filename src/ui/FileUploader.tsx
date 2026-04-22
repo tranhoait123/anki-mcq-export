@@ -211,6 +211,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
 
         const plainText = nativeDocx?.plainText?.trim() || htmlToPlainText(content);
         const nativeMcqCount = nativeDocx?.mcqs.length || 0;
+        const structuredBlockCount = nativeDocx?.structuredBlockCount || nativeMcqCount;
         const markedAnswerCount = nativeDocx?.mcqs.filter((mcq) => Boolean(mcq.correctAnswer)).length || 0;
         const structuredText = nativeDocx?.structuredText || nativeDocx?.nativeText || '';
         const docxImageParts = (nativeDocx?.embeddedImages || [])
@@ -230,14 +231,14 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
           fileEnhancements = {
             plainText,
             nativeText: nativeMcqCount >= 4 && markedAnswerCount > 0 ? nativeDocx?.nativeText : undefined,
-            structuredText: nativeMcqCount >= 4 ? structuredText : undefined,
+            structuredText: structuredBlockCount >= 4 ? structuredText : undefined,
             nativeMcqCount,
-            structuredMcqCount: nativeMcqCount,
+            structuredMcqCount: structuredBlockCount,
             docxImageCount,
             docxImageParts,
             docxMode: 'hybrid',
-            docxNotice: nativeMcqCount >= 4
-              ? `Đã đọc ${nativeMcqCount} câu từ Word và sẽ quét thêm ${docxImageCount} ảnh nhúng bằng Vision.${unsupportedImageNote}`
+            docxNotice: structuredBlockCount >= 4
+              ? `Đã đọc ${structuredBlockCount} block câu từ Word và sẽ quét thêm ${docxImageCount} ảnh nhúng bằng Vision.${unsupportedImageNote}`
               : `DOCX chủ yếu chứa ảnh. App sẽ quét ${docxImageCount} ảnh nhúng bằng Vision.${unsupportedImageNote}`,
           };
           toast.info(`DOCX "${file.name}" có ${docxImageCount} ảnh nhúng; app sẽ quét thêm bằng Vision.`);
@@ -247,24 +248,24 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
             nativeText: nativeDocx.nativeText,
             structuredText,
             nativeMcqCount,
-            structuredMcqCount: nativeMcqCount,
+            structuredMcqCount: structuredBlockCount,
             docxImageCount,
             docxImageParts,
             docxMode: 'native',
             docxNotice: `DOCX native: nhận diện ${nativeMcqCount} câu, giữ highlight đáp án.${unsupportedImageNote}`,
           };
-        } else if (nativeMcqCount >= 4 && structuredText) {
+        } else if (structuredBlockCount >= 4 && structuredText) {
           fileEnhancements = {
             plainText,
             structuredText,
             nativeMcqCount,
-            structuredMcqCount: nativeMcqCount,
+            structuredMcqCount: structuredBlockCount,
             docxImageCount,
             docxImageParts,
             docxMode: 'structuredFallback',
-            docxNotice: `Đã tách được ${nativeMcqCount} câu nhưng chưa đủ marker đáp án; AI sẽ suy luận đáp án/giải thích.${unsupportedImageNote}`,
+            docxNotice: `Đã tách được ${structuredBlockCount} block câu theo marker Câu/Question; AI sẽ giữ từng block và suy luận phần còn thiếu.${unsupportedImageNote}`,
           };
-          toast.info(`DOCX "${file.name}" đã tách ${nativeMcqCount} câu theo cấu trúc, AI sẽ suy luận đáp án còn thiếu.`);
+          toast.info(`DOCX "${file.name}" đã tách ${structuredBlockCount} block câu theo cấu trúc, AI sẽ suy luận phần còn thiếu.`);
         } else if (plainText.length >= 300) {
           fileEnhancements = {
             plainText,

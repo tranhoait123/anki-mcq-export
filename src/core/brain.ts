@@ -22,7 +22,10 @@ interface GenerateQuestionsOptions {
 }
 
 const getFileTextContent = (file: UploadedFile): string =>
-  file.nativeText?.trim() || file.plainText?.trim() || file.content || '';
+  file.nativeText?.trim() || file.structuredText?.trim() || file.plainText?.trim() || file.content || '';
+
+const getDetectedDocxMcqCount = (files: UploadedFile[]): number =>
+  files.reduce((total, file) => total + (file.nativeMcqCount || file.structuredMcqCount || 0), 0);
 
 const getNativeBatchExpectedCount = (text: string): number => {
   const match = String(text || '').match(/^\[DOCX_NATIVE_BATCH_COUNT:\s*(\d+)\]/i);
@@ -1075,18 +1078,19 @@ export const generateQuestions = async (
         }
       } else if (file.type.startsWith('image/')) {
         allParts.push({ inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } });
-      } else if (file.nativeText?.trim()) {
-        const nativeBatches = splitNativeMcqTextIntoBatches(file.nativeText, 10);
-        if (nativeBatches.length > 0) {
-          nativeBatches.forEach((text, batchIndex) => {
+      } else if (file.nativeText?.trim() || file.structuredText?.trim()) {
+        const docxMcqText = file.nativeText?.trim() || file.structuredText?.trim() || '';
+        const docxBatches = splitNativeMcqTextIntoBatches(docxMcqText, 10);
+        if (docxBatches.length > 0) {
+          docxBatches.forEach((text, batchIndex) => {
             allParts.push({
-              text: `[TÀI LIỆU DOCX NATIVE: "${file.name}" (Nhóm ${batchIndex + 1}/${nativeBatches.length})]\n\n${text}`,
+              text: `[TÀI LIỆU DOCX ${file.nativeText?.trim() ? 'NATIVE' : 'STRUCTURED'}: "${file.name}" (Nhóm ${batchIndex + 1}/${docxBatches.length})]\n\n${text}`,
               nativeMcqBatch: true,
               expectedQuestions: getNativeBatchExpectedCount(text),
             });
           });
         } else {
-          allParts.push({ text: `[TÀI LIỆU: "${file.name}" (DOCX native fallback)]\n\n${file.nativeText}` });
+          allParts.push({ text: `[TÀI LIỆU: "${file.name}" (DOCX structured fallback)]\n\n${docxMcqText}` });
         }
       } else {
         const MAX_CHARS = 15000;
@@ -1227,7 +1231,7 @@ export const generateQuestions = async (
         const batchStartingKey = runtimeSettings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
         const expectedQuestions = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
         const nativePrompt = expectedQuestions > 0
-          ? `NỘI DUNG DOCX NATIVE ĐÃ ĐƯỢC TÁCH SẴN THÀNH ${expectedQuestions} CÂU MCQ. Mỗi block <<<MCQ n>>> là đúng 1 câu. Option có ký hiệu ✅ là đáp án đúng lấy từ highlight vàng trong Word; TUYỆT ĐỐI không đổi đáp án này. Hãy trả về ĐÚNG ${expectedQuestions} câu theo cùng thứ tự, không bỏ câu nào.`
+          ? `NỘI DUNG DOCX ĐÃ ĐƯỢC TÁCH SẴN THÀNH ${expectedQuestions} CÂU MCQ. Mỗi block <<<MCQ n>>> là đúng 1 câu. Option có ký hiệu ✅ là đáp án đúng lấy từ marker trong Word; TUYỆT ĐỐI không đổi đáp án này. Nếu một câu không có ký hiệu ✅, hãy suy luận đáp án đúng từ nội dung. Hãy trả về ĐÚNG ${expectedQuestions} câu theo cùng thứ tự, không bỏ câu nào.`
           : '';
         const scanPrompt = `${nativePrompt ? `${nativePrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
 
@@ -1381,6 +1385,16 @@ export const generateQuestions = async (
 
 
 export const analyzeDocument = async (files: UploadedFile[], settings: AppSettings): Promise<AnalysisResult> => {
+  const detectedDocxCount = getDetectedDocxMcqCount(files);
+  if (detectedDocxCount > 0) {
+    return {
+      topic: 'DOCX structured',
+      estimatedCount: detectedDocxCount,
+      questionRange: 'Theo số block MCQ đã tách từ Word',
+      confidence: 'High',
+    };
+  }
+
   const mismatchMessage = getProviderModelMismatchMessage(settings.provider, settings.model);
   let runtimeSettings = mismatchMessage ? { ...settings, model: coerceModelForProvider(settings.provider, settings.model) } : settings;
   if (isOpenAICompatibleProvider(runtimeSettings.provider)) {

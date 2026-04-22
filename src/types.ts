@@ -91,8 +91,10 @@ export interface UploadedFile {
   content: string;
   plainText?: string;
   nativeText?: string;
+  structuredText?: string;
   nativeMcqCount?: number;
-  docxMode?: 'native' | 'textFallback' | 'visionRecommended';
+  structuredMcqCount?: number;
+  docxMode?: 'native' | 'structuredFallback' | 'textFallback' | 'visionRecommended';
   docxNotice?: string;
   size?: number; // Added to fix lint error
   isProcessing?: boolean;

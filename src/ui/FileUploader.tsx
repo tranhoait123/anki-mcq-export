@@ -40,6 +40,10 @@ const getDocxModeBadge = (file: UploadedFile) => {
     text: `DOCX native: ${file.nativeMcqCount || 0} câu`,
     className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
   };
+  if (file.docxMode === 'structuredFallback') return {
+    text: `DOCX structured: ${file.structuredMcqCount || file.nativeMcqCount || 0} câu`,
+    className: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
+  };
   if (file.docxMode === 'textFallback') return {
     text: 'DOCX text fallback',
     className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
@@ -181,14 +185,28 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
 
         const plainText = nativeDocx?.plainText?.trim() || htmlToPlainText(content);
         const nativeMcqCount = nativeDocx?.mcqs.length || 0;
-        if (nativeMcqCount >= 4 && nativeDocx?.nativeText) {
+        const markedAnswerCount = nativeDocx?.mcqs.filter((mcq) => Boolean(mcq.correctAnswer)).length || 0;
+        const structuredText = nativeDocx?.structuredText || nativeDocx?.nativeText || '';
+        if (nativeMcqCount >= 4 && nativeDocx?.nativeText && markedAnswerCount > 0) {
           fileEnhancements = {
             plainText,
             nativeText: nativeDocx.nativeText,
+            structuredText,
             nativeMcqCount,
+            structuredMcqCount: nativeMcqCount,
             docxMode: 'native',
             docxNotice: `DOCX native: nhận diện ${nativeMcqCount} câu, giữ highlight đáp án.`,
           };
+        } else if (nativeMcqCount >= 4 && structuredText) {
+          fileEnhancements = {
+            plainText,
+            structuredText,
+            nativeMcqCount,
+            structuredMcqCount: nativeMcqCount,
+            docxMode: 'structuredFallback',
+            docxNotice: `Đã tách được ${nativeMcqCount} câu nhưng chưa đủ marker đáp án; AI sẽ suy luận đáp án/giải thích.`,
+          };
+          toast.info(`DOCX "${file.name}" đã tách ${nativeMcqCount} câu theo cấu trúc, AI sẽ suy luận đáp án còn thiếu.`);
         } else if (plainText.length >= 300) {
           fileEnhancements = {
             plainText,

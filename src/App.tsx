@@ -187,6 +187,7 @@ const App: React.FC = () => {
 
   const currentFilesRequireVision = () => files.some(file => file.type === 'application/pdf' || file.type.startsWith('image/'));
   const getVisionRecommendedDocx = () => files.find(file => file.docxMode === 'visionRecommended');
+  const getDetectedDocxMcqCount = () => files.reduce((total, file) => total + (file.nativeMcqCount || file.structuredMcqCount || 0), 0);
 
   const warnVisionRecommendedDocx = () => {
     const file = getVisionRecommendedDocx();
@@ -350,13 +351,16 @@ const App: React.FC = () => {
     setAudit(null);
     try {
       if (settings.skipAnalysis) {
+        const detectedDocxCount = getDetectedDocxMcqCount();
         setAnalysis({
-          topic: "Bỏ qua thuộc tính quét",
-          estimatedCount: 0,
-          questionRange: "Toàn bộ tài liệu",
-          confidence: "N/A"
+          topic: detectedDocxCount > 0 ? "DOCX structured" : "Bỏ qua thuộc tính quét",
+          estimatedCount: detectedDocxCount,
+          questionRange: detectedDocxCount > 0 ? "Theo số block MCQ đã tách từ Word" : "Toàn bộ tài liệu",
+          confidence: detectedDocxCount > 0 ? "High" : "N/A"
         });
-        toast.info("Đã bỏ qua bước quét tài liệu.");
+        toast.info(detectedDocxCount > 0
+          ? `Đã dùng số câu DOCX đã nhận diện: ${detectedDocxCount} câu.`
+          : "Đã bỏ qua bước quét tài liệu.");
         setAnalyzing(false);
         return;
       }
@@ -405,10 +409,11 @@ const App: React.FC = () => {
     try {
       // 1. Initial Attempt (Default Mode)
       let filesToUse = await prepareFiles();
+      const expectedQuestionCount = analysis?.estimatedCount || getDetectedDocxMcqCount();
       let res = await generateQuestions(filesToUse, requestSettings, 0, (status, count) => {
         setProgressStatus(status);
         setCurrentCount(count);
-      }, analysis?.estimatedCount || 0, (newBatch) => {
+      }, expectedQuestionCount, (newBatch) => {
         // REAL-TIME UPDATE: Append new questions immediately
         setMcqs(prev => {
           const updated = [...prev, ...newBatch];
@@ -472,7 +477,7 @@ const App: React.FC = () => {
               setProgressStatus(status);
               setCurrentCount(count);
             },
-            analysis?.estimatedCount || 0,
+            expectedQuestionCount,
             (newBatch) => {
               setMcqs(prev => {
                 const uniqueNew = deduplicateQuestions(newBatch, prev);
@@ -530,6 +535,8 @@ const App: React.FC = () => {
 
       // Tự động kiểm toán nếu số lượng quá thấp
       if (analysis && formatted.length < analysis.estimatedCount * 0.8) {
+        runAudit(formatted.length, filesToUse);
+      } else if (!analysis && expectedQuestionCount > 0 && formatted.length < expectedQuestionCount * 0.8) {
         runAudit(formatted.length, filesToUse);
       }
     } catch (e: any) {

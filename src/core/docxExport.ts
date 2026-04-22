@@ -48,9 +48,10 @@ const createRuns = async (text: string, bold = false) => {
 };
 
 const paragraph = async (text: string, options: any = {}) => {
-  const { Paragraph } = await import('docx');
+  const { AlignmentType, Paragraph } = await import('docx');
   return new Paragraph({
     children: await createRuns(text, options.bold),
+    alignment: options.alignment ?? AlignmentType.LEFT,
     spacing: options.spacing ?? { after: 120 },
     heading: options.heading,
     bullet: options.bullet,
@@ -59,20 +60,22 @@ const paragraph = async (text: string, options: any = {}) => {
 };
 
 const sectionHeading = async (label: string) => {
-  const { Paragraph, TextRun } = await import('docx');
+  const { AlignmentType, Paragraph, TextRun } = await import('docx');
   return new Paragraph({
     children: [new TextRun({ text: label, bold: true, color: SECTION_COLOR })],
+    alignment: AlignmentType.LEFT,
     spacing: { before: 180, after: 80 },
   });
 };
 
 const labeledParagraph = async (label: string, text: string, options: any = {}) => {
-  const { Paragraph, TextRun } = await import('docx');
+  const { AlignmentType, Paragraph, TextRun } = await import('docx');
   return new Paragraph({
     children: [
       new TextRun({ text: `${label}: `, bold: true, color: options.labelColor }),
       ...(await createRuns(text)),
     ],
+    alignment: options.alignment ?? AlignmentType.LEFT,
     spacing: options.spacing ?? { after: 100 },
     shading: options.shading,
   });
@@ -188,6 +191,7 @@ const createDocxTable = async (rows: string[][]) => {
         children: [
           new Paragraph({
             children: [new TextRun({ text: sanitizeDocxText(row[cellIndex] || ''), bold: rowIndex === 0 })],
+            alignment: AlignmentType.LEFT,
             spacing: { after: 0 },
           }),
         ],

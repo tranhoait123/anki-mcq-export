@@ -3,6 +3,10 @@ import JSZip from 'jszip';
 export interface DocxParagraph {
   text: string;
   highlighted: boolean;
+  numbering?: {
+    numId: string;
+    ilvl: string;
+  };
 }
 
 export interface NativeDocxMcq {
@@ -19,7 +23,9 @@ export interface NativeDocxParseResult {
 }
 
 const OPTION_PATTERN = /^([A-E])\s*[\.:)]\s*(.+)$/i;
+const QUESTION_PATTERN = /^(?:câu|cau|question|q)\s*\d+\s*[:.)-]/i;
 const MCQ_MARKER_PATTERN = /^<<<MCQ\s+\d+>>>$/m;
+const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E'];
 
 const decodeXml = (value: string): string =>
   value
@@ -54,12 +60,37 @@ const extractParagraphText = (paragraphXml: string): string => {
 const hasHighlight = (paragraphXml: string): boolean =>
   /<w:highlight\b(?![^>]*w:val="none")[^>]*\/?>/i.test(paragraphXml);
 
+const hasRedAnswerColor = (paragraphXml: string): boolean =>
+  /<w:color\b[^>]*w:val="(?:FF0000|E60000|C00000|C00|RED)"[^>]*\/?>/i.test(paragraphXml);
+
+const extractWordValue = (xml: string, tag: string): string | undefined => {
+  const match = xml.match(new RegExp(`<w:${tag}\\b[^>]*w:val="([^"]+)"`, 'i'));
+  return match?.[1];
+};
+
+const extractNumbering = (paragraphXml: string): DocxParagraph['numbering'] => {
+  const numPr = paragraphXml.match(/<w:numPr\b[\s\S]*?<\/w:numPr>/i)?.[0];
+  if (!numPr) return undefined;
+
+  const numId = extractWordValue(numPr, 'numId');
+  if (!numId) return undefined;
+
+  return {
+    numId,
+    ilvl: extractWordValue(numPr, 'ilvl') || '0',
+  };
+};
+
 export const parseDocxDocumentXml = (documentXml: string): NativeDocxParseResult => {
   const paragraphs = (documentXml.match(/<w:p\b[\s\S]*?<\/w:p>/g) || [])
-    .map((paragraphXml) => ({
-      text: extractParagraphText(paragraphXml),
-      highlighted: hasHighlight(paragraphXml),
-    }))
+    .map((paragraphXml) => {
+      const highlighted = hasHighlight(paragraphXml) || hasRedAnswerColor(paragraphXml);
+      return {
+        text: extractParagraphText(paragraphXml),
+        highlighted,
+        numbering: extractNumbering(paragraphXml),
+      };
+    })
     .filter((paragraph) => paragraph.text.length > 0);
 
   const mcqs = parseMcqsFromParagraphs(paragraphs);
@@ -102,15 +133,26 @@ export const parseMcqsFromParagraphs = (paragraphs: DocxParagraph[]): NativeDocx
     const text = normalizeParagraphText(paragraph.text);
     if (!text) continue;
 
+    if (QUESTION_PATTERN.test(text) && (questionLines.length > 0 || options.length > 0)) {
+      flush();
+      questionLines.push(text);
+      continue;
+    }
+
     const optionMatch = text.match(OPTION_PATTERN);
-    if (optionMatch) {
+    const numberedOptionLetter =
+      !optionMatch && paragraph.numbering && questionLines.length > 0 && options.length < OPTION_LETTERS.length
+        ? OPTION_LETTERS[options.length]
+        : '';
+
+    if (optionMatch || numberedOptionLetter) {
       if (options.length >= 5) flush();
-      if (questionLines.length === 0 && mcqs.length > 0) {
+      if (questionLines.length === 0) {
         continue;
       }
       options.push({
-        letter: optionMatch[1].toUpperCase(),
-        text: optionMatch[2],
+        letter: optionMatch ? optionMatch[1].toUpperCase() : numberedOptionLetter,
+        text: optionMatch ? optionMatch[2] : text,
         highlighted: paragraph.highlighted,
       });
       continue;

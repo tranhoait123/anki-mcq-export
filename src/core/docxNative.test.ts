@@ -7,6 +7,13 @@ const p = (text: string, highlighted = false) => `
   </w:p>
 `;
 
+const numberedP = (text: string, numId: number, red = false) => `
+  <w:p>
+    <w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="${numId}"/></w:numPr></w:pPr>
+    <w:r>${red ? '<w:rPr><w:color w:val="FF0000"/></w:rPr>' : ''}<w:t>${text}</w:t></w:r>
+  </w:p>
+`;
+
 describe('DOCX native MCQ parser', () => {
   it('extracts MCQs and uses yellow highlight as the correct answer', () => {
     const xml = `
@@ -57,6 +64,39 @@ describe('DOCX native MCQ parser', () => {
     expect(result.mcqs).toHaveLength(1);
     expect(result.mcqs[0].options).toHaveLength(5);
     expect(result.mcqs[0].correctAnswer).toBe('');
+  });
+
+  it('extracts Word auto-numbered options and uses red text as the correct answer', () => {
+    const xml = `
+      <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body>
+          ${p('Câu 1: Động mạch cấp máu cho lá tạng ngoại tâm mạc:')}
+          ${numberedP('Động mạch vành', 1, true)}
+          ${numberedP('Động mạch màng ngoài tim', 1)}
+          ${numberedP('Động mạch gian thất trước', 1)}
+          ${numberedP('Động mạch mũ', 1)}
+          ${p('Câu 2: Tĩnh mạch tim lớn đi trong rãnh nào?')}
+          ${numberedP('Rãnh vành', 2)}
+          ${numberedP('Rãnh gian nhĩ', 2)}
+          ${numberedP('Rãnh tận cùng', 2)}
+          ${numberedP('Rãnh gian thất trước', 2, true)}
+        </w:body>
+      </w:document>
+    `;
+
+    const result = parseDocxDocumentXml(xml);
+
+    expect(result.mcqs).toHaveLength(2);
+    expect(result.mcqs[0].options).toEqual([
+      'A. Động mạch vành',
+      'B. Động mạch màng ngoài tim',
+      'C. Động mạch gian thất trước',
+      'D. Động mạch mũ',
+    ]);
+    expect(result.mcqs[0].correctAnswer).toBe('A');
+    expect(result.mcqs[1].correctAnswer).toBe('D');
+    expect(result.nativeText).toContain('✅ A. Động mạch vành');
+    expect(result.nativeText).toContain('✅ D. Rãnh gian thất trước');
   });
 
   it('splits native DOCX MCQs into fixed-size batches without cutting questions', () => {

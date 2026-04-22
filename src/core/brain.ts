@@ -709,9 +709,19 @@ export const salvageCompleteQuestionsFromJson = (text: string): any[] => {
   return questions;
 };
 
-export const parseQuestionsFromModelText = (text: string, batchIndex: number, expectedQuestions = 0): any[] => {
+interface ParseQuestionsOptions {
+  allowEmpty?: boolean;
+}
+
+export const parseQuestionsFromModelText = (
+  text: string,
+  batchIndex: number,
+  expectedQuestions = 0,
+  options: ParseQuestionsOptions = {}
+): any[] => {
   let jsonStr = extractJson(text);
   if (!jsonStr) throw new Error("📄 AI không trả về dữ liệu đúng định dạng. Batch này sẽ được tự động chia nhỏ và thử lại.");
+  const allowEmpty = options.allowEmpty ?? expectedQuestions === 0;
 
   try {
     jsonStr = jsonStr.replace(/,\s*([\]\}])/g, '$1');
@@ -719,7 +729,7 @@ export const parseQuestionsFromModelText = (text: string, batchIndex: number, ex
     const parsed = JSON.parse(jsonStr);
     const questions = Array.isArray(parsed) ? parsed : (parsed?.questions || []);
     if (questions.length === 0) {
-      if (expectedQuestions > 0) {
+      if (!allowEmpty || expectedQuestions > 0) {
         throw new Error("📄 AI đã xử lý nhưng không tìm thấy câu hỏi trắc nghiệm nào trong phần này. Batch sẽ được chia nhỏ để quét kỹ hơn.");
       }
       return questions;
@@ -1375,6 +1385,7 @@ export const generateQuestions = async (
         // Per-batch key assignment: Mỗi batch nhận key riêng theo round-robin
         const batchStartingKey = runtimeSettings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
         const expectedQuestions = expectedAtStart;
+        const isDocxImageBatch = part.sourceMode === 'docxImage';
         const structuredSourceLabel = part.sourceMode === 'pdfText' ? 'PDF TEXT STRUCTURED' : 'DOCX';
         const repairInstruction = forceJsonRepair
           ? 'LƯU Ý SỬA JSON: Lần trước batch này bị lỗi định dạng hoặc thiếu câu. Hãy trả về JSON hợp lệ tuyệt đối, đóng đủ mọi ngoặc, không markdown, không giải thích ngoài JSON.'
@@ -1383,7 +1394,7 @@ export const generateQuestions = async (
           ? `NỘI DUNG ${structuredSourceLabel} ĐÃ ĐƯỢC TÁCH SẴN THÀNH ${expectedQuestions} BLOCK CÂU. Mỗi block <<<MCQ n>>> là đúng 1 câu hoặc 1 mục câu hỏi trong tài liệu. Option có ký hiệu ✅ là đáp án đúng lấy từ marker trong tài liệu; TUYỆT ĐỐI không đổi đáp án này. Nếu block có A/B/C/D thì trích đúng các lựa chọn đó. Nếu block chỉ có Question và Answer/Notes, hãy giữ nguyên câu hỏi, dùng Answer/Notes làm đáp án/giải thích, và chỉ tạo lựa chọn nhiễu khi tài liệu không cung cấp đủ options. Hãy trả về ĐÚNG ${expectedQuestions} câu theo cùng thứ tự, không bỏ câu nào.`
           : '';
         const imagePrompt = part.sourceMode === 'docxImage'
-          ? `${part.docxImageLabel || '[DOCX IMAGE]'}\nẢnh này được nhúng trong file Word. Nếu ảnh chỉ là minh họa và KHÔNG chứa câu hỏi trắc nghiệm, hãy trả về chính xác {"questions":[]}. Nếu ảnh chứa MCQ, hãy trích xuất đầy đủ mọi câu hỏi, lựa chọn và đáp án nếu nhìn thấy.`
+          ? `${part.docxImageLabel || '[DOCX IMAGE]'}\nẢnh này được nhúng trong file Word và CÓ THỂ chứa câu hỏi trắc nghiệm. Hãy phóng to/đọc kỹ toàn bộ chữ trong ảnh. Nếu ảnh chứa MCQ, hãy trích xuất đầy đủ mọi câu hỏi, lựa chọn và đáp án nếu nhìn thấy. ${forceJsonRepair ? 'Lần trước ảnh này trả rỗng hoặc lỗi; chỉ trả {"questions":[]} nếu bạn chắc chắn ảnh hoàn toàn không có câu hỏi trắc nghiệm.' : 'Nếu ảnh chỉ là minh họa và KHÔNG chứa câu hỏi trắc nghiệm, hãy trả về chính xác {"questions":[]}.'}`
           : '';
         const scanPrompt = `${repairInstruction ? `${repairInstruction}\n\n` : ''}${nativePrompt ? `${nativePrompt}\n\n` : ''}${imagePrompt ? `${imagePrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
 
@@ -1399,7 +1410,7 @@ export const generateQuestions = async (
                   ];
 
                   const text = await callOpenAICompatibleProvider(runtimeSettings, activeModel, messages);
-                  return parseQuestionsFromModelText(text, index, expectedQuestions);
+                  return parseQuestionsFromModelText(text, index, expectedQuestions, { allowEmpty: !isDocxImageBatch });
               }
               ,
               undefined,
@@ -1425,7 +1436,7 @@ export const generateQuestions = async (
                   const chat = aiInstance.chats.create(config);
                   const batchPrompt = kCacheName ? `Dựa trên tài liệu đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${batchLabel}.` : scanPrompt;
                   const response = await chat.sendMessage({ message: buildGoogleBatchMessage(part, batchPrompt, kCacheName || undefined) });
-                  return parseQuestionsFromModelText(response.text, index, expectedQuestions);
+                  return parseQuestionsFromModelText(response.text, index, expectedQuestions, { allowEmpty: !isDocxImageBatch });
               },
               batchStartingKey, // Per-batch key assignment
               stableFallbackModel,
@@ -1476,6 +1487,12 @@ export const generateQuestions = async (
       } catch (e: any) {
         const errorKind = classifyBatchError(e);
         const expectedQuestions = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
+        if (part.sourceMode === 'docxImage' && !forceJsonRepair && (errorKind === 'empty' || errorKind === 'format')) {
+          console.warn(`🔎 DOCX image batch ${batchLabel} returned empty/invalid. Retrying once with stricter Vision prompt...`);
+          await processBatch(part, index, depth, true);
+          return;
+        }
+
         if (adaptiveBatching && !forceJsonRepair && depth === 0 && errorKind === 'format' && (expectedQuestions > 10 || estimateTextTokens(part.text || '') > 4000)) {
           console.warn(`🔧 Batch ${batchLabel} format failed. Retrying once with strict JSON repair before splitting...`);
           await processBatch(part, index, depth, true);

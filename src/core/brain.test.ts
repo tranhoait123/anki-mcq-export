@@ -191,6 +191,7 @@ describe('Core Logic', () => {
   it('keeps empty optional responses as valid JSON payloads', () => {
     expect(parseQuestionsFromModelText('{"questions":[]}', 0, 0)).toEqual([]);
     expect(() => parseQuestionsFromModelText('{"questions":[]}', 0, 2)).toThrow('Dữ liệu AI');
+    expect(() => parseQuestionsFromModelText('{"questions":[]}', 0, 0, { allowEmpty: false })).toThrow('Dữ liệu AI');
     expect(salvageCompleteQuestionsFromJson('{"questions":[]}')).toEqual([]);
     expect(extractProviderMessageContent({
       choices: [{ message: { content: '{"questions":[]}' } }],

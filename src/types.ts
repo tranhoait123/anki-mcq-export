@@ -94,7 +94,14 @@ export interface UploadedFile {
   structuredText?: string;
   nativeMcqCount?: number;
   structuredMcqCount?: number;
-  docxMode?: 'native' | 'structuredFallback' | 'textFallback' | 'visionRecommended';
+  docxImageCount?: number;
+  docxImageParts?: {
+    name: string;
+    mimeType: string;
+    content: string;
+    index: number;
+  }[];
+  docxMode?: 'native' | 'structuredFallback' | 'hybrid' | 'textFallback' | 'visionRecommended';
   docxNotice?: string;
   pdfMode?: 'vision' | 'safeHybrid' | 'textOnlyCandidate';
   pdfTextMcqCount?: number;

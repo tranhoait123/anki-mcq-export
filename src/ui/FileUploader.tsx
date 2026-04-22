@@ -36,6 +36,10 @@ const htmlToPlainText = (html: string): string => {
 };
 
 const getDocxModeBadge = (file: UploadedFile) => {
+  if (file.docxMode === 'hybrid') return {
+    text: `DOCX hybrid: ${file.nativeMcqCount || file.structuredMcqCount || 0} câu / ${file.docxImageCount || 0} ảnh`,
+    className: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
+  };
   if (file.docxMode === 'native') return {
     text: `DOCX native: ${file.nativeMcqCount || 0} câu`,
     className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
@@ -209,15 +213,45 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
         const nativeMcqCount = nativeDocx?.mcqs.length || 0;
         const markedAnswerCount = nativeDocx?.mcqs.filter((mcq) => Boolean(mcq.correctAnswer)).length || 0;
         const structuredText = nativeDocx?.structuredText || nativeDocx?.nativeText || '';
-        if (nativeMcqCount >= 4 && nativeDocx?.nativeText && markedAnswerCount > 0) {
+        const docxImageParts = (nativeDocx?.embeddedImages || [])
+          .filter((image) => image.base64.length > 200)
+          .map((image) => ({
+            name: image.name,
+            mimeType: image.mimeType,
+            content: image.base64,
+            index: image.index,
+          }));
+        const docxImageCount = docxImageParts.length;
+        const unsupportedImageNote = nativeDocx?.unsupportedImageCount
+          ? ` Bỏ qua ${nativeDocx.unsupportedImageCount} ảnh không hỗ trợ Vision.`
+          : '';
+
+        if (docxImageCount > 0) {
+          fileEnhancements = {
+            plainText,
+            nativeText: nativeMcqCount >= 4 && markedAnswerCount > 0 ? nativeDocx?.nativeText : undefined,
+            structuredText: nativeMcqCount >= 4 ? structuredText : undefined,
+            nativeMcqCount,
+            structuredMcqCount: nativeMcqCount,
+            docxImageCount,
+            docxImageParts,
+            docxMode: 'hybrid',
+            docxNotice: nativeMcqCount >= 4
+              ? `Đã đọc ${nativeMcqCount} câu từ Word và sẽ quét thêm ${docxImageCount} ảnh nhúng bằng Vision.${unsupportedImageNote}`
+              : `DOCX chủ yếu chứa ảnh. App sẽ quét ${docxImageCount} ảnh nhúng bằng Vision.${unsupportedImageNote}`,
+          };
+          toast.info(`DOCX "${file.name}" có ${docxImageCount} ảnh nhúng; app sẽ quét thêm bằng Vision.`);
+        } else if (nativeMcqCount >= 4 && nativeDocx?.nativeText && markedAnswerCount > 0) {
           fileEnhancements = {
             plainText,
             nativeText: nativeDocx.nativeText,
             structuredText,
             nativeMcqCount,
             structuredMcqCount: nativeMcqCount,
+            docxImageCount,
+            docxImageParts,
             docxMode: 'native',
-            docxNotice: `DOCX native: nhận diện ${nativeMcqCount} câu, giữ highlight đáp án.`,
+            docxNotice: `DOCX native: nhận diện ${nativeMcqCount} câu, giữ highlight đáp án.${unsupportedImageNote}`,
           };
         } else if (nativeMcqCount >= 4 && structuredText) {
           fileEnhancements = {
@@ -225,24 +259,30 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
             structuredText,
             nativeMcqCount,
             structuredMcqCount: nativeMcqCount,
+            docxImageCount,
+            docxImageParts,
             docxMode: 'structuredFallback',
-            docxNotice: `Đã tách được ${nativeMcqCount} câu nhưng chưa đủ marker đáp án; AI sẽ suy luận đáp án/giải thích.`,
+            docxNotice: `Đã tách được ${nativeMcqCount} câu nhưng chưa đủ marker đáp án; AI sẽ suy luận đáp án/giải thích.${unsupportedImageNote}`,
           };
           toast.info(`DOCX "${file.name}" đã tách ${nativeMcqCount} câu theo cấu trúc, AI sẽ suy luận đáp án còn thiếu.`);
         } else if (plainText.length >= 300) {
           fileEnhancements = {
             plainText,
             nativeMcqCount,
+            docxImageCount,
+            docxImageParts,
             docxMode: 'textFallback',
-            docxNotice: 'Không nhận diện đủ cấu trúc A/B/C/D; app sẽ dùng văn bản sạch để AI quét.',
+            docxNotice: `Không nhận diện đủ cấu trúc A/B/C/D; app sẽ dùng văn bản sạch để AI quét.${unsupportedImageNote}`,
           };
           toast.info(`DOCX "${file.name}" chưa tách được MCQ native, sẽ dùng fallback văn bản sạch.`);
         } else {
           fileEnhancements = {
             plainText,
             nativeMcqCount,
+            docxImageCount,
+            docxImageParts,
             docxMode: 'visionRecommended',
-            docxNotice: 'DOCX gần như không có text thật. Nên xuất Word sang PDF hoặc ảnh rõ rồi tải lại để dùng Vision.',
+            docxNotice: `DOCX gần như không có text thật. Nên xuất Word sang PDF hoặc ảnh rõ rồi tải lại để dùng Vision.${unsupportedImageNote}`,
           };
           toast.warning(`DOCX "${file.name}" có rất ít text. Nên chuyển sang PDF/ảnh để quét Vision.`);
         }
@@ -362,7 +402,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
                             className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${getDocxModeBadge(file)?.className}`}
                             title={file.docxNotice}
                           >
-                            {file.docxMode === 'visionRecommended' && <ImageIcon size={10} className="mr-1 inline" />}
+                            {(file.docxMode === 'visionRecommended' || file.docxMode === 'hybrid') && <ImageIcon size={10} className="mr-1 inline" />}
                             {getDocxModeBadge(file)?.text}
                           </span>
                         )}

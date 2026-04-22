@@ -18,9 +18,19 @@ export interface NativeDocxMcq {
   correctAnswer: string;
 }
 
+export interface DocxEmbeddedImage {
+  name: string;
+  mimeType: string;
+  base64: string;
+  index: number;
+  relationshipId: string;
+}
+
 export interface NativeDocxParseResult {
   paragraphs: DocxParagraph[];
   mcqs: NativeDocxMcq[];
+  embeddedImages: DocxEmbeddedImage[];
+  unsupportedImageCount: number;
   nativeText: string;
   structuredText: string;
   plainText: string;
@@ -33,6 +43,12 @@ const MCQ_MARKER_PATTERN = /^<<<MCQ\s+\d+>>>$/m;
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E'];
 const LETTER_NUMBER_FORMATS = new Set(['upperLetter', 'lowerLetter']);
 const ANSWER_SYMBOL_PATTERN = /^(?:[✓✔☑✅*•●■]\s*)+/;
+const SUPPORTED_IMAGE_MIME_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+};
 
 type NumberingDefinitions = Record<string, Record<string, { numFmt?: string; lvlText?: string }>>;
 
@@ -191,6 +207,8 @@ export const parseDocxDocumentXml = (documentXml: string, numberingXml = '', sty
   return {
     paragraphs,
     mcqs,
+    embeddedImages: [],
+    unsupportedImageCount: 0,
     nativeText: buildNativeMcqText(mcqs),
     structuredText: buildNativeMcqText(mcqs),
     plainText: paragraphs.map((paragraph) => paragraph.text).join('\n').trim(),
@@ -201,11 +219,72 @@ export const parseNativeDocxMcqs = async (arrayBuffer: ArrayBuffer): Promise<Nat
   const zip = await JSZip.loadAsync(arrayBuffer);
   const documentXml = await zip.file('word/document.xml')?.async('string');
   if (!documentXml) throw new Error('Không tìm thấy word/document.xml trong file DOCX');
-  const [numberingXml, stylesXml] = await Promise.all([
+  const [numberingXml, stylesXml, relsXml] = await Promise.all([
     zip.file('word/numbering.xml')?.async('string') || Promise.resolve(''),
     zip.file('word/styles.xml')?.async('string') || Promise.resolve(''),
+    zip.file('word/_rels/document.xml.rels')?.async('string') || Promise.resolve(''),
   ]);
-  return parseDocxDocumentXml(documentXml, numberingXml, stylesXml);
+  const result = parseDocxDocumentXml(documentXml, numberingXml, stylesXml);
+  const { embeddedImages, unsupportedImageCount } = await extractDocxEmbeddedImages(zip, documentXml, relsXml);
+  return { ...result, embeddedImages, unsupportedImageCount };
+};
+
+const getImageMimeType = (target: string): string | undefined => {
+  const extension = target.split('.').pop()?.toLowerCase() || '';
+  return SUPPORTED_IMAGE_MIME_TYPES[extension];
+};
+
+const resolveDocxTarget = (target: string): string => {
+  const cleanTarget = target.replace(/^\/+/, '');
+  return cleanTarget.startsWith('word/') ? cleanTarget : `word/${cleanTarget}`;
+};
+
+export const parseDocxImageRelationships = (relsXml: string): Record<string, string> => {
+  const relationships: Record<string, string> = {};
+  for (const match of relsXml.matchAll(/<Relationship\b[^>]*Id="([^"]+)"[^>]*Type="([^"]+)"[^>]*Target="([^"]+)"[^>]*\/?>/gi)) {
+    const [, id, type, target] = match;
+    if (type.endsWith('/image')) relationships[id] = resolveDocxTarget(target);
+  }
+  return relationships;
+};
+
+export const getDocxDrawingEmbedIds = (documentXml: string): string[] =>
+  [...documentXml.matchAll(/<w:drawing\b[\s\S]*?<\/w:drawing>/gi)]
+    .map((match) => match[0].match(/r:embed="([^"]+)"/i)?.[1])
+    .filter((id): id is string => Boolean(id));
+
+export const extractDocxEmbeddedImages = async (
+  zip: JSZip,
+  documentXml: string,
+  relsXml: string,
+): Promise<{ embeddedImages: DocxEmbeddedImage[]; unsupportedImageCount: number }> => {
+  const rels = parseDocxImageRelationships(relsXml);
+  const embeddedImages: DocxEmbeddedImage[] = [];
+  let unsupportedImageCount = 0;
+  const seen = new Map<string, number>();
+
+  for (const relationshipId of getDocxDrawingEmbedIds(documentXml)) {
+    const target = rels[relationshipId];
+    if (!target) continue;
+    const mimeType = getImageMimeType(target);
+    const file = zip.file(target);
+    if (!mimeType || !file) {
+      unsupportedImageCount++;
+      continue;
+    }
+    const duplicateCount = seen.get(target) || 0;
+    seen.set(target, duplicateCount + 1);
+    const baseName = target.split('/').pop() || `image-${embeddedImages.length + 1}`;
+    embeddedImages.push({
+      name: duplicateCount > 0 ? `${baseName}#${duplicateCount + 1}` : baseName,
+      mimeType,
+      base64: await file.async('base64'),
+      index: embeddedImages.length + 1,
+      relationshipId,
+    });
+  }
+
+  return { embeddedImages, unsupportedImageCount };
 };
 
 export const parseMcqsFromParagraphs = (paragraphs: DocxParagraph[]): NativeDocxMcq[] => {

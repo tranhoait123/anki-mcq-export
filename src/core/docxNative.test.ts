@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { getNativeMcqBlocks, parseDocxDocumentXml, splitNativeMcqTextIntoBatches } from './docxNative';
+import JSZip from 'jszip';
+import {
+  extractDocxEmbeddedImages,
+  getDocxDrawingEmbedIds,
+  getNativeMcqBlocks,
+  parseDocxDocumentXml,
+  parseDocxImageRelationships,
+  splitNativeMcqTextIntoBatches,
+} from './docxNative';
 
 const p = (text: string, highlighted = false) => `
   <w:p>
@@ -240,5 +248,44 @@ describe('DOCX native MCQ parser', () => {
     expect(result.structuredText.length).toBeLessThan(15000);
     expect(batches).toHaveLength(4);
     expect(getNativeMcqBlocks(batches[0])).toHaveLength(10);
+  });
+});
+
+describe('DOCX embedded image extraction', () => {
+  it('maps image relationships and preserves drawing order', async () => {
+    const relsXml = `
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>
+        <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image2.jpeg"/>
+        <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image3.emf"/>
+      </Relationships>
+    `;
+    const documentXml = `
+      <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+        <w:body>
+          <w:p><w:r><w:drawing><a:blip r:embed="rId2"/></w:drawing></w:r></w:p>
+          <w:p><w:r><w:drawing><a:blip r:embed="rId1"/></w:drawing></w:r></w:p>
+          <w:p><w:r><w:drawing><a:blip r:embed="rId3"/></w:drawing></w:r></w:p>
+        </w:body>
+      </w:document>
+    `;
+    const zip = new JSZip();
+    zip.file('word/media/image1.png', 'png-data');
+    zip.file('word/media/image2.jpeg', 'jpeg-data');
+    zip.file('word/media/image3.emf', 'emf-data');
+
+    expect(parseDocxImageRelationships(relsXml)).toEqual({
+      rId1: 'word/media/image1.png',
+      rId2: 'word/media/image2.jpeg',
+      rId3: 'word/media/image3.emf',
+    });
+    expect(getDocxDrawingEmbedIds(documentXml)).toEqual(['rId2', 'rId1', 'rId3']);
+
+    const result = await extractDocxEmbeddedImages(zip, documentXml, relsXml);
+
+    expect(result.embeddedImages).toHaveLength(2);
+    expect(result.embeddedImages.map((image) => image.name)).toEqual(['image2.jpeg', 'image1.png']);
+    expect(result.embeddedImages.map((image) => image.mimeType)).toEqual(['image/jpeg', 'image/png']);
+    expect(result.unsupportedImageCount).toBe(1);
   });
 });

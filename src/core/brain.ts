@@ -1126,6 +1126,25 @@ export const generateQuestions = async (
         }
       } else if (file.type.startsWith('image/')) {
         allParts.push({ inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } });
+      } else if (file.docxImageParts?.length) {
+        const docxMcqText = file.nativeText?.trim() || file.structuredText?.trim() || '';
+        const docxBatches = splitNativeMcqTextIntoBatches(docxMcqText, 10);
+        if (docxBatches.length > 0) {
+          docxBatches.forEach((text, batchIndex) => {
+            allParts.push({
+              text: `[TÀI LIỆU DOCX ${file.nativeText?.trim() ? 'NATIVE' : 'STRUCTURED'}: "${file.name}" (Nhóm ${batchIndex + 1}/${docxBatches.length})]\n\n${text}`,
+              nativeMcqBatch: true,
+              expectedQuestions: getNativeBatchExpectedCount(text),
+            });
+          });
+        }
+        file.docxImageParts.forEach((image) => {
+          allParts.push({
+            inlineData: { mimeType: image.mimeType, data: image.content.includes(',') ? image.content.split(',')[1] : image.content },
+            sourceMode: 'docxImage',
+            docxImageLabel: `[DOCX IMAGE: "${file.name}" - Ảnh ${image.index} (${image.name})]`,
+          });
+        });
       } else if (file.nativeText?.trim() || file.structuredText?.trim()) {
         const docxMcqText = file.nativeText?.trim() || file.structuredText?.trim() || '';
         const docxBatches = splitNativeMcqTextIntoBatches(docxMcqText, 10);
@@ -1282,7 +1301,10 @@ export const generateQuestions = async (
         const nativePrompt = expectedQuestions > 0
           ? `NỘI DUNG ${structuredSourceLabel} ĐÃ ĐƯỢC TÁCH SẴN THÀNH ${expectedQuestions} CÂU MCQ. Mỗi block <<<MCQ n>>> là đúng 1 câu. Option có ký hiệu ✅ là đáp án đúng lấy từ marker trong tài liệu; TUYỆT ĐỐI không đổi đáp án này. Nếu một câu không có ký hiệu ✅, hãy suy luận đáp án đúng từ nội dung. Hãy trả về ĐÚNG ${expectedQuestions} câu theo cùng thứ tự, không bỏ câu nào.`
           : '';
-        const scanPrompt = `${nativePrompt ? `${nativePrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
+        const imagePrompt = part.sourceMode === 'docxImage'
+          ? `${part.docxImageLabel || '[DOCX IMAGE]'}\nẢnh này được nhúng trong file Word. Nếu ảnh chỉ là minh họa và KHÔNG chứa câu hỏi trắc nghiệm, hãy trả về chính xác {"questions":[]}. Nếu ảnh chứa MCQ, hãy trích xuất đầy đủ mọi câu hỏi, lựa chọn và đáp án nếu nhìn thấy.`
+          : '';
+        const scanPrompt = `${nativePrompt ? `${nativePrompt}\n\n` : ''}${imagePrompt ? `${imagePrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
 
         const rawNewQs = await (runtimeSettings.provider === 'shopaikey' || runtimeSettings.provider === 'openrouter' || runtimeSettings.provider === 'vertexai'
           ? executeWithUserRotation(

@@ -4,6 +4,9 @@ import {
   buildOpenAICompatibleProviderRequest,
   callOpenAICompatibleProvider,
   extractProviderMessageContent,
+  getAdaptiveQuestionBatchSize,
+  getModelConfig,
+  salvageCompleteQuestionsFromJson,
   translateErrorForUser,
 } from './brain';
 import { AppSettings } from '../types';
@@ -81,6 +84,7 @@ describe('Core Logic', () => {
     expect(request.model).toBe('google/gemini-2.5-flash');
     expect(request.headers.Authorization).toBe('Bearer vertex-token');
     expect(request.body.model).toBe('google/gemini-2.5-flash');
+    expect(request.body.max_tokens).toBe(49152);
   });
 
   it('uses global as the Vertex location fallback', () => {
@@ -117,7 +121,9 @@ describe('Core Logic', () => {
     const firstBody = JSON.parse(fetchMock.mock.calls[0][1].body);
     const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body);
     expect(firstBody.response_format).toEqual({ type: 'json_object' });
+    expect(firstBody.max_tokens).toBe(65536);
     expect(secondBody.response_format).toBeUndefined();
+    expect(secondBody.max_tokens).toBe(65536);
     expect(secondBody.messages[0].content).toContain('Endpoint hiện tại không hỗ trợ response_format');
   });
 
@@ -128,5 +134,56 @@ describe('Core Logic', () => {
 
     expect(() => extractProviderMessageContent({ choices: [{ message: {} }] }))
       .toThrow('AI_FORMAT_ERROR_EMPTY_PROVIDER_RESPONSE');
+  });
+
+  it('computes safe adaptive question batch sizes from output budgets', () => {
+    expect(getAdaptiveQuestionBatchSize({
+      inputLimit: 1048576,
+      outputLimit: 65536,
+      safeOutputBudget: 49152,
+      maxQuestionsPerBatch: 35,
+      visionPagesPerBatch: 4,
+    })).toBe(35);
+
+    expect(getAdaptiveQuestionBatchSize({
+      inputLimit: 128000,
+      outputLimit: 32768,
+      safeOutputBudget: 24576,
+      maxQuestionsPerBatch: 20,
+      visionPagesPerBatch: 3,
+    })).toBe(19);
+  });
+
+  it('adds Google maxOutputTokens without dropping schema or cached content', () => {
+    const schema = { type: 'object', properties: { questions: { type: 'array' } } };
+    const config = getModelConfig('key', 'system', schema, 'gemini-2.5-flash', 'cachedContents/abc', 49152);
+
+    expect(config.model).toBe('gemini-2.5-flash');
+    expect(config.config.responseSchema).toBe(schema);
+    expect(config.config.cachedContent).toBe('cachedContents/abc');
+    expect(config.config.maxOutputTokens).toBe(49152);
+  });
+
+  it('salvages complete MCQs from malformed partial JSON', () => {
+    const validQuestion = (id: number) => JSON.stringify({
+      question: `Câu ${id}: Nội dung câu hỏi`,
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: {
+        core: 'Vì A đúng.',
+        evidence: 'Bằng chứng.',
+        analysis: 'Phân tích.',
+        warning: 'Lưu ý.',
+      },
+      source: 'demo',
+      difficulty: 'Medium',
+      depthAnalysis: 'Key point',
+    });
+    const malformed = `{"questions":[${validQuestion(1)},${validQuestion(2)},{"question":"Câu 3 bị cắt","options":["A.`;
+
+    const questions = salvageCompleteQuestionsFromJson(malformed);
+
+    expect(questions).toHaveLength(2);
+    expect(questions.map((q) => q.question)).toEqual(['Câu 1: Nội dung câu hỏi', 'Câu 2: Nội dung câu hỏi']);
   });
 });

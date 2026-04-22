@@ -3,7 +3,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo } from "../types";
 import { db } from './db';
 import { findDuplicate } from '../utils/dedupe';
-import { coerceModelForProvider, coerceModelForProviderInput, getProviderFallbackModel, getProviderModelMismatchMessage } from '../utils/models';
+import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage, ModelTokenProfile } from '../utils/models';
 import { analyzePdfTextLayer, convertPdfToImages, PdfPageRange } from '../utils/pdfProcessor';
 import { UserKeyRotator } from '../utils/keyRotator';
 import {
@@ -45,6 +45,45 @@ const getNativePartBatches = (text: string, targetParts: number): string[] => {
   }
   return batches;
 };
+
+const splitStructuredPartByBatchSize = (part: any, batchSize: number): any[] => {
+  const blocks = getNativeMcqBlocks(part.text || '');
+  if (blocks.length <= batchSize) return [part];
+  const parts: any[] = [];
+  for (let i = 0; i < blocks.length; i += batchSize) {
+    const chunk = blocks.slice(i, i + batchSize);
+    parts.push({
+      ...part,
+      text: buildNativeMcqBatchText(chunk),
+      expectedQuestions: chunk.length,
+    });
+  }
+  return parts;
+};
+
+export const estimateTextTokens = (text: string): number => Math.ceil(String(text || '').length / 3.6);
+
+export const estimateOutputTokensForQuestions = (count: number): number =>
+  Math.ceil(Math.max(1, count) * 1100 * 1.15);
+
+export const getAdaptiveQuestionBatchSize = (
+  profile: ModelTokenProfile,
+  adaptiveBatching = true,
+  runtimeCap?: number
+): number => {
+  if (!adaptiveBatching) return 10;
+  const budgetLimitedCount = Math.max(1, Math.floor(profile.safeOutputBudget / estimateOutputTokensForQuestions(1)));
+  return Math.max(1, Math.min(runtimeCap || profile.maxQuestionsPerBatch, profile.maxQuestionsPerBatch, budgetLimitedCount));
+};
+
+const getAdaptiveTextCharBudget = (profile: ModelTokenProfile, adaptiveBatching = true): number => {
+  if (!adaptiveBatching) return 15000;
+  const inputBudgetChars = Math.floor(profile.inputLimit * 0.08 * 3.6);
+  return Math.max(15000, Math.min(60000, inputBudgetChars));
+};
+
+const getAdaptiveVisionPagesPerChunk = (profile: ModelTokenProfile, adaptiveBatching = true): number =>
+  adaptiveBatching ? Math.max(3, Math.min(5, profile.visionPagesPerBatch)) : 3;
 
 // Helper: Hashing for cache identification
 const hashFiles = async (files: UploadedFile[]): Promise<string> => {
@@ -592,6 +631,84 @@ const extractJson = (text: string): string => {
   return subText.trim();
 };
 
+const findBalancedObjectEnd = (text: string, startIndex: number): number => {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = startIndex; i < text.length; i++) {
+    const char = text[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+
+    if (char === '{') depth++;
+    if (char === '}') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+
+  return -1;
+};
+
+const isCompleteQuestionObject = (value: any): boolean =>
+  Boolean(
+    value &&
+    typeof value.question === 'string' &&
+    Array.isArray(value.options) &&
+    value.options.length >= 2 &&
+    typeof value.correctAnswer === 'string' &&
+    value.explanation &&
+    typeof value.explanation.core === 'string' &&
+    typeof value.explanation.evidence === 'string' &&
+    typeof value.explanation.analysis === 'string' &&
+    typeof value.explanation.warning === 'string' &&
+    typeof value.source === 'string' &&
+    typeof value.difficulty === 'string' &&
+    typeof value.depthAnalysis === 'string'
+  );
+
+export const salvageCompleteQuestionsFromJson = (text: string): any[] => {
+  let jsonText = text || '';
+  const codeBlockMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch) jsonText = codeBlockMatch[1];
+  if (!jsonText) return [];
+
+  const questionsKeyIndex = jsonText.indexOf('"questions"');
+  const arrayStart = questionsKeyIndex >= 0 ? jsonText.indexOf('[', questionsKeyIndex) : jsonText.indexOf('[');
+  if (arrayStart < 0) return [];
+
+  const questions: any[] = [];
+  let cursor = arrayStart + 1;
+  while (cursor < jsonText.length) {
+    const objectStart = jsonText.indexOf('{', cursor);
+    if (objectStart < 0) break;
+    const objectEnd = findBalancedObjectEnd(jsonText, objectStart);
+    if (objectEnd < 0) break;
+
+    try {
+      const parsed = JSON.parse(jsonText.substring(objectStart, objectEnd + 1));
+      if (isCompleteQuestionObject(parsed)) questions.push(parsed);
+    } catch {
+      // Keep scanning; one malformed object should not discard previous complete MCQs.
+    }
+    cursor = objectEnd + 1;
+  }
+
+  return questions;
+};
+
 // --- Deduplication Helpers ---
 
 const extractQuestionNumber = (text: string): number | null => {
@@ -611,7 +728,7 @@ const extractQuestionNumber = (text: string): number | null => {
   return null;
 };
 
-const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any, modelName: string = 'gemini-2.0-flash', cachedContent?: string) => {
+export const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any, modelName: string = 'gemini-2.0-flash', cachedContent?: string, maxOutputTokens?: number) => {
   return {
     model: modelName,
     config: {
@@ -619,7 +736,8 @@ const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any,
       temperature: 0.3,
       responseMimeType: "application/json",
       responseSchema: schema,
-      cachedContent
+      cachedContent,
+      maxOutputTokens
     }
   };
 };
@@ -732,6 +850,7 @@ export const buildOpenAICompatibleProviderRequest = (
     messages,
     temperature: 0.1,
   };
+  body.max_tokens = getModelTokenProfile(settings.provider, modelName).safeOutputBudget;
 
   if (includeResponseFormat) {
     body.response_format = { type: 'json_object' };
@@ -996,6 +1115,12 @@ export const generateQuestions = async (
     const retryProfile = getRetryProfile(options.retryProfile || (isAdvancedMode ? 'rescue' : 'normal'));
     const isRescueMode = retryProfile.name === 'rescue';
     userKeyRotator.init(runtimeSettings.apiKey);
+    const adaptiveBatching = runtimeSettings.adaptiveBatching !== false;
+    const tokenProfile = getModelTokenProfile(runtimeSettings.provider, runtimeSettings.model);
+    let adaptiveQuestionCap = getAdaptiveQuestionBatchSize(tokenProfile, adaptiveBatching);
+    let adaptiveLargeBatchFailures = 0;
+    const visionPagesPerChunk = getAdaptiveVisionPagesPerChunk(tokenProfile, adaptiveBatching);
+    const textCharBudget = getAdaptiveTextCharBudget(tokenProfile, adaptiveBatching);
     // Reset session-level caching flag cho mỗi phiên mới
     cachingDisabledForSession = false;
     cachingFailureCount = 0;
@@ -1015,7 +1140,7 @@ export const generateQuestions = async (
         const pdfDataUrl = file.content.startsWith('data:') ? file.content : `data:application/pdf;base64,${file.content}`;
         try {
           if (onProgress) onProgress(`Đang kiểm tra text layer PDF "${file.name}"...`, 0);
-          const pdfTextAnalysis = await analyzePdfTextLayer(pdfDataUrl);
+          const pdfTextAnalysis = await analyzePdfTextLayer(pdfDataUrl, visionPagesPerChunk, 1, adaptiveQuestionCap);
           if (pdfTextAnalysis.textBatches.length > 0) {
             pdfTextAnalysis.textBatches.forEach((batch, batchIndex) => {
               allParts.push({
@@ -1050,7 +1175,7 @@ export const generateQuestions = async (
           }
         } catch (splitError) {
           console.warn('PDF safe hybrid fallback to legacy vision:', splitError);
-          const pdfChunks = await splitPdf(rawBase64, 3, 1);
+          const pdfChunks = await splitPdf(rawBase64, visionPagesPerChunk, 1);
           if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
             const images = await convertPdfToImages(pdfDataUrl);
             images.forEach((imageBase64) => {
@@ -1066,7 +1191,7 @@ export const generateQuestions = async (
         allParts.push({ inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } });
       } else if (file.docxImageParts?.length) {
         const docxMcqText = file.nativeText?.trim() || file.structuredText?.trim() || '';
-        const docxBatches = splitNativeMcqTextIntoBatches(docxMcqText, 10);
+        const docxBatches = splitNativeMcqTextIntoBatches(docxMcqText, adaptiveQuestionCap);
         if (docxBatches.length > 0) {
           docxBatches.forEach((text, batchIndex) => {
             allParts.push({
@@ -1085,7 +1210,7 @@ export const generateQuestions = async (
         });
       } else if (file.nativeText?.trim() || file.structuredText?.trim()) {
         const docxMcqText = file.nativeText?.trim() || file.structuredText?.trim() || '';
-        const docxBatches = splitNativeMcqTextIntoBatches(docxMcqText, 10);
+        const docxBatches = splitNativeMcqTextIntoBatches(docxMcqText, adaptiveQuestionCap);
         if (docxBatches.length > 0) {
           docxBatches.forEach((text, batchIndex) => {
             allParts.push({
@@ -1098,7 +1223,7 @@ export const generateQuestions = async (
           allParts.push({ text: `[TÀI LIỆU: "${file.name}" (DOCX structured fallback)]\n\n${docxMcqText}` });
         }
       } else {
-        const MAX_CHARS = 15000;
+        const MAX_CHARS = textCharBudget;
         const OVERLAP = 1000;
         let offset = 0;
         let partIdx = 1;
@@ -1205,10 +1330,18 @@ export const generateQuestions = async (
         const questions = Array.isArray(parsed) ? parsed : (parsed?.questions || []);
         if (questions.length === 0) throw new Error("📄 AI đã xử lý nhưng không tìm thấy câu hỏi trắc nghiệm nào trong phần này. Batch sẽ được chia nhỏ để quét kỹ hơn.");
         if (expectedQuestions > 0 && questions.length < expectedQuestions) {
-          throw new Error(`AI_FORMAT_ERROR_TRUNCATED: DOCX native batch cần ${expectedQuestions} câu nhưng AI chỉ trả ${questions.length} câu.`);
+          (questions as any).__salvagedPartial = true;
+          (questions as any).__missingCount = expectedQuestions - questions.length;
         }
         return questions;
       } catch (e) {
+        const salvaged = salvageCompleteQuestionsFromJson(text);
+        if (salvaged.length > 0) {
+          (salvaged as any).__salvagedPartial = true;
+          (salvaged as any).__missingCount = expectedQuestions > 0 ? Math.max(0, expectedQuestions - salvaged.length) : 0;
+          console.warn(`🧩 Salvaged ${salvaged.length}${expectedQuestions > 0 ? `/${expectedQuestions}` : ''} complete questions from malformed JSON in batch ${batchIndex + 1}.`);
+          return salvaged;
+        }
         console.error("JSON Parse Error info:", e, "Raw string:", jsonStr.substring(0, 100) + "...");
         throw new Error(`📄 Dữ liệu AI ở Phần ${batchIndex + 1} bị lỗi cấu trúc (JSON). Hệ thống đang tự động chia nhỏ và thử lại...`);
       }
@@ -1219,10 +1352,19 @@ export const generateQuestions = async (
     const extractionModel = isAdvancedMode || isRescueMode ? stableFallbackModel : runtimeSettings.model;
 
     // Hàm xử lý Batch chính có khả năng Đệ quy (Subdivision)
-    const processBatch = async (part: any, index: number, depth: number = 0) => {
+    const processBatch = async (part: any, index: number, depth: number = 0, forceJsonRepair: boolean = false) => {
       const batchLabel = depth === 0 ? `${index + 1}` : `${index + 1}${String.fromCharCode(96 + depth)}`;
 
       try {
+        const expectedAtStart = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
+        if (adaptiveBatching && depth === 0 && part.nativeMcqBatch && expectedAtStart > adaptiveQuestionCap) {
+          const cappedParts = splitStructuredPartByBatchSize(part, adaptiveQuestionCap);
+          if (cappedParts.length > 1) {
+            await Promise.all(cappedParts.map((p) => processBatch(p, index, depth + 1, forceJsonRepair)));
+            return;
+          }
+        }
+
         if (onProgress) {
           if (isRescueMode) {
             onProgress(`Đang cứu ${Math.min(rescueCompleted + 1, Math.max(1, rescueTotal))}/${Math.max(1, rescueTotal)} phần lỗi • đã thêm ${allQuestions.length} câu${depth > 0 ? ' • đang chia nhỏ' : ''}`, allQuestions.length);
@@ -1234,15 +1376,18 @@ export const generateQuestions = async (
 
         // Per-batch key assignment: Mỗi batch nhận key riêng theo round-robin
         const batchStartingKey = runtimeSettings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
-        const expectedQuestions = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
+        const expectedQuestions = expectedAtStart;
         const structuredSourceLabel = part.sourceMode === 'pdfText' ? 'PDF TEXT STRUCTURED' : 'DOCX';
+        const repairInstruction = forceJsonRepair
+          ? 'LƯU Ý SỬA JSON: Lần trước batch này bị lỗi định dạng hoặc thiếu câu. Hãy trả về JSON hợp lệ tuyệt đối, đóng đủ mọi ngoặc, không markdown, không giải thích ngoài JSON.'
+          : '';
         const nativePrompt = expectedQuestions > 0
           ? `NỘI DUNG ${structuredSourceLabel} ĐÃ ĐƯỢC TÁCH SẴN THÀNH ${expectedQuestions} BLOCK CÂU. Mỗi block <<<MCQ n>>> là đúng 1 câu hoặc 1 mục câu hỏi trong tài liệu. Option có ký hiệu ✅ là đáp án đúng lấy từ marker trong tài liệu; TUYỆT ĐỐI không đổi đáp án này. Nếu block có A/B/C/D thì trích đúng các lựa chọn đó. Nếu block chỉ có Question và Answer/Notes, hãy giữ nguyên câu hỏi, dùng Answer/Notes làm đáp án/giải thích, và chỉ tạo lựa chọn nhiễu khi tài liệu không cung cấp đủ options. Hãy trả về ĐÚNG ${expectedQuestions} câu theo cùng thứ tự, không bỏ câu nào.`
           : '';
         const imagePrompt = part.sourceMode === 'docxImage'
           ? `${part.docxImageLabel || '[DOCX IMAGE]'}\nẢnh này được nhúng trong file Word. Nếu ảnh chỉ là minh họa và KHÔNG chứa câu hỏi trắc nghiệm, hãy trả về chính xác {"questions":[]}. Nếu ảnh chứa MCQ, hãy trích xuất đầy đủ mọi câu hỏi, lựa chọn và đáp án nếu nhìn thấy.`
           : '';
-        const scanPrompt = `${nativePrompt ? `${nativePrompt}\n\n` : ''}${imagePrompt ? `${imagePrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
+        const scanPrompt = `${repairInstruction ? `${repairInstruction}\n\n` : ''}${nativePrompt ? `${nativePrompt}\n\n` : ''}${imagePrompt ? `${imagePrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
 
         const rawNewQs = await (runtimeSettings.provider === 'shopaikey' || runtimeSettings.provider === 'openrouter' || runtimeSettings.provider === 'vertexai'
           ? executeWithUserRotation(
@@ -1251,7 +1396,7 @@ export const generateQuestions = async (
                   const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
                   
                   const messages = [
-                    { role: "system", content: isAdvancedMode ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction },
+                    { role: "system", content: (isAdvancedMode || forceJsonRepair) ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction },
                     { role: "user", content: [{ type: "text", text: scanPrompt }, ...toOpenAIContentFromPart(part)] }
                   ];
 
@@ -1277,7 +1422,8 @@ export const generateQuestions = async (
                     })();
                   }
                   const kCacheName = part.text ? null : await sessionCache[cacheSessionKey];
-                  const config = getModelConfig(currentKey, isAdvancedMode ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction, questionSchema, activeModel, kCacheName || undefined);
+                  const activeProfile = getModelTokenProfile(runtimeSettings.provider, activeModel);
+                  const config = getModelConfig(currentKey, (isAdvancedMode || forceJsonRepair) ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction, questionSchema, activeModel, kCacheName || undefined, activeProfile.safeOutputBudget);
                   const chat = aiInstance.chats.create(config);
                   const batchPrompt = kCacheName ? `Dựa trên tài liệu đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${batchLabel}.` : scanPrompt;
                   const response = await chat.sendMessage({ message: buildGoogleBatchMessage(part, batchPrompt, kCacheName || undefined) });
@@ -1290,6 +1436,8 @@ export const generateQuestions = async (
         );
 
         if (rawNewQs && rawNewQs.length > 0) {
+          const salvagedPartial = Boolean((rawNewQs as any).__salvagedPartial);
+          const missingCount = Number((rawNewQs as any).__missingCount || 0);
           const newQs = [];
           for (const q of rawNewQs) {
             const result = findDuplicate(q, [...allQuestions, ...newQs]);
@@ -1322,19 +1470,39 @@ export const generateQuestions = async (
             if (onBatchComplete) onBatchComplete(newQs);
             console.log(`✅ Batch ${batchLabel}: Found ${newQs.length} questions.`);
           }
+
+          if (salvagedPartial && missingCount > 0) {
+            throw new Error(`AI_FORMAT_ERROR_PARTIAL_SALVAGE: Đã cứu ${rawNewQs.length} câu hợp lệ nhưng còn thiếu khoảng ${missingCount} câu.`);
+          }
         }
       } catch (e: any) {
         const errorKind = classifyBatchError(e);
+        const expectedQuestions = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
+        if (adaptiveBatching && !forceJsonRepair && depth === 0 && errorKind === 'format' && (expectedQuestions > 10 || estimateTextTokens(part.text || '') > 4000)) {
+          console.warn(`🔧 Batch ${batchLabel} format failed. Retrying once with strict JSON repair before splitting...`);
+          await processBatch(part, index, depth, true);
+          return;
+        }
+
+        if (adaptiveBatching && forceJsonRepair && depth === 0 && errorKind === 'format' && expectedQuestions > 20) {
+          adaptiveLargeBatchFailures++;
+          if (adaptiveLargeBatchFailures >= 2 && adaptiveQuestionCap > 20) {
+            adaptiveQuestionCap = 20;
+            console.warn('🛡️ Adaptive batching cap lowered to 20 questions for remaining batches after repeated format failures.');
+          }
+        }
+
         const nativeParts = part.nativeMcqBatch && depth < retryProfile.maxDepth && shouldSplitForError(errorKind)
-          ? getNativePartBatches(part.text || '', retryProfile.targetSplitParts)
+          ? getNativePartBatches(part.text || '', adaptiveBatching && forceJsonRepair ? 2 : retryProfile.targetSplitParts)
           : [];
         const canSplitText = depth < retryProfile.maxDepth && part.text && part.text.length > retryProfile.splitThresholdChars && shouldSplitForError(errorKind);
         if (nativeParts.length > 1 || canSplitText) {
-          console.warn(`🚀 Batch ${batchLabel} fail (${errorKind}). Triggering NATURAL-SUBDIVISION (${retryProfile.targetSplitParts} parts, Depth ${depth + 1})...`);
+          const splitPartsCount = adaptiveBatching && forceJsonRepair ? 2 : retryProfile.targetSplitParts;
+          console.warn(`🚀 Batch ${batchLabel} fail (${errorKind}). Triggering NATURAL-SUBDIVISION (${splitPartsCount} parts, Depth ${depth + 1})...`);
           const progressBeforeSplit = allQuestions.length + allDuplicates.length + autoSkippedCount;
           const parts = (nativeParts.length > 1
             ? nativeParts.map(text => ({ ...part, text, expectedQuestions: getNativeBatchExpectedCount(text) }))
-            : splitTextIntoNaturalParts(part.text, retryProfile.targetSplitParts, retryProfile.splitThresholdChars)
+            : splitTextIntoNaturalParts(part.text, splitPartsCount, retryProfile.splitThresholdChars)
               .map(text => ({ ...part, text }))
           ).filter(p => p.text.trim().length > 0);
 

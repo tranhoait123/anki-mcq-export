@@ -32,6 +32,8 @@ export const useAppStore = create<AppState>((set) => ({
     model: 'gemini-3.1-flash-lite-preview',
     customPrompt: '',
     skipAnalysis: false,
+    adaptiveBatching: true,
+    batchingMode: 'safe',
   },
   analysis: null,
   audit: null,

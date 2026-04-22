@@ -128,4 +128,6 @@ export interface AppSettings {
   customPrompt: string;
   skipAnalysis?: boolean;
   concurrencyLimit?: number;
+  adaptiveBatching?: boolean;
+  batchingMode?: 'safe';
 }

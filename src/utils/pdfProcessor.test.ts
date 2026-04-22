@@ -117,4 +117,12 @@ ${'Nội dung bổ sung đủ dài.\n'.repeat(20)}
     expect(analysis.textBatches.every((batch) => batch.expectedQuestions === 10)).toBe(true);
     expect(analysis.textBatches[0].text.length).toBeLessThan(15000);
   });
+
+  it('supports adaptive structured batch sizes for high-output models', () => {
+    const page = scorePdfTextPage(cleanMcqPage(70), 1);
+    const analysis = buildPdfTextAnalysisFromPages([page], 3, 1, 35);
+
+    expect(analysis.textBatches).toHaveLength(2);
+    expect(analysis.textBatches.every((batch) => batch.expectedQuestions === 35)).toBe(true);
+  });
 });

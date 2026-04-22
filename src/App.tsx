@@ -52,7 +52,9 @@ const App: React.FC = () => {
     model: 'gemini-3.1-flash-lite-preview',
     customPrompt: '',
     skipAnalysis: true,
-    concurrencyLimit: 2
+    concurrencyLimit: 2,
+    adaptiveBatching: true,
+    batchingMode: 'safe',
   });
 
   // Initialization & Migration: Load from DB or Migration from localStorage
@@ -94,6 +96,8 @@ const App: React.FC = () => {
           if (persistedSettings.vertexLocation === undefined) persistedSettings.vertexLocation = 'us-central1';
           if (persistedSettings.vertexAccessToken === undefined) persistedSettings.vertexAccessToken = '';
           if (persistedSettings.skipAnalysis === undefined) persistedSettings.skipAnalysis = true;
+          if (persistedSettings.adaptiveBatching === undefined) persistedSettings.adaptiveBatching = true;
+          if (persistedSettings.batchingMode === undefined) persistedSettings.batchingMode = 'safe';
           
           setSettings(persistedSettings);
         }

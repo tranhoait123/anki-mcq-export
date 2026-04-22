@@ -221,11 +221,12 @@ const buildStructuredPdfText = (blocks: string[]): string => `[PDF_TEXT_MCQ_COUN
 
 const chunkBlocks = (blocks: string[], batchSize = 10): string[][] => {
     const chunks: string[][] = [];
-    for (let i = 0; i < blocks.length; i += batchSize) chunks.push(blocks.slice(i, i + batchSize));
+    const safeBatchSize = Math.max(1, Math.floor(batchSize));
+    for (let i = 0; i < blocks.length; i += safeBatchSize) chunks.push(blocks.slice(i, i + safeBatchSize));
     return chunks;
 };
 
-export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChunk = 3, overlap = 1): PdfTextAnalysis => {
+export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChunk = 3, overlap = 1, structuredBatchSize = 10): PdfTextAnalysis => {
     const pageCount = pages.length;
     const ranges = buildPageRanges(pageCount, pagesPerChunk, overlap);
     const textBatches: PdfTextBatch[] = [];
@@ -239,7 +240,7 @@ export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChun
             const blocks = parseMcqBlocksFromText(joinedText);
             const sparseBlockRisk = joinedText.length > 2500 && blocks.length < 2;
             if (blocks.length > 0 && !sparseBlockRisk) {
-                chunkBlocks(blocks, 10).forEach((chunk) => {
+                chunkBlocks(blocks, structuredBatchSize).forEach((chunk) => {
                     textBatches.push({
                         text: buildStructuredPdfText(chunk),
                         expectedQuestions: chunk.length,
@@ -277,7 +278,7 @@ const openPdf = async (base64OrUrl: string) => {
     return loadingTask.promise;
 };
 
-export const analyzePdfTextLayer = async (base64OrUrl: string): Promise<PdfTextAnalysis> => {
+export const analyzePdfTextLayer = async (base64OrUrl: string, pagesPerChunk = 3, overlap = 1, structuredBatchSize = 10): Promise<PdfTextAnalysis> => {
     const pdf = await openPdf(base64OrUrl);
     const samplePages = Math.min(3, pdf.numPages);
     const sampled: PdfTextPage[] = [];
@@ -304,7 +305,7 @@ export const analyzePdfTextLayer = async (base64OrUrl: string): Promise<PdfTextA
             pageCount: pdf.numPages,
             pages,
             textBatches: [],
-            visionPageRanges: buildPageRanges(pdf.numPages, 3, 1),
+            visionPageRanges: buildPageRanges(pdf.numPages, pagesPerChunk, overlap),
             detectedMcqCount: 0,
             mode: 'vision',
         };
@@ -327,7 +328,7 @@ export const analyzePdfTextLayer = async (base64OrUrl: string): Promise<PdfTextA
         }));
     }
 
-    return buildPdfTextAnalysisFromPages(pages, 3, 1);
+    return buildPdfTextAnalysisFromPages(pages, pagesPerChunk, overlap, structuredBatchSize);
 };
 
 export const convertPdfToImages = async (base64OrUrl: string, pageRange?: PdfPageRange): Promise<string[]> => {

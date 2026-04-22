@@ -12,6 +12,14 @@ export interface ModelGroup {
   options: ModelOption[];
 }
 
+export interface ModelTokenProfile {
+  inputLimit: number;
+  outputLimit: number;
+  safeOutputBudget: number;
+  maxQuestionsPerBatch: number;
+  visionPagesPerBatch: number;
+}
+
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite-preview';
 export const OPENROUTER_VISION_FALLBACK_MODEL = 'google/gemini-2.5-flash';
 export const SHOPAIKEY_VISION_FALLBACK_MODEL = 'gemini-2.5-flash';
@@ -207,4 +215,47 @@ export const getProviderModelMismatchMessage = (provider: AIProvider, model: str
     return `MODEL_PROVIDER_MISMATCH: Model "${model || '(trống)'}" không dùng được với ${provider === 'google' ? 'Google Gemini' : 'Vertex AI'}. Chỉ model dạng gemini-* mới gọi được Google endpoint.`;
   }
   return `MODEL_PROVIDER_MISMATCH: Model đang trống hoặc không phù hợp với provider hiện tại.`;
+};
+
+const GEMINI_FLASH_PROFILE: ModelTokenProfile = {
+  inputLimit: 1_048_576,
+  outputLimit: 65_536,
+  safeOutputBudget: 49_152,
+  maxQuestionsPerBatch: 35,
+  visionPagesPerBatch: 4,
+};
+
+const GPT5_PROFILE: ModelTokenProfile = {
+  inputLimit: 400_000,
+  outputLimit: 128_000,
+  safeOutputBudget: 65_536,
+  maxQuestionsPerBatch: 35,
+  visionPagesPerBatch: 3,
+};
+
+const CONSERVATIVE_PROFILE: ModelTokenProfile = {
+  inputLimit: 128_000,
+  outputLimit: 32_768,
+  safeOutputBudget: 24_576,
+  maxQuestionsPerBatch: 20,
+  visionPagesPerBatch: 3,
+};
+
+export const getModelTokenProfile = (provider: AIProvider, model: string): ModelTokenProfile => {
+  const normalizedModel = normalizeModelForProvider(provider, model || '');
+  const normalized = normalizedModel.toLowerCase();
+
+  if (
+    normalized.includes('gemini-2.5-flash') ||
+    normalized.includes('gemini-2.5-pro') ||
+    normalized.includes('gemini-3-flash')
+  ) {
+    return { ...GEMINI_FLASH_PROFILE };
+  }
+
+  if (normalized.includes('gpt-5')) {
+    return { ...GPT5_PROFILE };
+  }
+
+  return { ...CONSERVATIVE_PROFILE };
 };

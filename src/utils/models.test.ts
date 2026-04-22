@@ -3,6 +3,7 @@ import {
   getModelGroups,
   getModelValues,
   getProviderFallbackModel,
+  getModelTokenProfile,
   coerceModelForProvider,
   coerceModelForProviderInput,
   isVisionCapableModel,
@@ -109,5 +110,27 @@ describe('AI model registry', () => {
     expect(normalizeModelForProvider('shopaikey', 'anthropic/claude-opus-4.7')).toBe('claude-opus-4-7');
     expect(normalizeModelForProvider('shopaikey', 'deepseek/deepseek-reasoner')).toBe('deepseek-reasoner');
     expect(normalizeModelForProvider('openrouter', 'openai/gpt-5.4-mini')).toBe('openai/gpt-5.4-mini');
+  });
+
+  it('returns token profiles for adaptive batching by model family', () => {
+    expect(getModelTokenProfile('google', 'gemini-2.5-flash-lite')).toMatchObject({
+      inputLimit: 1048576,
+      outputLimit: 65536,
+      safeOutputBudget: 49152,
+      maxQuestionsPerBatch: 35,
+    });
+    expect(getModelTokenProfile('openrouter', 'google/gemini-3-flash-preview')).toMatchObject({
+      safeOutputBudget: 49152,
+      maxQuestionsPerBatch: 35,
+    });
+    expect(getModelTokenProfile('openrouter', 'openai/gpt-5-mini')).toMatchObject({
+      inputLimit: 400000,
+      outputLimit: 128000,
+      safeOutputBudget: 65536,
+    });
+    expect(getModelTokenProfile('openrouter', 'custom/vendor-model')).toMatchObject({
+      safeOutputBudget: 24576,
+      maxQuestionsPerBatch: 20,
+    });
   });
 });

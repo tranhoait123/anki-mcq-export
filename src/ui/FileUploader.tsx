@@ -55,6 +55,22 @@ const getDocxModeBadge = (file: UploadedFile) => {
   return null;
 };
 
+const getPdfModeBadge = (file: UploadedFile) => {
+  if (file.type !== 'application/pdf') return null;
+  if (file.pdfMode === 'safeHybrid') return {
+    text: `PDF hybrid: ${file.pdfTextBatchCount || 0} text / ${file.pdfVisionBatchCount || 0} vision`,
+    className: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
+  };
+  if (file.pdfMode === 'textOnlyCandidate') return {
+    text: `PDF text: ${file.pdfTextMcqCount || 0} câu`,
+    className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+  };
+  return {
+    text: 'PDF vision',
+    className: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
+  };
+};
+
 const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
 
   const updateFileProgress = useCallback((fileName: string, progress: number) => {
@@ -143,6 +159,12 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
           await new Promise(r => setTimeout(r, 0));
         }
         content = chunks.join('');
+        if (file.type === 'application/pdf') {
+          fileEnhancements = {
+            pdfMode: 'vision',
+            pdfNotice: 'PDF sẽ dùng Safe Hybrid khi quét: text layer sạch sẽ chạy nhanh, batch nghi ngờ vẫn dùng Vision.',
+          };
+        }
 
       } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.name.toLowerCase().endsWith('.docx')) {
         // DOCX Chunked Reading (Mammoth needs full buffer, so we aggregate chunks)
@@ -342,6 +364,14 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
                           >
                             {file.docxMode === 'visionRecommended' && <ImageIcon size={10} className="mr-1 inline" />}
                             {getDocxModeBadge(file)?.text}
+                          </span>
+                        )}
+                        {getPdfModeBadge(file) && (
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${getPdfModeBadge(file)?.className}`}
+                            title={file.pdfNotice}
+                          >
+                            {getPdfModeBadge(file)?.text}
                           </span>
                         )}
                       </div>

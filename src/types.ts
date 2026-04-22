@@ -96,6 +96,11 @@ export interface UploadedFile {
   structuredMcqCount?: number;
   docxMode?: 'native' | 'structuredFallback' | 'textFallback' | 'visionRecommended';
   docxNotice?: string;
+  pdfMode?: 'vision' | 'safeHybrid' | 'textOnlyCandidate';
+  pdfTextMcqCount?: number;
+  pdfTextBatchCount?: number;
+  pdfVisionBatchCount?: number;
+  pdfNotice?: string;
   size?: number; // Added to fix lint error
   isProcessing?: boolean;
   progress?: number;

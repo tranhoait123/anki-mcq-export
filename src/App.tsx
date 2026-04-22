@@ -259,7 +259,7 @@ const App: React.FC = () => {
     let processedFiles: UploadedFile[] = [];
 
     // Pre-processing: Chuyển PDF thành ảnh nếu Provider không phải Google (Vertex/OpenRouter/ShopAI không nhận PDF raw)
-    const needsPdfRasterization = settings.provider !== 'google';
+    const needsPdfRasterization = settings.provider !== 'google' && mode !== 'gemini';
     for (const file of files) {
       if (file.type === 'application/pdf' && needsPdfRasterization) {
          setProgressStatus(`Đang chuyển đổi PDF sang ảnh để tương thích với ${settings.provider}...`);

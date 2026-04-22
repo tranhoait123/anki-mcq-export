@@ -4,6 +4,7 @@ import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, Audi
 import { db } from './db';
 import { findDuplicate } from '../utils/dedupe';
 import { coerceModelForProvider, coerceModelForProviderInput, getProviderFallbackModel, getProviderModelMismatchMessage } from '../utils/models';
+import { analyzePdfTextLayer, convertPdfToImages, PdfPageRange } from '../utils/pdfProcessor';
 import {
   classifyBatchError,
   describeBatchError,
@@ -28,7 +29,7 @@ const getDetectedDocxMcqCount = (files: UploadedFile[]): number =>
   files.reduce((total, file) => total + (file.nativeMcqCount || file.structuredMcqCount || 0), 0);
 
 const getNativeBatchExpectedCount = (text: string): number => {
-  const match = String(text || '').match(/^\[DOCX_NATIVE_BATCH_COUNT:\s*(\d+)\]/i);
+  const match = String(text || '').match(/^\[(?:DOCX_NATIVE|PDF_TEXT)_(?:BATCH|MCQ)_COUNT:\s*(\d+)\]/i);
   return match ? Number(match[1]) || 0 : 0;
 };
 
@@ -316,23 +317,25 @@ const getOrSetContextCache = async (ai: any, files: UploadedFile[], modelName: s
 
 // Helper: Split PDF into chunks (client-side, no worker needed)
 // Helper: Split PDF into chunks (client-side) with OVERLAP support
-const splitPdf = async (base64Data: string, pagesPerChunk: number = 3, overlap: number = 1): Promise<string[]> => {
-  const pdfDoc = await PDFDocument.load(base64Data);
-  const totalPages = pdfDoc.getPageCount();
-  const chunks: string[] = [];
+const getPdfPageRanges = (totalPages: number, pagesPerChunk: number = 3, overlap: number = 1): PdfPageRange[] => {
+  const ranges: PdfPageRange[] = [];
   const step = Math.max(1, pagesPerChunk - overlap);
+  for (let start = 1; start <= totalPages; start += step) {
+    const end = Math.min(totalPages, start + pagesPerChunk - 1);
+    ranges.push({ start, end });
+    if (end === totalPages) break;
+  }
+  return ranges;
+};
 
-  for (let i = 0; i < totalPages; i += step) {
-    // Avoid creating a last chunk that is fully contained in the previous one if exact match?
-    // But simplest logic is just overlap.
-    if (i > 0 && i + pagesPerChunk > totalPages && i + step >= totalPages) {
-      // Optimization: If we are near end, ensures we catch everything.
-    }
+const splitPdfByRanges = async (base64Data: string, ranges: PdfPageRange[]): Promise<string[]> => {
+  const pdfDoc = await PDFDocument.load(base64Data);
+  const chunks: string[] = [];
+  const totalPages = pdfDoc.getPageCount();
 
+  for (const range of ranges) {
     const subDoc = await PDFDocument.create();
-    const pageIndices = Array.from({ length: Math.min(pagesPerChunk, totalPages - i) }, (_, k) => i + k);
-
-    // Filter out of bounds just in case
+    const pageIndices = Array.from({ length: Math.max(0, range.end - range.start + 1) }, (_, k) => range.start - 1 + k);
     const validIndices = pageIndices.filter(idx => idx < totalPages);
     if (validIndices.length === 0) break;
 
@@ -341,10 +344,13 @@ const splitPdf = async (base64Data: string, pagesPerChunk: number = 3, overlap: 
     const base64 = await subDoc.saveAsBase64();
     chunks.push(base64);
 
-    // Stop if we reached end
-    if (validIndices[validIndices.length - 1] === totalPages - 1) break;
   }
   return chunks;
+};
+
+const splitPdf = async (base64Data: string, pagesPerChunk: number = 3, overlap: number = 1): Promise<string[]> => {
+  const pdfDoc = await PDFDocument.load(base64Data);
+  return splitPdfByRanges(base64Data, getPdfPageRanges(pdfDoc.getPageCount(), pagesPerChunk, overlap));
 };
 
 const SYSTEM_INSTRUCTION_EXTRACT = `
@@ -1067,14 +1073,56 @@ export const generateQuestions = async (
     // [Step 1: Splitting Logic]
     for (const file of files) {
       if (file.type === 'application/pdf') {
+        const rawBase64 = file.content.includes(',') ? file.content.split(',')[1] : file.content;
+        const pdfDataUrl = file.content.startsWith('data:') ? file.content : `data:application/pdf;base64,${file.content}`;
         try {
-          const rawBase64 = file.content.includes(',') ? file.content.split(',')[1] : file.content;
-          const pdfChunks = await splitPdf(rawBase64, 3, 1);
-          pdfChunks.forEach((chunkBase64) => {
-            allParts.push({ inlineData: { mimeType: 'application/pdf', data: chunkBase64 } });
-          });
+          if (onProgress) onProgress(`Đang kiểm tra text layer PDF "${file.name}"...`, 0);
+          const pdfTextAnalysis = await analyzePdfTextLayer(pdfDataUrl);
+          if (pdfTextAnalysis.textBatches.length > 0) {
+            pdfTextAnalysis.textBatches.forEach((batch, batchIndex) => {
+              allParts.push({
+                text: `[TÀI LIỆU PDF TEXT STRUCTURED: "${file.name}" (Trang ${batch.pageRange.start}-${batch.pageRange.end}, Nhóm ${batchIndex + 1}/${pdfTextAnalysis.textBatches.length})]\n\n${batch.text}`,
+                nativeMcqBatch: true,
+                structuredMcqBatch: true,
+                sourceMode: 'pdfText',
+                expectedQuestions: batch.expectedQuestions,
+              });
+            });
+          }
+
+          const visionRanges = pdfTextAnalysis.visionPageRanges;
+          if (visionRanges.length > 0) {
+            if (onProgress) onProgress(`PDF hybrid: ${pdfTextAnalysis.textBatches.length} batch text, ${visionRanges.length} batch Vision.`, 0);
+            if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
+              for (const range of visionRanges) {
+                const images = await convertPdfToImages(pdfDataUrl, range);
+                images.forEach((imageBase64) => {
+                  allParts.push({
+                    inlineData: { mimeType: 'image/jpeg', data: imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64 },
+                    sourceMode: 'pdfVision',
+                  });
+                });
+              }
+            } else {
+              const pdfChunks = await splitPdfByRanges(rawBase64, visionRanges);
+              pdfChunks.forEach((chunkBase64) => {
+                allParts.push({ inlineData: { mimeType: 'application/pdf', data: chunkBase64 }, sourceMode: 'pdfVision' });
+              });
+            }
+          }
         } catch (splitError) {
-          allParts.push({ inlineData: { mimeType: 'application/pdf', data: file.content.includes(',') ? file.content.split(',')[1] : file.content } });
+          console.warn('PDF safe hybrid fallback to legacy vision:', splitError);
+          const pdfChunks = await splitPdf(rawBase64, 3, 1);
+          if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
+            const images = await convertPdfToImages(pdfDataUrl);
+            images.forEach((imageBase64) => {
+              allParts.push({ inlineData: { mimeType: 'image/jpeg', data: imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64 }, sourceMode: 'pdfVision' });
+            });
+          } else {
+            pdfChunks.forEach((chunkBase64) => {
+              allParts.push({ inlineData: { mimeType: 'application/pdf', data: chunkBase64 }, sourceMode: 'pdfVision' });
+            });
+          }
         }
       } else if (file.type.startsWith('image/')) {
         allParts.push({ inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } });
@@ -1230,8 +1278,9 @@ export const generateQuestions = async (
         // Per-batch key assignment: Mỗi batch nhận key riêng theo round-robin
         const batchStartingKey = runtimeSettings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
         const expectedQuestions = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
+        const structuredSourceLabel = part.sourceMode === 'pdfText' ? 'PDF TEXT STRUCTURED' : 'DOCX';
         const nativePrompt = expectedQuestions > 0
-          ? `NỘI DUNG DOCX ĐÃ ĐƯỢC TÁCH SẴN THÀNH ${expectedQuestions} CÂU MCQ. Mỗi block <<<MCQ n>>> là đúng 1 câu. Option có ký hiệu ✅ là đáp án đúng lấy từ marker trong Word; TUYỆT ĐỐI không đổi đáp án này. Nếu một câu không có ký hiệu ✅, hãy suy luận đáp án đúng từ nội dung. Hãy trả về ĐÚNG ${expectedQuestions} câu theo cùng thứ tự, không bỏ câu nào.`
+          ? `NỘI DUNG ${structuredSourceLabel} ĐÃ ĐƯỢC TÁCH SẴN THÀNH ${expectedQuestions} CÂU MCQ. Mỗi block <<<MCQ n>>> là đúng 1 câu. Option có ký hiệu ✅ là đáp án đúng lấy từ marker trong tài liệu; TUYỆT ĐỐI không đổi đáp án này. Nếu một câu không có ký hiệu ✅, hãy suy luận đáp án đúng từ nội dung. Hãy trả về ĐÚNG ${expectedQuestions} câu theo cùng thứ tự, không bỏ câu nào.`
           : '';
         const scanPrompt = `${nativePrompt ? `${nativePrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
 

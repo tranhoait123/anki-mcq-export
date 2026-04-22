@@ -89,8 +89,11 @@ export interface UploadedFile {
   name: string;
   type: string;
   content: string;
+  plainText?: string;
   nativeText?: string;
   nativeMcqCount?: number;
+  docxMode?: 'native' | 'textFallback' | 'visionRecommended';
+  docxNotice?: string;
   size?: number; // Added to fix lint error
   isProcessing?: boolean;
   progress?: number;

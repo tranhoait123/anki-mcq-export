@@ -35,6 +35,7 @@ describe('DOCX native MCQ parser', () => {
     expect(result.mcqs[1].correctAnswer).toBe('C');
     expect(result.nativeText).toContain('✅ D.');
     expect(result.nativeText).toContain('[DOCX_NATIVE_MCQ_COUNT: 2]');
+    expect(result.plainText).toContain('Đáy tim được tạo bởi');
   });
 
   it('supports five-option questions and leaves correct answer empty without highlight', () => {

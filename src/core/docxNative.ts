@@ -15,6 +15,7 @@ export interface NativeDocxParseResult {
   paragraphs: DocxParagraph[];
   mcqs: NativeDocxMcq[];
   nativeText: string;
+  plainText: string;
 }
 
 const OPTION_PATTERN = /^([A-E])\s*[\.:)]\s*(.+)$/i;
@@ -66,6 +67,7 @@ export const parseDocxDocumentXml = (documentXml: string): NativeDocxParseResult
     paragraphs,
     mcqs,
     nativeText: buildNativeMcqText(mcqs),
+    plainText: paragraphs.map((paragraph) => paragraph.text).join('\n').trim(),
   };
 };
 

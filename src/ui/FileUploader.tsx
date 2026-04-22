@@ -29,6 +29,28 @@ const sanitizeUploadedHtml = (html: string): string => {
   return template.innerHTML;
 };
 
+const htmlToPlainText = (html: string): string => {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  return (template.content.textContent || '').replace(/\s+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+};
+
+const getDocxModeBadge = (file: UploadedFile) => {
+  if (file.docxMode === 'native') return {
+    text: `DOCX native: ${file.nativeMcqCount || 0} câu`,
+    className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+  };
+  if (file.docxMode === 'textFallback') return {
+    text: 'DOCX text fallback',
+    className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  };
+  if (file.docxMode === 'visionRecommended') return {
+    text: 'Nên dùng PDF/Ảnh',
+    className: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
+  };
+  return null;
+};
+
 const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
 
   const updateFileProgress = useCallback((fileName: string, progress: number) => {
@@ -96,6 +118,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
 
     try {
       let content = "";
+      let fileEnhancements: Partial<UploadedFile> = {};
       let offset = 0;
       const totalSize = file.size;
 
@@ -154,14 +177,35 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
         ]);
         const result = await mammoth.convertToHtml({ arrayBuffer: docxBuffer });
         content = sanitizeUploadedHtml(result.value);
-        if (!content.trim()) throw new Error("Không tìm thấy văn bản trong file Word");
+        if (!content.trim()) content = '<p>Không tìm thấy văn bản trực tiếp trong file Word.</p>';
 
-        setFiles(prev => prev.map(f => {
-          if (f.name === file.name && nativeDocx?.nativeText) {
-            return { ...f, nativeText: nativeDocx.nativeText, nativeMcqCount: nativeDocx.mcqs.length };
-          }
-          return f;
-        }));
+        const plainText = nativeDocx?.plainText?.trim() || htmlToPlainText(content);
+        const nativeMcqCount = nativeDocx?.mcqs.length || 0;
+        if (nativeMcqCount >= 4 && nativeDocx?.nativeText) {
+          fileEnhancements = {
+            plainText,
+            nativeText: nativeDocx.nativeText,
+            nativeMcqCount,
+            docxMode: 'native',
+            docxNotice: `DOCX native: nhận diện ${nativeMcqCount} câu, giữ highlight đáp án.`,
+          };
+        } else if (plainText.length >= 300) {
+          fileEnhancements = {
+            plainText,
+            nativeMcqCount,
+            docxMode: 'textFallback',
+            docxNotice: 'Không nhận diện đủ cấu trúc A/B/C/D; app sẽ dùng văn bản sạch để AI quét.',
+          };
+          toast.info(`DOCX "${file.name}" chưa tách được MCQ native, sẽ dùng fallback văn bản sạch.`);
+        } else {
+          fileEnhancements = {
+            plainText,
+            nativeMcqCount,
+            docxMode: 'visionRecommended',
+            docxNotice: 'DOCX gần như không có text thật. Nên xuất Word sang PDF hoặc ảnh rõ rồi tải lại để dùng Vision.',
+          };
+          toast.warning(`DOCX "${file.name}" có rất ít text. Nên chuyển sang PDF/ảnh để quét Vision.`);
+        }
 
       } else {
         // Text Processing (txt, md, etc.)
@@ -182,7 +226,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
       // Update the file content and remove processing flag
       setFiles(prev => prev.map(f => {
         if (f.name === file.name) {
-          return { ...f, content, isProcessing: false, progress: 100 };
+          return { ...f, content, ...fileEnhancements, isProcessing: false, progress: 100 };
         }
         return f;
       }));
@@ -271,9 +315,18 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
                         <span className="text-xs text-amber-600 font-medium w-8 text-right">{file.progress || 0}%</span>
                       </div>
                     ) : (
-                      <span className="text-xs text-gray-400">
-                        Đã sẵn sàng{file.nativeMcqCount ? ` • DOCX native: ${file.nativeMcqCount} câu` : ''}
-                      </span>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-gray-400">Đã sẵn sàng</span>
+                        {getDocxModeBadge(file) && (
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${getDocxModeBadge(file)?.className}`}
+                            title={file.docxNotice}
+                          >
+                            {file.docxMode === 'visionRecommended' && <ImageIcon size={10} className="mr-1 inline" />}
+                            {getDocxModeBadge(file)?.text}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>

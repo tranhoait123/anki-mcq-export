@@ -22,7 +22,7 @@ interface GenerateQuestionsOptions {
 }
 
 const getFileTextContent = (file: UploadedFile): string =>
-  file.nativeText?.trim() || file.content || '';
+  file.nativeText?.trim() || file.plainText?.trim() || file.content || '';
 
 const getNativeBatchExpectedCount = (text: string): number => {
   const match = String(text || '').match(/^\[DOCX_NATIVE_BATCH_COUNT:\s*(\d+)\]/i);

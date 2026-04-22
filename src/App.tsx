@@ -186,6 +186,16 @@ const App: React.FC = () => {
   };
 
   const currentFilesRequireVision = () => files.some(file => file.type === 'application/pdf' || file.type.startsWith('image/'));
+  const getVisionRecommendedDocx = () => files.find(file => file.docxMode === 'visionRecommended');
+
+  const warnVisionRecommendedDocx = () => {
+    const file = getVisionRecommendedDocx();
+    if (!file) return false;
+    toast.error(`DOCX "${file.name}" gần như không có text thật. Hãy xuất Word sang PDF hoặc ảnh rõ rồi tải lại để quét Vision.`, {
+      duration: 7000,
+    });
+    return true;
+  };
 
   const getRequestSettings = (requiresVision: boolean = false) => {
     const coercedModel = coerceModelForProviderInput(settings.provider, settings.model, requiresVision);
@@ -314,6 +324,7 @@ const App: React.FC = () => {
 
   const handleAnalyze = async () => {
     if (files.length === 0) return;
+    if (warnVisionRecommendedDocx()) return;
     const requestSettings = getRequestSettings(currentFilesRequireVision());
 
     // Validation for Provider Keys (Fix Pack 2026)
@@ -362,6 +373,7 @@ const App: React.FC = () => {
 
   const handleGenerate = async () => {
     if (files.length === 0) return;
+    if (warnVisionRecommendedDocx()) return;
     const requestSettings = getRequestSettings(currentFilesRequireVision());
     
     // Validation for Provider Keys
@@ -556,6 +568,7 @@ const App: React.FC = () => {
 
   const handleRetryFailed = async () => {
     if (files.length === 0 || failedBatchIndices.length === 0) return;
+    if (warnVisionRecommendedDocx()) return;
     const requestSettings = getRequestSettings(currentFilesRequireVision());
     
     setLoading(true);

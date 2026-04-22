@@ -77,6 +77,9 @@ describe('DOCX study export', () => {
 
     expect(documentXml).toBeTruthy();
     expect(documentXml).toContain('<w:tbl>');
+    expect(documentXml).toContain('<w:tblLayout w:type="fixed"/>');
+    expect(documentXml).toContain('<w:tblW w:type="dxa" w:w="9360"/>');
+    expect(documentXml).toContain('<w:gridCol w:w="4680"/>');
     expect(documentXml).not.toContain('| --- |');
     expect(documentXml).not.toContain('| Dấu hiệu | Ý nghĩa |');
   });

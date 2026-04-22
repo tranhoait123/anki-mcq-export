@@ -5,6 +5,7 @@ const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E'];
 const ACCENT_COLOR = '0F766E';
 const ACCENT_FILL = 'DFF7EF';
 const SECTION_COLOR = '1E293B';
+const DOCX_TABLE_WIDTH_TWIPS = 9360;
 
 export const sanitizeDocxText = (value: unknown): string => {
   if (value === null || value === undefined) return '';
@@ -105,6 +106,14 @@ const parseTableRow = (line: string): string[] =>
     .split('|')
     .map(cell => sanitizeDocxText(cell));
 
+const getTableColumnWidths = (columnCount: number): number[] => {
+  const safeColumnCount = Math.max(1, columnCount);
+  const baseWidth = Math.floor(DOCX_TABLE_WIDTH_TWIPS / safeColumnCount);
+  const widths = Array(safeColumnCount).fill(baseWidth);
+  widths[safeColumnCount - 1] += DOCX_TABLE_WIDTH_TWIPS - (baseWidth * safeColumnCount);
+  return widths;
+};
+
 export const splitMarkdownBlocks = (text: string): ContentBlock[] => {
   const lines = sanitizeDocxText(text).split('\n');
   const blocks: ContentBlock[] = [];
@@ -143,10 +152,25 @@ export const splitMarkdownBlocks = (text: string): ContentBlock[] => {
 };
 
 const createDocxTable = async (rows: string[][]) => {
-  const { BorderStyle, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } = await import('docx');
+  const {
+    AlignmentType,
+    BorderStyle,
+    Paragraph,
+    Table,
+    TableCell,
+    TableLayoutType,
+    TableRow,
+    TextRun,
+    VerticalAlignTable,
+    WidthType,
+  } = await import('docx');
   const maxColumns = Math.max(...rows.map(row => row.length));
+  const columnWidths = getTableColumnWidths(maxColumns);
   return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
+    width: { size: DOCX_TABLE_WIDTH_TWIPS, type: WidthType.DXA },
+    columnWidths,
+    layout: TableLayoutType.FIXED,
+    alignment: AlignmentType.CENTER,
     borders: {
       top: { style: BorderStyle.SINGLE, size: 1, color: 'CBD5E1' },
       bottom: { style: BorderStyle.SINGLE, size: 1, color: 'CBD5E1' },
@@ -157,6 +181,8 @@ const createDocxTable = async (rows: string[][]) => {
     },
     rows: rows.map((row, rowIndex) => new TableRow({
       children: Array.from({ length: maxColumns }, (_, cellIndex) => new TableCell({
+        width: { size: columnWidths[cellIndex], type: WidthType.DXA },
+        verticalAlign: VerticalAlignTable.CENTER,
         shading: rowIndex === 0 ? { fill: 'F1F5F9' } : undefined,
         margins: { top: 90, bottom: 90, left: 120, right: 120 },
         children: [

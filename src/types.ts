@@ -129,6 +129,5 @@ export interface AppSettings {
   skipAnalysis?: boolean;
   concurrencyLimit?: number;
   adaptiveBatching?: boolean;
-  batchSize?: number;
   batchingMode?: 'safe';
 }

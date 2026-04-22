@@ -267,29 +267,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                     </p>
                                 </div>
 
-                                {/* Batch Size */}
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                                            <Database size={14} className="text-blue-500" />
-                                            Kích thước Batch (Số câu mỗi lượt)
-                                        </label>
-                                        <select
-                                            value={settings.batchSize || 0}
-                                            onChange={e => setSettings({ ...settings, batchSize: parseInt(e.target.value) })}
-                                            className="text-xs font-bold border dark:border-slate-700 rounded px-2 py-1 bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 outline-none"
-                                        >
-                                            <option value={0}>Tự động (Adaptive)</option>
-                                            {[10, 15, 20, 25, 30, 35, 40, 50, 75, 100].map(n => (
-                                                <option key={n} value={n}>{n} câu / batch</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <p className="text-[10px] text-slate-500 italic leading-tight">
-                                        * Mặc định là Tự động (20-35 câu). Tăng lên giúp giảm số lần gọi API nhưng dễ gây lỗi đứt đoạn JSON nếu nội dung giải thích quá dài.
-                                    </p>
-                                </div>
-
                                 {/* Cache Management */}
                                 <div className="pt-2 border-t dark:border-slate-700 space-y-3">
                                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">

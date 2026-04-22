@@ -638,7 +638,6 @@ Chỉ nên chuyển khi app báo **"Nên dùng PDF/Ảnh"** hoặc DOCX là ản
 
 | Phiên bản | Ngày | Nội dung |
 |:---|:---|:---|
-| **v5.12 (Advanced Control)** | 22/04/2026 | Cho phép cấu hình Kích thước Batch (10-100 câu) và áp dụng Quy tắc trích xuất Nghiêm ngặt chống Hallucination |
 | **v5.11 (Key Rotator Safety)** | 22/04/2026 | Tách key rotator thành module testable, thêm cooldown cho 429/503 và log đúng key lỗi |
 | **v5.10 (DOCX Image Hybrid)** | 22/04/2026 | Quét thêm ảnh nhúng trong DOCX bằng Vision, merge/dedupe với câu tách từ text Word |
 | **v5.9 (PDF Safe Hybrid)** | 22/04/2026 | Thêm text-layer scoring cực gắt cho PDF, chặn 2 cột/bảng/block thiếu option và fallback Vision khi nghi ngờ để tránh mất câu |

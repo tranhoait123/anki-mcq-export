@@ -116,7 +116,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
         }
         content = chunks.join('');
 
-      } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.name.endsWith('.docx')) {
+      } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.name.toLowerCase().endsWith('.docx')) {
         // DOCX Chunked Reading (Mammoth needs full buffer, so we aggregate chunks)
         const chunks: ArrayBuffer[] = [];
 

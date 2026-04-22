@@ -20,4 +20,74 @@
   .pro-shadow {
     box-shadow: 0 10px 30px -10px rgba(79, 70, 229, 0.2);
   }
+
+  .docx-preview {
+    line-height: 1.75;
+    font-size: 0.95rem;
+  }
+
+  .docx-preview h1,
+  .docx-preview h2,
+  .docx-preview h3 {
+    font-weight: 800;
+    line-height: 1.25;
+    margin: 1.25rem 0 0.75rem;
+  }
+
+  .docx-preview h1 {
+    font-size: 1.6rem;
+  }
+
+  .docx-preview h2 {
+    font-size: 1.35rem;
+  }
+
+  .docx-preview h3 {
+    font-size: 1.15rem;
+  }
+
+  .docx-preview p {
+    margin: 0.45rem 0;
+  }
+
+  .docx-preview ul,
+  .docx-preview ol {
+    margin: 0.75rem 0 0.75rem 1.5rem;
+  }
+
+  .docx-preview ul {
+    list-style: disc;
+  }
+
+  .docx-preview ol {
+    list-style: decimal;
+  }
+
+  .docx-preview table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+  }
+
+  .docx-preview th,
+  .docx-preview td {
+    border: 1px solid rgb(203 213 225);
+    padding: 0.5rem 0.65rem;
+    vertical-align: top;
+  }
+
+  .docx-preview th {
+    background: rgb(241 245 249);
+    font-weight: 800;
+  }
+
+  .dark .docx-preview th,
+  .dark .docx-preview td {
+    border-color: rgb(51 65 85);
+  }
+
+  .dark .docx-preview th {
+    background: rgb(30 41 59);
+  }
 }

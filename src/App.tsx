@@ -18,6 +18,12 @@ import { coerceModelForProvider, coerceModelForProviderInput, DEFAULT_GEMINI_MOD
 import { toast } from 'sonner';
 import { convertPdfToImages } from './utils/pdfProcessor';
 
+const isDocxFile = (file?: UploadedFile | null) =>
+  !!file && (
+    file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    || file.name.toLowerCase().endsWith('.docx')
+  );
+
 const App: React.FC = () => {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [mcqs, setMcqs] = useState<MCQ[]>([]);
@@ -198,6 +204,7 @@ const App: React.FC = () => {
   const previewUrl = React.useMemo(() => {
     if (!isSplitView || files.length === 0) return null;
     const file = files[0];
+    if (isDocxFile(file) || (!file.type.startsWith('image/') && file.type !== 'application/pdf')) return null;
     try {
       // Decode base64 to Blob URL
       const base64Data = file.content.includes(',') ? file.content.split(',')[1] : file.content;
@@ -877,7 +884,7 @@ const App: React.FC = () => {
               </span>
               <span className="text-xs text-slate-500 truncate max-w-[200px]">{files[0].name}</span>
             </div>
-            <div className="flex-1 overflow-auto bg-slate-500/10 p-4 flex items-center justify-center">
+            <div className={`flex-1 overflow-auto bg-slate-500/10 p-4 ${isDocxFile(files[0]) ? '' : 'flex items-center justify-center'}`}>
               {previewUrl && files[0].type === 'application/pdf' ? (
                 <iframe
                   src={previewUrl}
@@ -890,10 +897,15 @@ const App: React.FC = () => {
                   className="max-w-full max-h-full object-contain rounded shadow-sm"
                   alt="Preview"
                 />
+              ) : isDocxFile(files[0]) && files[0].content ? (
+                <article
+                  className="docx-preview mx-auto min-h-full w-full max-w-4xl rounded-xl bg-white px-10 py-8 text-slate-900 shadow-sm dark:bg-slate-950 dark:text-slate-100"
+                  dangerouslySetInnerHTML={{ __html: files[0].content }}
+                />
               ) : (
                 <div className="text-center text-slate-500">
-                  <p>Chỉ hỗ trợ xem trước PDF và Hình ảnh.</p>
-                  <p className="text-xs mt-2 opacity-70">File Text/Word không hỗ trợ xem trực tiếp.</p>
+                  <p>Chưa có bản xem trước cho định dạng này.</p>
+                  <p className="text-xs mt-2 opacity-70">Hỗ trợ xem trước PDF, hình ảnh và Word DOCX.</p>
                 </div>
               )}
             </div>

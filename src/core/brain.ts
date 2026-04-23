@@ -839,7 +839,66 @@ const createProviderApiError = async (providerName: string, response: Response, 
   }
 
   const cleanDetail = detail.replace(/\s+/g, ' ').slice(0, 260);
-  return new Error(`${providerName} API Error: ${response.status} | model=${modelName}${cleanDetail ? ` | ${cleanDetail}` : ''}`);
+  const error: Error & { status?: number; statusCode?: number; retryAfterMs?: number } = new Error(
+    `${providerName} API Error: ${response.status} | model=${modelName}${cleanDetail ? ` | ${cleanDetail}` : ''}`
+  );
+  error.status = response.status;
+  error.statusCode = response.status;
+  const retryAfterMs = parseRetryAfterHeaderMs(response.headers) ?? getRetryDelayMsFromError({ message: detail });
+  if (retryAfterMs) error.retryAfterMs = retryAfterMs;
+  return error;
+};
+
+const parseRetryAfterHeaderMs = (headers?: Headers): number | undefined => {
+  const rawValue = headers?.get('retry-after');
+  if (!rawValue) return undefined;
+  const asSeconds = Number(rawValue);
+  if (Number.isFinite(asSeconds) && asSeconds > 0) return Math.round(asSeconds * 1000);
+
+  const retryDate = Date.parse(rawValue);
+  if (Number.isFinite(retryDate)) {
+    const delayMs = retryDate - Date.now();
+    return delayMs > 0 ? delayMs : undefined;
+  }
+
+  return undefined;
+};
+
+const normalizeRetryDelayMs = (value: number, unit: string): number => {
+  const normalizedUnit = unit.toLowerCase();
+  if (normalizedUnit.startsWith('ms')) return Math.round(value);
+  if (normalizedUnit.startsWith('m')) return Math.round(value * 60 * 1000);
+  return Math.round(value * 1000);
+};
+
+export const getRetryDelayMsFromError = (error: any): number | undefined => {
+  const hintedDelay = Number(error?.retryAfterMs || error?.providerRetryDelayMs || 0);
+  if (Number.isFinite(hintedDelay) && hintedDelay > 0) return hintedDelay;
+
+  const text = String(error?.message || error || '');
+  if (!text) return undefined;
+
+  const retryWithUnitPatterns = [
+    /retry(?:ing)?\s+(?:in|after)\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|sec(?:onds?)?|m|minutes?)/i,
+    /please retry in\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|sec(?:onds?)?|m|minutes?)/i,
+    /retry(?:_delay|delay)?["'\s:=]+(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|sec(?:onds?)?|m|minutes?)/i,
+  ];
+
+  for (const pattern of retryWithUnitPatterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    const value = Number(match[1]);
+    if (!Number.isFinite(value) || value <= 0) continue;
+    return normalizeRetryDelayMs(value, match[2]);
+  }
+
+  const retrySecondsMatch = text.match(/retry(?:_delay|delay)?["'\s:=]+(\d+(?:\.\d+)?)s/i);
+  if (retrySecondsMatch) {
+    const value = Number(retrySecondsMatch[1]);
+    if (Number.isFinite(value) && value > 0) return Math.round(value * 1000);
+  }
+
+  return undefined;
 };
 
 const toGoogleContentPart = (part: any): any => {
@@ -1093,10 +1152,13 @@ async function executeWithUserRotation<T>(
     }
 
     try {
-      return await operation(currentKey, currentModel);
+      const result = await operation(currentKey, currentModel);
+      userKeyRotator.reportSuccess(currentKey);
+      return result;
     } catch (error: any) {
       const msg = error.message?.toLowerCase() || "";
       const statusCode = error.status || error.statusCode || 0;
+      const retryHintMs = getRetryDelayMsFromError(error);
       
       // Mở rộng bộ lọc lỗi để nhận diện thêm các trường hợp đặc biệt của Google AI
       const isPermissionDenied = msg.includes("403") || msg.includes("permission denied") || msg.includes("forbidden") || statusCode === 403;
@@ -1134,7 +1196,7 @@ async function executeWithUserRotation<T>(
 
         let backoffMs = 0;
         if (isRateLimit || isServerBusy) {
-          userKeyRotator.markKeyCooldown(currentKey, isRateLimit ? 'rateLimit' : 'serverBusy');
+          userKeyRotator.markKeyCooldown(currentKey, isRateLimit ? 'rateLimit' : 'serverBusy', retryHintMs);
         }
         
         // Luôn xoay nếu còn bất kỳ key khả dụng nào sau khi key hiện tại bị cooldown.
@@ -1203,7 +1265,8 @@ export const generateQuestions = async (
     const retryProfile = getRetryProfile(options.retryProfile || (isAdvancedMode ? 'rescue' : 'normal'));
     const isRescueMode = retryProfile.name === 'rescue';
     const controller = options.controller;
-    userKeyRotator.init(runtimeSettings.apiKey);
+    const requestedConcurrency = Math.max(1, runtimeSettings.concurrencyLimit || 1);
+    userKeyRotator.init(runtimeSettings.apiKey, requestedConcurrency);
     const adaptiveBatching = runtimeSettings.adaptiveBatching !== false;
     const tokenProfile = getModelTokenProfile(runtimeSettings.provider, runtimeSettings.model);
     let adaptiveQuestionCap = getAdaptiveQuestionBatchSize(tokenProfile, adaptiveBatching);
@@ -1486,7 +1549,11 @@ export const generateQuestions = async (
 
     // --- STEP 2: BATCH PROCESSING ---
     let completedBatches = 0;
-    const CONCURRENCY_LIMIT = runtimeSettings.concurrencyLimit || 1;
+    const getConcurrencyLimit = () => (
+      runtimeSettings.provider === 'google'
+        ? userKeyRotator.getRecommendedConcurrency(requestedConcurrency)
+        : requestedConcurrency
+    );
 
     const totalBatches = totalTopLevelBatches;
     const stableFallbackModel = getProviderFallbackModel(runtimeSettings.provider);
@@ -1717,7 +1784,7 @@ export const generateQuestions = async (
 
       const p = processBatch(allParts[i], i);
       activePromises.push(p);
-      if (activePromises.length >= CONCURRENCY_LIMIT) {
+      while (activePromises.length >= getConcurrencyLimit()) {
         const finishedIndex = await Promise.race(activePromises.map((p, idx) => p.then(() => idx)));
         activePromises.splice(finishedIndex, 1);
       }
@@ -1776,7 +1843,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
     });
   }
 
-  userKeyRotator.init(runtimeSettings.apiKey);
+  userKeyRotator.init(runtimeSettings.apiKey, 1);
   return await executeWithUserRotation(runtimeSettings.model, async (apiKey, activeModel) => {
     if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
     const ai = new GoogleGenAI({ apiKey });
@@ -1829,7 +1896,7 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
     });
   }
 
-  userKeyRotator.init(runtimeSettings.apiKey);
+  userKeyRotator.init(runtimeSettings.apiKey, 1);
   return await executeWithUserRotation(runtimeSettings.model, async (apiKey, activeModel) => {
     if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
     const parts: any[] = files.map(file => {

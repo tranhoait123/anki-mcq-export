@@ -6,19 +6,31 @@ export class UserKeyRotator {
   private failedKeys: Set<string> = new Set();
   private cooldownUntil: Map<string, number> = new Map();
   private batchKeyCounter = 0;
+  private desiredConcurrency = 1;
+  private recommendedConcurrency = 1;
+  private pressureStreak = 0;
+  private successStreak = 0;
+  private lastPressureAt = 0;
+  private globalCooldownUntil = 0;
   private now: () => number;
 
   constructor(now: () => number = () => Date.now()) {
     this.now = now;
   }
 
-  init(apiKeyString: string) {
+  init(apiKeyString: string, desiredConcurrency: number = 1) {
+    this.desiredConcurrency = Math.max(1, desiredConcurrency || 1);
     if (!apiKeyString || typeof apiKeyString !== 'string') {
       this.keys = [];
       this.currentIndex = 0;
       this.failedKeys.clear();
       this.cooldownUntil.clear();
       this.batchKeyCounter = 0;
+      this.pressureStreak = 0;
+      this.successStreak = 0;
+      this.lastPressureAt = 0;
+      this.globalCooldownUntil = 0;
+      this.recommendedConcurrency = this.desiredConcurrency;
       return;
     }
     const parts = apiKeyString.split(/[,;\n\r]+/);
@@ -27,7 +39,20 @@ export class UserKeyRotator {
     this.failedKeys.clear();
     this.cooldownUntil.clear();
     this.batchKeyCounter = 0;
+    this.pressureStreak = 0;
+    this.successStreak = 0;
+    this.lastPressureAt = 0;
+    this.globalCooldownUntil = 0;
+    this.recommendedConcurrency = this.getMaxUsefulConcurrency();
     console.log(`🔑 Loaded ${this.keys.length} API Keys.`);
+  }
+
+  setDesiredConcurrency(limit: number): void {
+    this.desiredConcurrency = Math.max(1, limit || 1);
+    this.recommendedConcurrency = Math.min(
+      Math.max(1, this.recommendedConcurrency || 1),
+      this.getMaxUsefulConcurrency()
+    );
   }
 
   getCurrentKey(): string {
@@ -58,20 +83,46 @@ export class UserKeyRotator {
     return key;
   }
 
+  reportSuccess(key: string): void {
+    if (!key || !this.keys.includes(key)) return;
+    const now = this.now();
+    if (this.globalCooldownUntil > 0 && this.globalCooldownUntil <= now) {
+      this.globalCooldownUntil = 0;
+    }
+    if (now - this.lastPressureAt > 60 * 1000) {
+      this.pressureStreak = 0;
+    }
+
+    this.successStreak++;
+    const maxUsefulConcurrency = this.getMaxUsefulConcurrency();
+    const recoveryThreshold = Math.max(2, this.recommendedConcurrency * 2);
+    if (this.successStreak >= recoveryThreshold && this.recommendedConcurrency < maxUsefulConcurrency) {
+      this.recommendedConcurrency++;
+      this.successStreak = 0;
+      console.log(`📈 Adaptive concurrency recovered to ${this.recommendedConcurrency}/${maxUsefulConcurrency}.`);
+    }
+  }
+
   markKeyFailed(key: string): void {
     if (!key) return;
     this.failedKeys.add(key);
     this.cooldownUntil.delete(key);
+    this.recommendedConcurrency = Math.min(this.recommendedConcurrency, this.getMaxUsefulConcurrency());
     console.warn(`🚫 API Key #${this.getKeyNumber(key)} marked as FAILED (403/Invalid). ${this.availableKeyCount} keys remaining.`);
   }
 
-  markKeyCooldown(key: string, kind: KeyCooldownKind): void {
+  markKeyCooldown(key: string, kind: KeyCooldownKind, durationMs?: number): void {
     if (!key || this.failedKeys.has(key)) return;
-    const durationMs = kind === 'rateLimit' ? 3 * 60 * 1000 : 45 * 1000;
-    const until = this.now() + durationMs;
+    const defaultDurationMs = kind === 'rateLimit' ? 3 * 60 * 1000 : 45 * 1000;
+    const boundedDurationMs = Math.max(
+      1000,
+      Math.min(durationMs ?? defaultDurationMs, kind === 'rateLimit' ? 5 * 60 * 1000 : 90 * 1000)
+    );
+    const until = this.now() + boundedDurationMs;
     const previous = this.cooldownUntil.get(key) || 0;
     this.cooldownUntil.set(key, Math.max(previous, until));
-    console.warn(`⏸️ API Key #${this.getKeyNumber(key)} cooling down for ${Math.round(durationMs / 1000)}s (${kind}). ${this.availableKeyCount} keys available now.`);
+    this.registerPressure(kind, boundedDurationMs);
+    console.warn(`⏸️ API Key #${this.getKeyNumber(key)} cooling down for ${Math.round(boundedDurationMs / 1000)}s (${kind}). ${this.availableKeyCount} keys available now.`);
   }
 
   getKeyForBatch(): string {
@@ -82,10 +133,18 @@ export class UserKeyRotator {
     return availableKeys[this.batchKeyCounter++ % availableKeys.length];
   }
 
+  getRecommendedConcurrency(limit?: number): number {
+    if (typeof limit === 'number' && limit > 0) {
+      this.setDesiredConcurrency(limit);
+    }
+    return Math.max(1, Math.min(this.recommendedConcurrency, this.getMaxUsefulConcurrency()));
+  }
+
   isKeyAvailable(key: string): boolean {
     if (!key || this.failedKeys.has(key)) return false;
+    const now = this.now();
     const until = this.cooldownUntil.get(key) || 0;
-    if (until <= this.now()) {
+    if (until <= now) {
       if (until > 0) this.cooldownUntil.delete(key);
       return true;
     }
@@ -94,10 +153,12 @@ export class UserKeyRotator {
 
   getNextCooldownDelayMs(): number {
     const now = this.now();
+    const globalDelay = this.globalCooldownUntil > now ? this.globalCooldownUntil - now : 0;
     const waits = this.keys
       .filter(key => !this.failedKeys.has(key))
       .map(key => (this.cooldownUntil.get(key) || 0) - now)
       .filter(delay => delay > 0);
+    if (globalDelay > 0) waits.push(globalDelay);
     return waits.length > 0 ? Math.min(...waits) : 0;
   }
 
@@ -120,5 +181,31 @@ export class UserKeyRotator {
 
   private getAvailableKeys(): string[] {
     return this.keys.filter(key => this.isKeyAvailable(key));
+  }
+
+  private getMaxUsefulConcurrency(): number {
+    return Math.max(1, Math.min(this.desiredConcurrency, this.getHealthyKeyCount() || this.desiredConcurrency));
+  }
+
+  private registerPressure(kind: KeyCooldownKind, durationMs: number): void {
+    const now = this.now();
+    this.pressureStreak = now - this.lastPressureAt <= 45 * 1000 ? this.pressureStreak + 1 : 1;
+    this.lastPressureAt = now;
+    this.successStreak = 0;
+
+    const shouldReduceNow = kind === 'rateLimit' || this.pressureStreak >= 2;
+    if (shouldReduceNow && this.recommendedConcurrency > 1) {
+      this.recommendedConcurrency = Math.max(1, this.recommendedConcurrency - 1);
+      console.warn(`🐢 Adaptive concurrency reduced to ${this.recommendedConcurrency}/${this.getMaxUsefulConcurrency()} after ${kind}.`);
+    }
+
+    if (this.pressureStreak >= 2 && this.getAvailableKeys().length === 0) {
+      const poolCooldownMs = Math.min(durationMs, kind === 'rateLimit' ? 20 * 1000 : 8 * 1000);
+      this.globalCooldownUntil = Math.max(this.globalCooldownUntil, now + poolCooldownMs);
+    }
+  }
+
+  private getHealthyKeyCount(): number {
+    return this.keys.filter(key => !this.failedKeys.has(key)).length;
   }
 }

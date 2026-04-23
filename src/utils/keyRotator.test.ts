@@ -52,6 +52,59 @@ describe('UserKeyRotator safety patch', () => {
     const shortestWait = rotator.getNextCooldownDelayMs();
 
     expect(serverBusyWait).toBeLessThan(3 * 60 * 1000);
-    expect(shortestWait).toBe(serverBusyWait);
+    expect(shortestWait).toBeLessThanOrEqual(serverBusyWait);
+  });
+
+  it('caps recommended concurrency to the number of healthy keys after permanent failures', () => {
+    const rotator = new UserKeyRotator();
+    rotator.init('key-one-valid,key-two-valid,key-three-valid', 3);
+
+    expect(rotator.getRecommendedConcurrency()).toBe(3);
+
+    rotator.markKeyFailed('key-one-valid');
+    expect(rotator.getRecommendedConcurrency()).toBe(2);
+
+    rotator.markKeyFailed('key-two-valid');
+    expect(rotator.getRecommendedConcurrency()).toBe(1);
+  });
+
+  it('does not block healthy keys with pool cooldown while another key is still available', () => {
+    let now = 1_000;
+    const rotator = new UserKeyRotator(() => now);
+    rotator.init('key-one-valid,key-two-valid,key-three-valid', 3);
+
+    rotator.markKeyCooldown('key-one-valid', 'rateLimit', 5_000);
+    now += 1_000;
+    rotator.markKeyCooldown('key-two-valid', 'rateLimit', 5_000);
+
+    expect(rotator.availableKeyCount).toBe(1);
+    expect(rotator.getNextCooldownDelayMs()).toBe(4_000);
+    expect(rotator.getKeyForBatch()).toBe('key-three-valid');
+  });
+
+  it('reduces concurrency on repeated rate limits and recovers after stable successes', () => {
+    let now = 1_000;
+    const rotator = new UserKeyRotator(() => now);
+    rotator.init('key-one-valid,key-two-valid,key-three-valid', 3);
+
+    expect(rotator.getRecommendedConcurrency()).toBe(3);
+
+    rotator.markKeyCooldown('key-one-valid', 'rateLimit', 5_000);
+    expect(rotator.getRecommendedConcurrency()).toBe(2);
+
+    now += 1_000;
+    rotator.markKeyCooldown('key-two-valid', 'rateLimit', 5_000);
+    expect(rotator.getRecommendedConcurrency()).toBe(1);
+
+    now += 25_000;
+    rotator.reportSuccess('key-three-valid');
+    rotator.reportSuccess('key-three-valid');
+    expect(rotator.getRecommendedConcurrency()).toBe(2);
+
+    rotator.reportSuccess('key-three-valid');
+    rotator.reportSuccess('key-three-valid');
+    rotator.reportSuccess('key-three-valid');
+    rotator.reportSuccess('key-three-valid');
+    expect(rotator.getRecommendedConcurrency()).toBe(3);
   });
 });

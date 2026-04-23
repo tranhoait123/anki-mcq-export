@@ -6,6 +6,7 @@ import {
   extractProviderMessageContent,
   getAdaptiveQuestionBatchSize,
   getModelConfig,
+  getRetryDelayMsFromError,
   applyTrustedSourceLabel,
   parseQuestionsFromModelText,
   salvageCompleteQuestionsFromJson,
@@ -136,6 +137,12 @@ describe('Core Logic', () => {
 
     expect(() => extractProviderMessageContent({ choices: [{ message: {} }] }))
       .toThrow('AI_FORMAT_ERROR_EMPTY_PROVIDER_RESPONSE');
+  });
+
+  it('extracts retry delay hints from provider errors when available', () => {
+    expect(getRetryDelayMsFromError(new Error('RESOURCE_EXHAUSTED. Please retry in 21.5s.'))).toBe(21500);
+    expect(getRetryDelayMsFromError({ message: 'RetryDelay: 1500ms' })).toBe(1500);
+    expect(getRetryDelayMsFromError({ retryAfterMs: 12000, message: '429' })).toBe(12000);
   });
 
   it('computes safe adaptive question batch sizes from output budgets', () => {

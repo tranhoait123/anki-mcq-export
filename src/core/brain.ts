@@ -1752,7 +1752,9 @@ export const generateQuestions = async (
         }
       } finally {
         if (depth === 0) {
-          skippedBatchSet.add(index + 1);
+          if (!failedBatches.includes(index + 1)) {
+            skippedBatchSet.add(index + 1);
+          }
           const completedBatchIndices = Array.from(skippedBatchSet).sort((a, b) => a - b);
           const checkpointSnapshot = buildCheckpointSnapshot(completedBatchIndices);
           options.onCheckpoint?.({
@@ -1767,7 +1769,7 @@ export const generateQuestions = async (
             currentCount: checkpointSnapshot.questionsSnapshot.length,
           });
         }
-        if (isRescueMode && depth === 0) rescueCompleted++;
+        if (isRescueMode && depth === 0 && !failedBatches.includes(index + 1)) rescueCompleted++;
       }
     };
 

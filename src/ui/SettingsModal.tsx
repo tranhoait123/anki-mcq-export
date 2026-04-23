@@ -253,7 +253,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                             Số luồng xử lý song song (Concurrency)
                                         </label>
                                         <select
-                                            value={settings.concurrencyLimit || 2}
+                                            value={settings.concurrencyLimit || 1}
                                             onChange={e => setSettings({ ...settings, concurrencyLimit: parseInt(e.target.value) })}
                                             className="text-xs font-bold border dark:border-slate-700 rounded px-2 py-1 bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 outline-none"
                                         >

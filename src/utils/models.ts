@@ -22,7 +22,7 @@ export interface ModelTokenProfile {
 
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite-preview';
 export const OPENROUTER_VISION_FALLBACK_MODEL = 'google/gemini-2.5-flash';
-export const SHOPAIKEY_VISION_FALLBACK_MODEL = 'gemini-2.5-flash';
+export const SHOPAIKEY_VISION_FALLBACK_MODEL = DEFAULT_GEMINI_MODEL;
 
 export const MODEL_GROUPS: Record<AIProvider, ModelGroup[]> = {
   google: [
@@ -173,7 +173,7 @@ export const isModelAllowedForProvider = (provider: AIProvider, model: string): 
 
 export const getProviderFallbackModel = (provider: AIProvider): string => {
   if (provider === 'openrouter') return OPENROUTER_VISION_FALLBACK_MODEL;
-  return 'gemini-2.5-flash';
+  return DEFAULT_GEMINI_MODEL;
 };
 
 export const isVisionCapableModel = (provider: AIProvider, model: string): boolean => {

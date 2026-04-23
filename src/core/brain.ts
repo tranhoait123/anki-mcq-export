@@ -1,9 +1,9 @@
 import { PDFDocument } from 'pdf-lib';
 import { GoogleGenAI, Type } from "@google/genai";
-import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo } from "../types";
+import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, ProcessingController } from "../types";
 import { db } from './db';
 import { findDuplicate } from '../utils/dedupe';
-import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage, ModelTokenProfile } from '../utils/models';
+import { coerceModelForProvider, coerceModelForProviderInput, DEFAULT_GEMINI_MODEL, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage, ModelTokenProfile } from '../utils/models';
 import { analyzePdfTextLayer, convertPdfToImages, PdfPageRange } from '../utils/pdfProcessor';
 import { UserKeyRotator } from '../utils/keyRotator';
 import {
@@ -21,6 +21,7 @@ import { buildNativeMcqBatchText, getNativeMcqBlocks, splitNativeMcqTextIntoBatc
 interface GenerateQuestionsOptions {
   retryProfile?: RetryProfileName;
   autoRescue?: boolean;
+  controller?: ProcessingController;
 }
 
 const getFileTextContent = (file: UploadedFile): string =>
@@ -83,6 +84,16 @@ export const estimateTextTokens = (text: string): number => Math.ceil(String(tex
 
 export const estimateOutputTokensForQuestions = (count: number): number =>
   Math.ceil(Math.max(1, count) * 1100 * 1.15);
+
+const waitWithController = async (ms: number, controller?: ProcessingController): Promise<void> => {
+  let remaining = Math.max(0, ms);
+  while (remaining > 0) {
+    await controller?.waitIfPaused();
+    const step = Math.min(250, remaining);
+    await new Promise((resolve) => setTimeout(resolve, step));
+    remaining -= step;
+  }
+};
 
 export const getAdaptiveQuestionBatchSize = (
   profile: ModelTokenProfile,
@@ -1040,8 +1051,9 @@ async function executeWithUserRotation<T>(
   initialModel: string,
   operation: (apiKey: string, modelName: string) => Promise<T>,
   startingKey?: string, // Cho phép chỉ định key khởi đầu (per-batch distribution)
-  fallbackModel: string = 'gemini-2.5-flash',
-  retryProfile: RetryProfile = getRetryProfile('normal')
+  fallbackModel: string = DEFAULT_GEMINI_MODEL,
+  retryProfile: RetryProfile = getRetryProfile('normal'),
+  controller?: ProcessingController
 ): Promise<T> {
   const ATTEMPTS_LIMIT = Math.max(retryProfile.minAttempts, userKeyRotator.keyCount + retryProfile.attemptBuffer);
   let attempts = 0;
@@ -1051,12 +1063,14 @@ async function executeWithUserRotation<T>(
   let currentKey = startingKey || userKeyRotator.getCurrentKey();
 
   while (attempts < ATTEMPTS_LIMIT) {
+    await controller?.waitIfPaused();
+
     if (!currentKey && userKeyRotator.keyCount > 0) {
       const cooldownDelay = userKeyRotator.getNextCooldownDelayMs();
       if (cooldownDelay > 0) {
         const waitMs = Math.min(cooldownDelay, retryProfile.singleKeyBackoffCapMs);
         console.log(`⏳ All API keys are cooling down. Waiting ${Math.round(waitMs / 1000)}s before retrying.`);
-        await new Promise(r => setTimeout(r, waitMs));
+        await waitWithController(waitMs, controller);
         currentKey = userKeyRotator.getKeyForBatch() || userKeyRotator.getCurrentKey();
         continue;
       }
@@ -1142,7 +1156,7 @@ async function executeWithUserRotation<T>(
           const cooldownDelay = userKeyRotator.getNextCooldownDelayMs();
           if (cooldownDelay > 0) {
             backoffMs = Math.min(cooldownDelay, retryProfile.singleKeyBackoffCapMs);
-            await new Promise(r => setTimeout(r, backoffMs));
+            await waitWithController(backoffMs, controller);
             currentKey = userKeyRotator.getKeyForBatch() || userKeyRotator.getCurrentKey();
             continue;
           } else {
@@ -1155,7 +1169,7 @@ async function executeWithUserRotation<T>(
         }
         
         console.log(`⏳ Backoff: ${Math.round(backoffMs / 1000)}s (Key #${userKeyRotator.getKeyNumber(currentKey)}/${userKeyRotator.keyCount}, Distinct tried: ${distinctKeysTried})`);
-        await new Promise(r => setTimeout(r, backoffMs));
+        await waitWithController(backoffMs, controller);
         continue;
       }
       throw error;
@@ -1181,6 +1195,7 @@ export const generateQuestions = async (
     let runtimeSettings = mismatchMessage ? { ...settings, model: coerceModelForProvider(settings.provider, settings.model) } : settings;
     const retryProfile = getRetryProfile(options.retryProfile || (isAdvancedMode ? 'rescue' : 'normal'));
     const isRescueMode = retryProfile.name === 'rescue';
+    const controller = options.controller;
     userKeyRotator.init(runtimeSettings.apiKey);
     const adaptiveBatching = runtimeSettings.adaptiveBatching !== false;
     const tokenProfile = getModelTokenProfile(runtimeSettings.provider, runtimeSettings.model);
@@ -1202,6 +1217,8 @@ export const generateQuestions = async (
 
     // [Step 1: Splitting Logic]
     for (const file of files) {
+      await controller?.waitIfPaused();
+
       if (file.type === 'application/pdf') {
         const rawBase64 = file.content.includes(',') ? file.content.split(',')[1] : file.content;
         const pdfDataUrl = file.content.startsWith('data:') ? file.content : `data:application/pdf;base64,${file.content}`;
@@ -1410,7 +1427,7 @@ export const generateQuestions = async (
 
     // --- STEP 2: BATCH PROCESSING ---
     let completedBatches = 0;
-    const CONCURRENCY_LIMIT = runtimeSettings.concurrencyLimit || 2;
+    const CONCURRENCY_LIMIT = runtimeSettings.concurrencyLimit || 1;
 
     const totalBatches = allParts.length;
     const stableFallbackModel = getProviderFallbackModel(runtimeSettings.provider);
@@ -1421,6 +1438,8 @@ export const generateQuestions = async (
       const batchLabel = depth === 0 ? `${index + 1}` : `${index + 1}${String.fromCharCode(96 + depth)}`;
 
       try {
+        await controller?.waitIfPaused();
+
         const expectedAtStart = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
         if (adaptiveBatching && depth === 0 && part.nativeMcqBatch && expectedAtStart > adaptiveQuestionCap) {
           const cappedParts = splitStructuredPartByBatchSize(part, adaptiveQuestionCap);
@@ -1437,7 +1456,7 @@ export const generateQuestions = async (
             onProgress(`Quét Batch ${batchLabel}/${totalBatches}${depth > 0 ? ' (Đang chia nhỏ)' : ''}...`, allQuestions.length);
           }
         }
-        await new Promise(r => setTimeout(r, Math.random() * (isRescueMode ? 250 : 800)));
+        await waitWithController(Math.random() * (isRescueMode ? 250 : 800), controller);
 
         // Per-batch key assignment: Mỗi batch nhận key riêng theo round-robin
         const batchStartingKey = runtimeSettings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
@@ -1473,7 +1492,8 @@ export const generateQuestions = async (
               ,
               undefined,
               stableFallbackModel,
-              retryProfile
+              retryProfile,
+              controller
             )
           : executeWithUserRotation(
               extractionModel,
@@ -1498,7 +1518,8 @@ export const generateQuestions = async (
               },
               batchStartingKey, // Per-batch key assignment
               stableFallbackModel,
-              retryProfile
+              retryProfile,
+              controller
             )
         );
 
@@ -1602,6 +1623,8 @@ export const generateQuestions = async (
 
     const activePromises: Promise<void>[] = [];
     for (let i = 0; i < allParts.length; i++) {
+      await controller?.waitIfPaused();
+
       // Nếu đang chạy chế độ Retry, chỉ xử lý những index có trong danh sách
       if (retryIndices && retryIndices.length > 0 && !retryIndices.includes(i + 1)) {
         completedBatches++;

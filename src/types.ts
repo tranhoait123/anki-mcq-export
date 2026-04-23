@@ -115,6 +115,16 @@ export interface UploadedFile {
 
 export type ProgressCallback = (message: string, count: number) => void;
 export type BatchCallback = (newQuestions: MCQ[]) => void;
+export type ProcessingState = 'running' | 'pausing' | 'paused';
+
+export interface ProcessingController {
+  requestPause: () => void;
+  resume: () => void;
+  getState: () => ProcessingState;
+  isPaused: () => boolean;
+  isPauseRequested: () => boolean;
+  waitIfPaused: () => Promise<void>;
+}
 
 export interface AppSettings {
   apiKey: string;

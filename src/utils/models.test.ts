@@ -76,9 +76,9 @@ describe('AI model registry', () => {
   });
 
   it('uses provider-specific fallback models', () => {
-    expect(getProviderFallbackModel('google')).toBe('gemini-2.5-flash');
-    expect(getProviderFallbackModel('vertexai')).toBe('gemini-2.5-flash');
-    expect(getProviderFallbackModel('shopaikey')).toBe('gemini-2.5-flash');
+    expect(getProviderFallbackModel('google')).toBe('gemini-3.1-flash-lite-preview');
+    expect(getProviderFallbackModel('vertexai')).toBe('gemini-3.1-flash-lite-preview');
+    expect(getProviderFallbackModel('shopaikey')).toBe('gemini-3.1-flash-lite-preview');
     expect(getProviderFallbackModel('openrouter')).toBe('google/gemini-2.5-flash');
   });
 
@@ -101,7 +101,7 @@ describe('AI model registry', () => {
     expect(isVisionCapableModel('openrouter', 'deepseek/deepseek-chat')).toBe(false);
     expect(isVisionCapableModel('shopaikey', 'gpt-5.4-mini')).toBe(true);
     expect(coerceModelForProviderInput('openrouter', 'deepseek/deepseek-chat', true)).toBe('google/gemini-2.5-flash');
-    expect(coerceModelForProviderInput('shopaikey', 'deepseek/deepseek-v3.2', true)).toBe('gemini-2.5-flash');
+    expect(coerceModelForProviderInput('shopaikey', 'deepseek/deepseek-v3.2', true)).toBe('gemini-3.1-flash-lite-preview');
     expect(coerceModelForProviderInput('openrouter', 'deepseek/deepseek-chat', false)).toBe('deepseek/deepseek-chat');
   });
 

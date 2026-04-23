@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UploadedFile, MCQ, GeneratedResponse, AnalysisResult, AuditResult, DuplicateInfo, AppSettings } from './types';
+import { UploadedFile, MCQ, GeneratedResponse, AnalysisResult, AuditResult, DuplicateInfo, AppSettings, ProcessingController, ProcessingState } from './types';
 import FileUploader from './ui/FileUploader';
 import MCQDisplay from './ui/MCQDisplay';
 import SettingsModal from './ui/SettingsModal';
@@ -8,7 +8,7 @@ import DuplicatesReviewModal from './ui/DuplicatesReviewModal';
 import { generateQuestions, analyzeDocument, auditMissingQuestions, translateErrorForUser } from './core/brain';
 // @ts-ignore
 import { db } from './core/db';
-import { BrainCircuit, Loader2, Download, CheckCircle2, AlertTriangle, ScanText, Moon, Sun, Settings as SettingsIcon, Columns, FileText, DownloadCloud, Sparkles, Filter, Trash2, Copy, RotateCcw, Info } from 'lucide-react';
+import { BrainCircuit, Loader2, Download, CheckCircle2, AlertTriangle, ScanText, Moon, Sun, Settings as SettingsIcon, Columns, FileText, DownloadCloud, Sparkles, Filter, Trash2, Copy, RotateCcw, Info, Pause, Play } from 'lucide-react';
 import { extractTextWithTesseract } from './core/vision';
 import { buildAnkiHtml, formatRichText } from './core/anki';
 import { buildStudyDocxBlob } from './core/docxExport';
@@ -17,6 +17,7 @@ import { findDuplicate } from './utils/dedupe';
 import { coerceModelForProvider, coerceModelForProviderInput, DEFAULT_GEMINI_MODEL, isModelAllowedForProvider } from './utils/models';
 import { toast } from 'sonner';
 import { convertPdfToImages } from './utils/pdfProcessor';
+import { createProcessingController } from './utils/processingControl';
 
 const isDocxFile = (file?: UploadedFile | null) =>
   !!file && (
@@ -42,6 +43,8 @@ const App: React.FC = () => {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isSplitView, setIsSplitView] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [processingState, setProcessingState] = useState<ProcessingState>('running');
+  const processingControllerRef = React.useRef<ProcessingController | null>(null);
 
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
@@ -52,7 +55,7 @@ const App: React.FC = () => {
     model: 'gemini-3.1-flash-lite-preview',
     customPrompt: '',
     skipAnalysis: true,
-    concurrencyLimit: 2,
+    concurrencyLimit: 1,
     adaptiveBatching: true,
     batchingMode: 'safe',
   });
@@ -96,6 +99,7 @@ const App: React.FC = () => {
           if (persistedSettings.vertexLocation === undefined) persistedSettings.vertexLocation = 'us-central1';
           if (persistedSettings.vertexAccessToken === undefined) persistedSettings.vertexAccessToken = '';
           if (persistedSettings.skipAnalysis === undefined) persistedSettings.skipAnalysis = true;
+          if (persistedSettings.concurrencyLimit === undefined) persistedSettings.concurrencyLimit = 1;
           if (persistedSettings.adaptiveBatching === undefined) persistedSettings.adaptiveBatching = true;
           if (persistedSettings.batchingMode === undefined) persistedSettings.batchingMode = 'safe';
           
@@ -258,13 +262,18 @@ const App: React.FC = () => {
   };
 
   // Helper to process files for analysis/generation
-  const prepareFiles = async (forcedMode?: 'gemini' | 'tesseract'): Promise<UploadedFile[]> => {
+  const prepareFiles = async (
+    forcedMode?: 'gemini' | 'tesseract',
+    controller?: ProcessingController
+  ): Promise<UploadedFile[]> => {
     const mode = forcedMode || ocrMode;
     let processedFiles: UploadedFile[] = [];
 
     // Pre-processing: Chuyển PDF thành ảnh nếu Provider không phải Google (Vertex/OpenRouter/ShopAI không nhận PDF raw)
     const needsPdfRasterization = settings.provider !== 'google' && mode !== 'gemini';
     for (const file of files) {
+      await controller?.waitIfPaused();
+
       if (file.type === 'application/pdf' && needsPdfRasterization) {
          setProgressStatus(`Đang chuyển đổi PDF sang ảnh để tương thích với ${settings.provider}...`);
          try {
@@ -296,35 +305,77 @@ const App: React.FC = () => {
     // Tesseract Mode: Convert images to text first
     setProgressStatus("Đang chạy Local OCR (Tesseract)...");
 
-    // Process in parallel using Promise.all
-    const textProcessedFiles = await Promise.all(processedFiles.map(async (file) => {
+    const textProcessedFiles: UploadedFile[] = [];
+    for (const file of processedFiles) {
+      await controller?.waitIfPaused();
+
       if (file.type.startsWith('image/')) {
         try {
           const base64Content = `data:${file.type};base64,${file.content}`;
           const text = await extractTextWithTesseract(base64Content, (p) => {
             setProgressStatus(`OCR ${file.name}: ${p}%`);
           });
-          return {
+          textProcessedFiles.push({
             ...file,
             content: text,
             type: 'text/plain',
             name: `${file.name}.txt`
-          };
+          });
+          continue;
         } catch (e) {
           console.error(`OCR Failed for ${file.name}`, e);
-          return file; // Keep original if failed
+          textProcessedFiles.push(file); // Keep original if failed
+          continue;
         }
       }
       if (file.name.toLowerCase().endsWith('.csv')) {
-        return {
+        textProcessedFiles.push({
           ...file,
           content: `FILE: ${file.name} (FORMAT: CSV - Each row is a record)\n${file.content}\n`
-        };
+        });
+        continue;
       }
-      return file;
-    }));
+      textProcessedFiles.push(file);
+    }
 
     return textProcessedFiles;
+  };
+
+  const startProcessingController = () => {
+    const controller = createProcessingController((state) => setProcessingState(state));
+    processingControllerRef.current = controller;
+    setProcessingState('running');
+    return controller;
+  };
+
+  const clearProcessingController = () => {
+    processingControllerRef.current?.resume();
+    processingControllerRef.current = null;
+    setProcessingState('running');
+  };
+
+  const waitWithController = async (ms: number, controller?: ProcessingController) => {
+    let remaining = Math.max(0, ms);
+    while (remaining > 0) {
+      await controller?.waitIfPaused();
+      const step = Math.min(250, remaining);
+      await new Promise((resolve) => setTimeout(resolve, step));
+      remaining -= step;
+    }
+  };
+
+  const handleTogglePause = () => {
+    const controller = processingControllerRef.current;
+    if (!controller || !loading) return;
+
+    if (controller.isPauseRequested()) {
+      controller.resume();
+      toast.success("Đã tiếp tục xử lý.");
+      return;
+    }
+
+    controller.requestPause();
+    toast.info("Đã nhận yêu cầu tạm dừng. Hệ thống sẽ dừng ở checkpoint an toàn gần nhất.");
   };
 
   const handleAnalyze = async () => {
@@ -403,6 +454,8 @@ const App: React.FC = () => {
     }
 
     setLoading(true);
+    setCurrentCount(0);
+    setProgressStatus("Đang chuẩn bị xử lý...");
     setMcqs([]);
     setFailedBatchIndices([]);
     setAudit(null);
@@ -411,8 +464,10 @@ const App: React.FC = () => {
     setShowDuplicates(false);
 
     try {
+      const controller = startProcessingController();
+
       // 1. Initial Attempt (Default Mode)
-      let filesToUse = await prepareFiles();
+      let filesToUse = await prepareFiles(undefined, controller);
       const expectedQuestionCount = analysis?.estimatedCount || getDetectedDocxMcqCount();
       let res = await generateQuestions(filesToUse, requestSettings, 0, (status, count) => {
         setProgressStatus(status);
@@ -430,7 +485,7 @@ const App: React.FC = () => {
             return getNum(a.question) - getNum(b.question);
           });
         });
-      });
+      }, undefined, false, { controller });
 
       // 2. Auto-Fallback Check
       // If we used Gemini (Cloud) AND got bad results (< 60% of estimate), try Tesseract
@@ -441,17 +496,17 @@ const App: React.FC = () => {
           if (hasImages) {
             // Trigger Fallback
             setProgressStatus(`Kết quả Cloud thấp(${count} / ${analysis.estimatedCount}).Đang tự động chuyển sang Local OCR(Smart Fallback)...`);
-            await new Promise(r => setTimeout(r, 2000));
+            await waitWithController(2000, controller);
 
             try {
-              const tesseractFiles = await prepareFiles('tesseract');
+              const tesseractFiles = await prepareFiles('tesseract', controller);
               // If OCR produced text, let's retry generation
               if (tesseractFiles.some(f => f.type === 'text/plain' && f.content.length > 50)) {
                 setProgressStatus("Đang trích xuất lại với dữ liệu từ Local OCR...");
                 const fallbackRes = await generateQuestions(tesseractFiles, requestSettings, 0, (status, count) => {
                   setProgressStatus(`${status} (Fallback Loop)`);
                   setCurrentCount(count);
-                }, analysis.estimatedCount);
+                }, analysis.estimatedCount, undefined, undefined, false, { controller });
 
                 // Use fallback results if they are better or non-empty
                 if (fallbackRes.questions.length > count) {
@@ -491,7 +546,7 @@ const App: React.FC = () => {
             },
             initialFailed,
             true,
-            { retryProfile: 'rescue', autoRescue: true }
+            { retryProfile: 'rescue', autoRescue: true, controller }
           );
 
           const uniqueRescued = deduplicateQuestions(rescueRes.questions as MCQ[], res.questions as MCQ[]);
@@ -546,7 +601,10 @@ const App: React.FC = () => {
     } catch (e: any) {
       toast.error(translateErrorForUser(e, 'Trích xuất'));
     }
-    finally { setLoading(false); }
+    finally {
+      clearProcessingController();
+      setLoading(false);
+    }
   };
 
   const deduplicateQuestions = (newList: MCQ[], existingList: MCQ[]): MCQ[] => {
@@ -583,10 +641,12 @@ const App: React.FC = () => {
     const requestSettings = getRequestSettings(currentFilesRequireVision());
     
     setLoading(true);
+    setCurrentCount(0);
     setProgressStatus(`Đang quét lại ${failedBatchIndices.length} phần lỗi...`);
     
     try {
-      const filesToUse = await prepareFiles();
+      const controller = startProcessingController();
+      const filesToUse = await prepareFiles(undefined, controller);
       const res = await generateQuestions(
         filesToUse, 
         requestSettings, 
@@ -604,7 +664,7 @@ const App: React.FC = () => {
         },
         failedBatchIndices,
         true, // Enable isAdvancedMode (Resilience 2.0)
-        { retryProfile: 'rescue' }
+        { retryProfile: 'rescue', controller }
       );
 
       if (res.failedBatches && res.failedBatches.length > 0) {
@@ -617,6 +677,7 @@ const App: React.FC = () => {
     } catch (e: any) {
       toast.error(translateErrorForUser(e, 'Quét lại'));
     } finally {
+      clearProcessingController();
       setLoading(false);
     }
   };
@@ -829,6 +890,12 @@ const App: React.FC = () => {
       toast.error(`📄 Lỗi tạo file DOCX: ${e.message || 'Không rõ lỗi'}. CSV hiện tại không bị ảnh hưởng.`);
     }
   };
+
+  const displayedProgressStatus = processingState === 'paused'
+    ? 'Đã tạm dừng an toàn. Nhấn "Tiếp tục" để chạy tiếp.'
+    : processingState === 'pausing'
+      ? 'Đang chờ batch hiện tại hoàn tất để tạm dừng an toàn...'
+      : progressStatus;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#020617] font-sans text-slate-800 dark:text-slate-100 transition-colors duration-300">
@@ -1081,7 +1148,16 @@ const App: React.FC = () => {
           {loading && (
             <div className="bg-white p-5 rounded-xl border border-indigo-100 shadow-sm space-y-3">
               <div className="flex justify-between items-center text-sm font-medium text-indigo-900">
-                <span className="flex items-center gap-2"><Loader2 className="animate-spin text-indigo-600" size={16} /> {progressStatus}</span>
+                <span className="flex items-center gap-2">
+                  {processingState === 'running' ? (
+                    <Loader2 className="animate-spin text-indigo-600" size={16} />
+                  ) : processingState === 'pausing' ? (
+                    <Loader2 className="animate-spin text-amber-600" size={16} />
+                  ) : (
+                    <Pause className="text-amber-600" size={16} />
+                  )}
+                  {displayedProgressStatus}
+                </span>
                 <span>
                   {analysis?.estimatedCount && analysis.estimatedCount > 0 
                     ? `${Math.round((currentCount / analysis.estimatedCount) * 100)}%`
@@ -1093,6 +1169,19 @@ const App: React.FC = () => {
                   className={`h-full bg-indigo-600 transition-all duration-300 ease-out ${(!analysis?.estimatedCount || analysis.estimatedCount === 0) ? 'animate-pulse' : ''}`}
                   style={{ width: `${analysis?.estimatedCount && analysis.estimatedCount > 0 ? Math.min(100, (currentCount / analysis.estimatedCount) * 100) : 100}%` }}
                 />
+              </div>
+              <div className="flex justify-end">
+                <button
+                  onClick={handleTogglePause}
+                  className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black uppercase tracking-wider transition-all ${
+                    processingState === 'running'
+                      ? 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
+                      : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                  }`}
+                >
+                  {processingState === 'running' ? <Pause size={14} /> : <Play size={14} />}
+                  {processingState === 'running' ? 'Tạm dừng' : 'Tiếp tục'}
+                </button>
               </div>
             </div>
           )}

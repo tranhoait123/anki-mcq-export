@@ -448,14 +448,14 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
         [CÂU HỎI THEO TÌNH HUỐNG]
         {Câu hỏi riêng lẻ}
 
-🩺 **BIỆN LUẬN LÂM SÀNG (BẮT BUỘC FORMAT CHI TIẾT SAU ĐÂY)**:
-1. **core** (🎯 ĐÁP ÁN CỐT LÕI): Đáp án đúng + lý do chọn ngắn gọn.
-2. **evidence** (📚 BẰNG CHỨNG): Bảng phân loại, tiêu chuẩn chẩn đoán, guideline liên quan. (Bắt buộc dùng bảng Markdown khi có nhiều tính chất/bệnh lý).
-3. **analysis** (💡 PHÂN TÍCH SÂU): Bảng loại trừ từng đáp án sai + bảng xét nghiệm/đặc điểm phân biệt. Trả lời chi tiết, có hệ thống, dùng Markdown table để so sánh. 
-4. **warning** (⚠️ CẢNH BÁO LÂM SÀNG): Lưu ý xử trí, theo dõi, tác dụng phụ, hoặc sai lầm thường gặp trên lâm sàng/thi cử.
+🩺 **BIỆN LUẬN MCQ (FORMAT BẮT BUỘC, ƯU TIÊN NGẮN GỌN)**:
+1. **core** (🎯 ĐÁP ÁN CỐT LÕI): Nêu đáp án đúng + lý do cực ngắn, đi thẳng vào bản chất.
+2. **evidence** (📚 BẰNG CHỨNG): Trình bày đủ bối cảnh kiến thức nền để người học hiểu vì sao chọn đáp án: guideline, tiêu chuẩn chẩn đoán, tiêu chí, cơ chế hoặc dữ kiện liên quan. Có thể dài hơn core/analysis một chút nhưng vẫn tập trung vào kiến thức giúp trả lời câu hỏi. Chỉ dùng bảng Markdown khi bảng thật sự giúp so sánh/hệ thống hóa.
+3. **analysis** (💡 PHÂN TÍCH SÂU): Phân tích đủ sâu để người học hiểu cách loại trừ từng đáp án sai và vì sao đáp án đúng vượt trội. So sánh bệnh lý/đáp án khi cần; có thể giải thích thêm cơ chế, dấu hiệu phân biệt hoặc logic đề thi, nhưng không lặp lại phần evidence. Chỉ dùng bảng Markdown nếu có nhiều lựa chọn phức tạp hoặc cần đối chiếu rõ ràng.
+4. **warning** (⚠️ CẢNH BÁO LÂM SÀNG): Nêu sai lầm thường gặp, điểm dễ nhầm, lưu ý xử trí, biến chứng hoặc tác dụng phụ.
 5. **difficulty** (📊 ĐỘ KHÓ): Chỉ trả về một từ: Easy / Medium / Hard.
-6. **depthAnalysis** (🧠 TƯ DUY): Key points dạng blockquote (🔑), bẫy thường gặp trong thi cử. Nhấn mạnh tư duy loại trừ.
-7. **source** (📁 NGUỒN): Chỉ dùng đúng SOURCE_LABEL được cung cấp trong prompt của batch. Không tự suy đoán, không tự đặt tên đề, năm, chương, trang, file đáp án, hoặc ngữ cảnh ngoài SOURCE_LABEL.
+6. **depthAnalysis** (🧠 TƯ DUY): Viết dạng blockquote Markdown, bắt đầu bằng > 🔑, gồm key points nhớ nhanh và bẫy thường gặp trong đề thi.
+7. **source** (📁 NGUỒN): Copy đúng SOURCE_LABEL được cung cấp trong prompt của batch. Không tự suy đoán, không tự đặt tên đề, năm, chương, trang, file đáp án, hoặc ngữ cảnh ngoài SOURCE_LABEL.
 
 ⛔ **HÀNG RÀO AN TOÀN (SAFETY PROTOCOL)**:
 - Tuyệt đối không sử dụng văn bản giả hoặc ghi chú chung chung (Placeholder).
@@ -468,8 +468,8 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
    - **correctAnswer**: Đáp án đúng (VD: "A").
    - **explanation**: Đối tượng chi tiết gồm:
      - **core**: Giải thích cốt lõi.
-     - **evidence**: Bằng chứng y khoa (Markdown Table).
-     - **analysis**: Phân tích loại trừ (Markdown Table).
+     - **evidence**: Bối cảnh kiến thức nền giúp hiểu vì sao chọn đáp án, gồm guideline, tiêu chuẩn chẩn đoán, tiêu chí, cơ chế hoặc dữ kiện liên quan; có thể dài hơn core/analysis một chút nhưng vẫn tập trung; chỉ dùng bảng Markdown khi cần so sánh/hệ thống hóa.
+     - **analysis**: Phân tích đủ sâu để loại trừ từng đáp án sai, nêu vì sao đáp án đúng vượt trội, có thể thêm cơ chế/dấu hiệu phân biệt/logic đề thi khi cần; chỉ dùng bảng Markdown khi nhiều lựa chọn phức tạp hoặc cần đối chiếu rõ ràng.
      - **warning**: Cảnh báo lâm sàng.
    - **source**: Nguồn trích dẫn. Phải bằng đúng SOURCE_LABEL của batch, không thêm/bớt/kể lại theo suy đoán.
    - **difficulty**: Độ khó (Easy/Medium/Hard).

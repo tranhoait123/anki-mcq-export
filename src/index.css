@@ -90,4 +90,42 @@
   .dark .docx-preview th {
     background: rgb(30 41 59);
   }
+
+  .anki-html table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.5rem 0;
+    font-size: 0.9em;
+  }
+
+  .anki-html th,
+  .anki-html td {
+    border: 1px solid rgb(221 221 221);
+    padding: 0.25rem 0.375rem;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .anki-html th {
+    background: rgb(242 242 242);
+    font-weight: 700;
+  }
+
+  .anki-html blockquote {
+    border-left: 3px solid rgb(99 102 241);
+    margin: 0.5rem 0;
+    padding: 0.375rem 0.5rem;
+    background: rgb(246 247 251);
+    font-style: italic;
+  }
+
+  .dark .anki-html th,
+  .dark .anki-html td {
+    border-color: rgb(51 65 85);
+  }
+
+  .dark .anki-html th,
+  .dark .anki-html blockquote {
+    background: rgb(30 41 59);
+  }
 }

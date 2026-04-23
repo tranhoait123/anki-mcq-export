@@ -23,7 +23,7 @@ const RichExplanation: React.FC<{ exp: Explanation }> = ({ exp }) => {
           <div className="flex-1 overflow-hidden">
             <span className="font-bold text-rose-900 dark:text-rose-200 block text-[10px] uppercase tracking-wider mb-1">Đáp án cốt lõi</span>
             <div 
-              className="text-slate-700 dark:text-slate-300 leading-relaxed font-medium prose-sm dark:prose-invert max-w-none"
+              className="anki-html text-slate-700 dark:text-slate-300 leading-relaxed font-medium prose-sm dark:prose-invert max-w-none"
               dangerouslySetInnerHTML={{ __html: formatRichText(exp.core) }}
             />
           </div>
@@ -38,7 +38,7 @@ const RichExplanation: React.FC<{ exp: Explanation }> = ({ exp }) => {
           <div className="flex-1 overflow-hidden">
             <span className="font-bold text-indigo-900 dark:text-indigo-200 block text-[10px] uppercase tracking-wider mb-1">Phân tích chuyên sâu</span>
             <div 
-              className="text-slate-700 dark:text-slate-300 leading-relaxed prose-sm dark:prose-invert max-w-none"
+              className="anki-html text-slate-700 dark:text-slate-300 leading-relaxed prose-sm dark:prose-invert max-w-none"
               dangerouslySetInnerHTML={{ __html: formatRichText(exp.analysis) }}
             />
           </div>
@@ -53,7 +53,7 @@ const RichExplanation: React.FC<{ exp: Explanation }> = ({ exp }) => {
           <div className="flex-1 overflow-hidden italic">
             <span className="font-bold text-slate-900 dark:text-slate-200 block text-[10px] uppercase tracking-wider mb-1 not-italic">Bằng chứng y khoa</span>
             <div 
-              className="text-slate-600 dark:text-slate-400 leading-relaxed prose-sm dark:prose-invert max-w-none"
+              className="anki-html text-slate-600 dark:text-slate-400 leading-relaxed prose-sm dark:prose-invert max-w-none"
               dangerouslySetInnerHTML={{ __html: formatRichText(exp.evidence) }}
             />
           </div>
@@ -69,7 +69,7 @@ const RichExplanation: React.FC<{ exp: Explanation }> = ({ exp }) => {
             <div className="flex-1 overflow-hidden">
               <span className="font-bold text-amber-900 dark:text-amber-200 block text-[10px] uppercase tracking-wider mb-1">Lưu ý lâm sàng</span>
               <div 
-                className="text-slate-700 dark:text-slate-300 leading-relaxed prose-sm dark:prose-invert max-w-none"
+                className="anki-html text-slate-700 dark:text-slate-300 leading-relaxed prose-sm dark:prose-invert max-w-none"
                 dangerouslySetInnerHTML={{ __html: formatRichText(exp.warning) }}
               />
             </div>
@@ -136,7 +136,7 @@ const MCQCard = React.memo(({
 
         <div className="pt-6 border-t border-slate-100 dark:border-slate-800">
           <span className="text-[10px] font-black text-slate-400 tracking-widest uppercase mb-4 block">Giao diện Anki</span>
-          <div dangerouslySetInnerHTML={{ __html: htmlContent }} className="p-6 bg-slate-50 dark:bg-slate-950/50 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-inner" />
+          <div dangerouslySetInnerHTML={{ __html: htmlContent }} className="anki-html p-6 bg-slate-50 dark:bg-slate-950/50 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-inner" />
         </div>
       </div>
     );

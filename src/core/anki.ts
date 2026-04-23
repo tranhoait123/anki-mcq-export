@@ -1,8 +1,5 @@
 import { Explanation } from '../types';
 
-// Minified styles for Anki & Preview - Maximum efficiency, 100% stable
-const ANKI_STYLES = `<style>.m-t{width:100%;border-collapse:collapse;margin:10px 0;border:1px solid #8884;font-size:.9em}.m-t th{background:#8882;text-align:left;padding:6px;border:1px solid #8882}.m-t td{padding:6px;border:1px solid #8881}.m-q{border-left:4px solid #6366f1;padding:8px;margin:10px 0;background:#8881;font-style:italic}</style>`;
-
 export const escapeHtml = (text: any): string => {
   if (text === null || text === undefined) return "";
   return String(text)
@@ -16,14 +13,53 @@ export const escapeHtml = (text: any): string => {
     .replace(/'/g, "&#39;");
 };
 
+const decodeBasicEntities = (text: string): string => text
+  .replace(/&nbsp;/gi, ' ')
+  .replace(/&amp;/gi, '&')
+  .replace(/&lt;/gi, '<')
+  .replace(/&gt;/gi, '>')
+  .replace(/&quot;/gi, '"')
+  .replace(/&#39;/g, "'")
+  .replace(/&#x27;/gi, "'");
+
+const cellTextFromHtml = (html: string): string => decodeBasicEntities(html)
+  .replace(/<br\s*\/?>/gi, ' ')
+  .replace(/<[^>]+>/g, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const extractSimpleHtmlTables = (text: string): { text: string; tables: string[] } => {
+  const tables: string[] = [];
+  const normalizedText = text.replace(/<table\b[^>]*>[\s\S]*?<\/table>/gi, (tableBlock) => {
+    const rows: string[] = [];
+    tableBlock.replace(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi, (_rowMatch, rowContent: string) => {
+      const cells: string[] = [];
+      rowContent.replace(/<(t[hd])\b[^>]*>([\s\S]*?)<\/\1>/gi, (_cellMatch, tag: string, cellContent: string) => {
+        cells.push(`<${tag.toLowerCase()}>${escapeHtml(cellTextFromHtml(cellContent))}</${tag.toLowerCase()}>`);
+        return '';
+      });
+      if (cells.length > 0) rows.push(`<tr>${cells.join('')}</tr>`);
+      return '';
+    });
+
+    if (rows.length === 0) return tableBlock;
+    const token = `@@ANKI_TABLE_${tables.length}@@`;
+    tables.push(`<table>${rows.join('')}</table>`);
+    return token;
+  });
+
+  return { text: normalizedText, tables };
+};
+
 export const formatRichText = (text: any): string => {
   if (typeof text !== 'string') return "";
-  let html = escapeHtml(text);
+  const extractedTables = extractSimpleHtmlTables(text);
+  let html = escapeHtml(extractedTables.text);
   
   if (html.includes('|')) {
     html = html.replace(/((?:\|[^\n]+\| *(?:\r?\n|$))+)/g, (match) => {
       const rows = match.trim().split('\n');
-      let tableHtml = '<table class="m-t">';
+      let tableHtml = '<table>';
       let isHeader = true;
       for (const row of rows) {
         if (row.includes('---')) continue;
@@ -40,7 +76,11 @@ export const formatRichText = (text: any): string => {
     });
   }
 
-  html = html.replace(/^(?:>|&gt;)\s*(.*)$/gm, '<blockquote class="m-q">$1</blockquote>');
+  extractedTables.tables.forEach((table, index) => {
+    html = html.replace(`@@ANKI_TABLE_${index}@@`, table);
+  });
+
+  html = html.replace(/^(?:>|&gt;)\s*(.*)$/gm, '<blockquote>$1</blockquote>');
   html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
   html = html.replace(/\*(.*?)\*/g, '<i>$1</i>');
   html = html.replace(/\n(?!(<\/tr>|<\/td>|<\/table>|<table|<\/th>|<blockquote|<\/blockquote>))/gi, '<br>');
@@ -50,5 +90,5 @@ export const formatRichText = (text: any): string => {
 export const buildAnkiHtml = (exp: Explanation, difficulty: string, depth: string) => {
   if (!exp) return "<i>Dữ liệu lỗi.</i>";
   const content = `<b>🎯 ĐÁP ÁN CỐT LÕI</b><br>${formatRichText(exp.core || "")}<br><br><b>📚 BẰNG CHỨNG</b><br>${formatRichText(exp.evidence || "")}<br><br><b>💡 PHÂN TÍCH SÂU</b><br>${formatRichText(exp.analysis || "")}<br><br>${exp.warning ? `<b>⚠️ CẢNH BÁO</b><br>${formatRichText(exp.warning)}<br><br>` : ''}<b>📊 ĐỘ KHÓ:</b> <b>${escapeHtml(difficulty || "N/A")}</b><br><b>🧠 TƯ DUY:</b> <b>${escapeHtml(depth || "N/A")}</b>`;
-  return ANKI_STYLES + content;
+  return content;
 };

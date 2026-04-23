@@ -700,7 +700,7 @@ const App: React.FC = () => {
   const handleCopyCSV = () => {
     if (mcqs.length === 0) return;
 
-    const headers = ["Question", "A", "B", "C", "D", "E", "CorrectAnswer", "ExplanationHTML", "Source", "Difficulty"];
+    const headers = ["Question", "A", "B", "C", "D", "E", "CorrectAnswer", "ExplanationHTML", "Source"];
     const rows = mcqs.map(m => {
       const esc = (t: string) => `"${(t || "").replace(new RegExp('"', 'g'), '""')}"`;
 
@@ -721,8 +721,7 @@ const App: React.FC = () => {
         esc(cleanOps[0]), esc(cleanOps[1]), esc(cleanOps[2]), esc(cleanOps[3]), esc(cleanOps[4]),
         esc(correctLetter),
         esc(buildAnkiHtml(m.explanation, m.difficulty, m.depthAnalysis)),
-        esc(m.source),
-        esc(m.difficulty)
+        esc(m.source)
       ].join(",");
     });
 
@@ -736,7 +735,7 @@ const App: React.FC = () => {
     try {
       if (mcqs.length === 0) return "";
 
-      const headers = ["Question", "A", "B", "C", "D", "E", "CorrectAnswer", "ExplanationHTML", "Source", "Difficulty"];
+      const headers = ["Question", "A", "B", "C", "D", "E", "CorrectAnswer", "ExplanationHTML", "Source"];
       const rows = mcqs.map((m, idx) => {
         try {
           const esc = (t: string) => `"${(t || "").replace(/"/g, '""')}"`;
@@ -764,7 +763,7 @@ const App: React.FC = () => {
             explanationHtml = "<i>Không có giải thích.</i>";
           }
 
-          return [esc(formattedQ), ...cleanOps.map(esc), esc(correctLetter), esc(explanationHtml), esc(m.source || ""), esc(m.difficulty || "")].join(",");
+          return [esc(formattedQ), ...cleanOps.map(esc), esc(correctLetter), esc(explanationHtml), esc(m.source || "")].join(",");
         } catch (err) {
           console.warn(`Lỗi tại câu ${idx + 1}:`, err);
           return null;

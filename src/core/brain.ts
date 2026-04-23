@@ -26,6 +26,24 @@ interface GenerateQuestionsOptions {
 const getFileTextContent = (file: UploadedFile): string =>
   file.nativeText?.trim() || file.structuredText?.trim() || file.plainText?.trim() || file.content || '';
 
+const joinSourceLabel = (...parts: string[]): string => parts.map(part => part.trim()).filter(Boolean).join(' | ');
+
+const formatPageRangeLabel = (range: PdfPageRange): string =>
+  range.start === range.end ? `Trang ${range.start}` : `Trang ${range.start}-${range.end}`;
+
+export const getTrustedSourceLabel = (part: { sourceLabel?: string } = {}): string => {
+  const sourceLabel = typeof part.sourceLabel === 'string' ? part.sourceLabel.trim() : '';
+  return sourceLabel || 'Nguồn không xác định';
+};
+
+export const applyTrustedSourceLabel = <T extends { source?: string }>(questions: T[], part: { sourceLabel?: string } = {}): T[] => {
+  const sourceLabel = getTrustedSourceLabel(part);
+  questions.forEach((question) => {
+    if (question && typeof question === 'object') question.source = sourceLabel;
+  });
+  return questions;
+};
+
 const getDetectedDocxMcqCount = (files: UploadedFile[]): number =>
   files.reduce((total, file) => total + (file.nativeMcqCount || file.structuredMcqCount || 0), 0);
 
@@ -437,7 +455,7 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
 4. **warning** (⚠️ CẢNH BÁO LÂM SÀNG): Lưu ý xử trí, theo dõi, tác dụng phụ, hoặc sai lầm thường gặp trên lâm sàng/thi cử.
 5. **difficulty** (📊 ĐỘ KHÓ): Chỉ trả về một từ: Easy / Medium / Hard.
 6. **depthAnalysis** (🧠 TƯ DUY): Key points dạng blockquote (🔑), bẫy thường gặp trong thi cử. Nhấn mạnh tư duy loại trừ.
-7. **source** (📁 NGUỒN): Tên tài liệu hoặc ngữ cảnh trang hiện tại.
+7. **source** (📁 NGUỒN): Chỉ dùng đúng SOURCE_LABEL được cung cấp trong prompt của batch. Không tự suy đoán, không tự đặt tên đề, năm, chương, trang, file đáp án, hoặc ngữ cảnh ngoài SOURCE_LABEL.
 
 ⛔ **HÀNG RÀO AN TOÀN (SAFETY PROTOCOL)**:
 - Tuyệt đối không sử dụng văn bản giả hoặc ghi chú chung chung (Placeholder).
@@ -453,7 +471,7 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
      - **evidence**: Bằng chứng y khoa (Markdown Table).
      - **analysis**: Phân tích loại trừ (Markdown Table).
      - **warning**: Cảnh báo lâm sàng.
-   - **source**: Nguồn trích dẫn (Tên tài liệu/Trang).
+   - **source**: Nguồn trích dẫn. Phải bằng đúng SOURCE_LABEL của batch, không thêm/bớt/kể lại theo suy đoán.
    - **difficulty**: Độ khó (Easy/Medium/Hard).
    - **depthAnalysis**: Tư duy lâm sàng chuyên sâu.
 
@@ -462,6 +480,7 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
 - CHỈ trả về duy nhất một đối tượng JSON có khóa "questions". KHÔNG được có bất kỳ văn bản giải thích nào trước hoặc sau khối JSON.
 - ĐÂY LÀ GIỚI HẠN TÀI NGUYÊN: Nếu bạn sắp hết không gian trả về (Tokens), hãy kết thúc khối JSON hiện tại một cách sạch sẽ (đóng đầy đủ ngoặc } và ]) thay vì để nó bị cắt cụt giữa chừng.
 - Đảm bảo tính nhất quán của cấu trúc: Mọi câu hỏi phải có đầy đủ các trường (question, options, correctAnswer, explanation, source, difficulty, depthAnalysis).
+- Với trường "source", nếu prompt có dòng SOURCE_LABEL thì mọi câu hỏi trong batch phải copy y nguyên giá trị đó.
 - KHÔNG sử dụng các phương thức định dạng lạ khác ngoài chuẩn JSON.
 
 OUTPUT FORMAT: JSON Object with "questions" array.
@@ -805,9 +824,14 @@ const createProviderApiError = async (providerName: string, response: Response, 
   return new Error(`${providerName} API Error: ${response.status} | model=${modelName}${cleanDetail ? ` | ${cleanDetail}` : ''}`);
 };
 
+const toGoogleContentPart = (part: any): any => {
+  if (part.inlineData) return { inlineData: part.inlineData };
+  return { text: part.text || '' };
+};
+
 export const buildGoogleBatchMessage = (part: any, batchPrompt: string, cachedContent?: string) => {
   if (cachedContent) return [{ text: batchPrompt }];
-  return [part, { text: batchPrompt }];
+  return [toGoogleContentPart(part), { text: batchPrompt }];
 };
 
 type OpenAICompatibleProvider = 'shopaikey' | 'openrouter' | 'vertexai';
@@ -1191,6 +1215,7 @@ export const generateQuestions = async (
                 nativeMcqBatch: true,
                 structuredMcqBatch: true,
                 sourceMode: 'pdfText',
+                sourceLabel: joinSourceLabel(file.name, formatPageRangeLabel(batch.pageRange), `Nhóm ${batchIndex + 1}`),
                 expectedQuestions: batch.expectedQuestions,
               });
             });
@@ -1206,32 +1231,51 @@ export const generateQuestions = async (
                   allParts.push({
                     inlineData: { mimeType: 'image/jpeg', data: imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64 },
                     sourceMode: 'pdfVision',
+                    sourceLabel: joinSourceLabel(file.name, formatPageRangeLabel(range)),
                   });
                 });
               }
             } else {
               const pdfChunks = await splitPdfByRanges(rawBase64, visionRanges);
-              pdfChunks.forEach((chunkBase64) => {
-                allParts.push({ inlineData: { mimeType: 'application/pdf', data: chunkBase64 }, sourceMode: 'pdfVision' });
+              pdfChunks.forEach((chunkBase64, chunkIndex) => {
+                const range = visionRanges[chunkIndex];
+                allParts.push({
+                  inlineData: { mimeType: 'application/pdf', data: chunkBase64 },
+                  sourceMode: 'pdfVision',
+                  sourceLabel: joinSourceLabel(file.name, range ? formatPageRangeLabel(range) : ''),
+                });
               });
             }
           }
         } catch (splitError) {
           console.warn('PDF safe hybrid fallback to legacy vision:', splitError);
-          const pdfChunks = await splitPdf(rawBase64, visionPagesPerChunk, 1);
+          const legacyRanges = getPdfPageRanges(await PDFDocument.load(rawBase64).then(doc => doc.getPageCount()), visionPagesPerChunk, 1);
+          const pdfChunks = await splitPdfByRanges(rawBase64, legacyRanges);
           if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
             const images = await convertPdfToImages(pdfDataUrl);
-            images.forEach((imageBase64) => {
-              allParts.push({ inlineData: { mimeType: 'image/jpeg', data: imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64 }, sourceMode: 'pdfVision' });
+            images.forEach((imageBase64, imageIndex) => {
+              allParts.push({
+                inlineData: { mimeType: 'image/jpeg', data: imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64 },
+                sourceMode: 'pdfVision',
+                sourceLabel: joinSourceLabel(file.name, `Trang ${imageIndex + 1}`),
+              });
             });
           } else {
-            pdfChunks.forEach((chunkBase64) => {
-              allParts.push({ inlineData: { mimeType: 'application/pdf', data: chunkBase64 }, sourceMode: 'pdfVision' });
+            pdfChunks.forEach((chunkBase64, chunkIndex) => {
+              const range = legacyRanges[chunkIndex];
+              allParts.push({
+                inlineData: { mimeType: 'application/pdf', data: chunkBase64 },
+                sourceMode: 'pdfVision',
+                sourceLabel: joinSourceLabel(file.name, range ? formatPageRangeLabel(range) : ''),
+              });
             });
           }
         }
       } else if (file.type.startsWith('image/')) {
-        allParts.push({ inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } });
+        allParts.push({
+          inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content },
+          sourceLabel: file.name,
+        });
       } else if (file.docxImageParts?.length) {
         const docxMcqText = file.nativeText?.trim() || file.structuredText?.trim() || '';
         const docxBatches = splitNativeMcqTextIntoBatches(docxMcqText, adaptiveQuestionCap);
@@ -1240,6 +1284,7 @@ export const generateQuestions = async (
             allParts.push({
               text: `[TÀI LIỆU DOCX ${file.nativeText?.trim() ? 'NATIVE' : 'STRUCTURED'}: "${file.name}" (Nhóm ${batchIndex + 1}/${docxBatches.length})]\n\n${text}`,
               nativeMcqBatch: true,
+              sourceLabel: joinSourceLabel(file.name, `Nhóm ${batchIndex + 1}`),
               expectedQuestions: getNativeBatchExpectedCount(text),
             });
           });
@@ -1249,6 +1294,7 @@ export const generateQuestions = async (
             inlineData: { mimeType: image.mimeType, data: image.content.includes(',') ? image.content.split(',')[1] : image.content },
             sourceMode: 'docxImage',
             docxImageLabel: `[DOCX IMAGE: "${file.name}" - Ảnh ${image.index} (${image.name})]`,
+            sourceLabel: joinSourceLabel(file.name, `Ảnh ${image.index}`),
           });
         });
       } else if (file.nativeText?.trim() || file.structuredText?.trim()) {
@@ -1259,11 +1305,15 @@ export const generateQuestions = async (
             allParts.push({
               text: `[TÀI LIỆU DOCX ${file.nativeText?.trim() ? 'NATIVE' : 'STRUCTURED'}: "${file.name}" (Nhóm ${batchIndex + 1}/${docxBatches.length})]\n\n${text}`,
               nativeMcqBatch: true,
+              sourceLabel: joinSourceLabel(file.name, `Nhóm ${batchIndex + 1}`),
               expectedQuestions: getNativeBatchExpectedCount(text),
             });
           });
         } else {
-          allParts.push({ text: `[TÀI LIỆU: "${file.name}" (DOCX structured fallback)]\n\n${docxMcqText}` });
+          allParts.push({
+            text: `[TÀI LIỆU: "${file.name}" (DOCX structured fallback)]\n\n${docxMcqText}`,
+            sourceLabel: file.name,
+          });
         }
       } else {
         const MAX_CHARS = textCharBudget;
@@ -1272,11 +1322,18 @@ export const generateQuestions = async (
         let partIdx = 1;
         const textContent = getFileTextContent(file);
         while (offset < textContent.length) {
-          allParts.push({ text: `[TÀI LIỆU: "${file.name}" (Phần ${partIdx++})]\n\n` + textContent.substring(offset, offset + MAX_CHARS) });
+          const currentPart = partIdx++;
+          allParts.push({
+            text: `[TÀI LIỆU: "${file.name}" (Phần ${currentPart})]\n\n` + textContent.substring(offset, offset + MAX_CHARS),
+            sourceLabel: textContent.length <= MAX_CHARS ? file.name : joinSourceLabel(file.name, `Phần ${currentPart}`),
+          });
           offset += (MAX_CHARS - OVERLAP);
           if (offset >= textContent.length - OVERLAP) {
             if (offset < textContent.length) {
-              allParts.push({ text: `[TÀI LIỆU: "${file.name}" (Phần cuối)]\n\n` + textContent.substring(offset, textContent.length) });
+              allParts.push({
+                text: `[TÀI LIỆU: "${file.name}" (Phần cuối)]\n\n` + textContent.substring(offset, textContent.length),
+                sourceLabel: joinSourceLabel(file.name, 'Phần cuối'),
+              });
             }
             break;
           }
@@ -1386,6 +1443,7 @@ export const generateQuestions = async (
         const batchStartingKey = runtimeSettings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
         const expectedQuestions = expectedAtStart;
         const isDocxImageBatch = part.sourceMode === 'docxImage';
+        const sourceInstruction = `SOURCE_LABEL: ${getTrustedSourceLabel(part)}\nBắt buộc trường "source" của mọi câu hỏi trong batch này phải copy y nguyên SOURCE_LABEL. Không tự bịa tên đề, năm, chương, trang, file đáp án hoặc nguồn khác.`;
         const structuredSourceLabel = part.sourceMode === 'pdfText' ? 'PDF TEXT STRUCTURED' : 'DOCX';
         const repairInstruction = forceJsonRepair
           ? 'LƯU Ý SỬA JSON: Lần trước batch này bị lỗi định dạng hoặc thiếu câu. Hãy trả về JSON hợp lệ tuyệt đối, đóng đủ mọi ngoặc, không markdown, không giải thích ngoài JSON.'
@@ -1396,7 +1454,7 @@ export const generateQuestions = async (
         const imagePrompt = part.sourceMode === 'docxImage'
           ? `${part.docxImageLabel || '[DOCX IMAGE]'}\nẢnh này được nhúng trong file Word và CÓ THỂ chứa câu hỏi trắc nghiệm. Hãy phóng to/đọc kỹ toàn bộ chữ trong ảnh. Nếu ảnh chứa MCQ, hãy trích xuất đầy đủ mọi câu hỏi, lựa chọn và đáp án nếu nhìn thấy. ${forceJsonRepair ? 'Lần trước ảnh này trả rỗng hoặc lỗi; chỉ trả {"questions":[]} nếu bạn chắc chắn ảnh hoàn toàn không có câu hỏi trắc nghiệm.' : 'Nếu ảnh chỉ là minh họa và KHÔNG chứa câu hỏi trắc nghiệm, hãy trả về chính xác {"questions":[]}.'}`
           : '';
-        const scanPrompt = `${repairInstruction ? `${repairInstruction}\n\n` : ''}${nativePrompt ? `${nativePrompt}\n\n` : ''}${imagePrompt ? `${imagePrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
+        const scanPrompt = `${repairInstruction ? `${repairInstruction}\n\n` : ''}${sourceInstruction}\n\n${nativePrompt ? `${nativePrompt}\n\n` : ''}${imagePrompt ? `${imagePrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
 
         const rawNewQs = await (runtimeSettings.provider === 'shopaikey' || runtimeSettings.provider === 'openrouter' || runtimeSettings.provider === 'vertexai'
           ? executeWithUserRotation(
@@ -1434,7 +1492,7 @@ export const generateQuestions = async (
                   const activeProfile = getModelTokenProfile(runtimeSettings.provider, activeModel);
                   const config = getModelConfig(currentKey, (isAdvancedMode || forceJsonRepair) ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction, questionSchema, activeModel, kCacheName || undefined, activeProfile.safeOutputBudget);
                   const chat = aiInstance.chats.create(config);
-                  const batchPrompt = kCacheName ? `Dựa trên tài liệu đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${batchLabel}.` : scanPrompt;
+                  const batchPrompt = kCacheName ? `${sourceInstruction}\n\nDựa trên tài liệu đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${batchLabel}.` : scanPrompt;
                   const response = await chat.sendMessage({ message: buildGoogleBatchMessage(part, batchPrompt, kCacheName || undefined) });
                   return parseQuestionsFromModelText(response.text, index, expectedQuestions, { allowEmpty: !isDocxImageBatch });
               },
@@ -1447,6 +1505,7 @@ export const generateQuestions = async (
         if (rawNewQs && rawNewQs.length > 0) {
           const salvagedPartial = Boolean((rawNewQs as any).__salvagedPartial);
           const missingCount = Number((rawNewQs as any).__missingCount || 0);
+          applyTrustedSourceLabel(rawNewQs, part);
           const newQs = [];
           for (const q of rawNewQs) {
             const result = findDuplicate(q, [...allQuestions, ...newQs]);

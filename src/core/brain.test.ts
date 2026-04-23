@@ -6,6 +6,7 @@ import {
   extractProviderMessageContent,
   getAdaptiveQuestionBatchSize,
   getModelConfig,
+  applyTrustedSourceLabel,
   parseQuestionsFromModelText,
   salvageCompleteQuestionsFromJson,
   translateErrorForUser,
@@ -67,11 +68,11 @@ describe('Core Logic', () => {
   });
 
   it('omits document parts from Google batch messages when context cache is available', () => {
-    const part = { text: 'very long document part' };
+    const part = { text: 'very long document part', sourceLabel: 'demo.pdf | Trang 1' };
     const prompt = 'Dựa trên tài liệu đã cache, hãy trích xuất Phần 1.';
 
     expect(buildGoogleBatchMessage(part, prompt, 'cachedContents/abc')).toEqual([{ text: prompt }]);
-    expect(buildGoogleBatchMessage(part, prompt)).toEqual([part, { text: prompt }]);
+    expect(buildGoogleBatchMessage(part, prompt)).toEqual([{ text: 'very long document part' }, { text: prompt }]);
   });
 
   it('builds Vertex AI OpenAI-compatible requests with the documented endpoint and model prefix', () => {
@@ -186,6 +187,37 @@ describe('Core Logic', () => {
 
     expect(questions).toHaveLength(2);
     expect(questions.map((q) => q.question)).toEqual(['Câu 1: Nội dung câu hỏi', 'Câu 2: Nội dung câu hỏi']);
+  });
+
+  it('overrides hallucinated source with the trusted batch source label', () => {
+    const questions = applyTrustedSourceLabel([
+      { source: '2024 - ĐỀ 1 - ĐÁP ÁN.docx' },
+    ], { sourceLabel: 'foo.pdf | Trang 2-4' });
+
+    expect(questions[0].source).toBe('foo.pdf | Trang 2-4');
+  });
+
+  it('applies the trusted source label to every parsed question in a batch', () => {
+    const parsed = parseQuestionsFromModelText(JSON.stringify({
+      questions: [1, 2].map((id) => ({
+        question: `Câu ${id}`,
+        options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+        correctAnswer: 'A',
+        explanation: {
+          core: 'Vì A đúng.',
+          evidence: 'Bằng chứng.',
+          analysis: 'Phân tích.',
+          warning: 'Lưu ý.',
+        },
+        source: `AI tự bịa ${id}`,
+        difficulty: 'Medium',
+        depthAnalysis: 'Key point',
+      })),
+    }), 0, 2);
+
+    applyTrustedSourceLabel(parsed, { sourceLabel: 'bar.docx | Nhóm 3' });
+
+    expect(parsed.map((q) => q.source)).toEqual(['bar.docx | Nhóm 3', 'bar.docx | Nhóm 3']);
   });
 
   it('keeps empty optional responses as valid JSON payloads', () => {

@@ -300,7 +300,7 @@ When satisfied:
 
 CSV Format:
 ```text
-Question | A | B | C | D | E | CorrectAnswer | ExplanationHTML | Source | Difficulty
+Question | A | B | C | D | E | CorrectAnswer | ExplanationHTML | Source
 ```
 
 > The CSV is **UTF-8 BOM** formatted to ensure Vietnamese/Foreign characters display properly anywhere.
@@ -337,7 +337,7 @@ I have created an optimized Note Type named **"3MCQ"**. Simply:
 
 #### 🔧 Manual Method: Create custom Note Type
 1. Go to **Tools → Manage Note Types → Add**
-2. Add a new Note type with fields: `Question`, `A`, `B`, `C`, `D`, `E`, `CorrectAnswer`, `ExplanationHTML`, `Source`, `Difficulty`.
+2. Add a new Note type with fields: `Question`, `A`, `B`, `C`, `D`, `E`, `CorrectAnswer`, `ExplanationHTML`, `Source`.
 
 ### Step 3: Import CSV
 

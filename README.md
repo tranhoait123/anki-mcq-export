@@ -338,7 +338,7 @@ Khi đã hài lòng với kết quả:
 
 File CSV có các cột:
 ```
-Question | A | B | C | D | E | CorrectAnswer | ExplanationHTML | Source | Difficulty
+Question | A | B | C | D | E | CorrectAnswer | ExplanationHTML | Source
 ```
 
 > File CSV đã được format chuẩn **UTF-8 BOM** để đảm bảo hiển thị tiếng Việt đúng trên mọi phần mềm.
@@ -414,7 +414,6 @@ Nếu bạn muốn tự tạo, thực hiện như sau:
    - `CorrectAnswer`
    - `ExplanationHTML`
    - `Source`
-   - `Difficulty`
 
 ### Bước 3: Import CSV
 

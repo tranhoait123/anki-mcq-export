@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { UploadedFile, MCQ, GeneratedResponse, AnalysisResult, AuditResult, DuplicateInfo, AppSettings, ProcessingController, ProcessingState } from './types';
+import { UploadedFile, MCQ, GeneratedResponse, AnalysisResult, AuditResult, DuplicateInfo, AppSettings, ProcessingCheckpoint, ProcessingController, ProcessingPhase, ProcessingSession, ProcessingSessionStatus, ProcessingState } from './types';
 import FileUploader from './ui/FileUploader';
 import MCQDisplay from './ui/MCQDisplay';
 import SettingsModal from './ui/SettingsModal';
 import AuditPanel from './ui/AuditPanel';
 import DuplicatesReviewModal from './ui/DuplicatesReviewModal';
-import { generateQuestions, analyzeDocument, auditMissingQuestions, translateErrorForUser } from './core/brain';
+import { generateQuestions, analyzeDocument, auditMissingQuestions, hashFiles, translateErrorForUser } from './core/brain';
 // @ts-ignore
 import { db } from './core/db';
 import { BrainCircuit, Loader2, Download, CheckCircle2, AlertTriangle, ScanText, Moon, Sun, Settings as SettingsIcon, Columns, FileText, DownloadCloud, Sparkles, Filter, Trash2, Copy, RotateCcw, Info, Pause, Play } from 'lucide-react';
@@ -18,12 +18,36 @@ import { coerceModelForProvider, coerceModelForProviderInput, DEFAULT_GEMINI_MOD
 import { toast } from 'sonner';
 import { convertPdfToImages } from './utils/pdfProcessor';
 import { createProcessingController } from './utils/processingControl';
+import { selectPreferredPhaseOutcome } from './utils/resumeSession';
 
 const isDocxFile = (file?: UploadedFile | null) =>
   !!file && (
     file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     || file.name.toLowerCase().endsWith('.docx')
   );
+
+const getPersistableFiles = (files: UploadedFile[]): UploadedFile[] =>
+  files
+    .filter((file) => !file.isProcessing && Boolean(file.content))
+    .map((file) => ({ ...file, isProcessing: false, progress: 100 }));
+
+const sortMcqsByQuestionNumber = (items: MCQ[]): MCQ[] => {
+  const getNum = (str: string) => {
+    const m = str.match(/(\d+)/);
+    return m ? parseInt(m[1]) : 999999;
+  };
+  return [...items].sort((a, b) => getNum(a.question) - getNum(b.question));
+};
+
+const isResumableStatus = (status: ProcessingSessionStatus) =>
+  status === 'running' || status === 'paused' || status === 'interrupted';
+
+const formatSessionPhase = (phase: ProcessingPhase) => {
+  if (phase === 'fallback') return 'Fallback OCR';
+  if (phase === 'rescue') return 'Tự cứu batch lỗi';
+  if (phase === 'retryFailed') return 'Quét lại batch lỗi';
+  return 'Trích xuất chính';
+};
 
 const App: React.FC = () => {
   const [files, setFiles] = useState<UploadedFile[]>([]);
@@ -45,6 +69,15 @@ const App: React.FC = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [processingState, setProcessingState] = useState<ProcessingState>('running');
   const processingControllerRef = React.useRef<ProcessingController | null>(null);
+  const [resumeSession, setResumeSession] = useState<ProcessingSession | null>(null);
+  const activeSessionRef = React.useRef<ProcessingSession | null>(null);
+  const filesRef = React.useRef<UploadedFile[]>([]);
+  const mcqsRef = React.useRef<MCQ[]>([]);
+  const duplicatesRef = React.useRef<DuplicateInfo[]>([]);
+  const analysisRef = React.useRef<AnalysisResult | null>(null);
+  const previousFilesSignatureRef = React.useRef<string | null>(null);
+  const sessionPersistChainRef = React.useRef<Promise<void>>(Promise.resolve());
+  const mcqPersistChainRef = React.useRef<Promise<void>>(Promise.resolve());
 
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
@@ -106,6 +139,41 @@ const App: React.FC = () => {
           setSettings(persistedSettings);
         }
 
+        // 1.5 Check Files
+        const persistedFiles = getPersistableFiles(await db.getFiles());
+        if (persistedFiles.length > 0) setFiles(persistedFiles);
+
+        // 1.6 Check Processing Session
+        let persistedSession = await db.getSession();
+        if (persistedSession) {
+          if (persistedFiles.length === 0) {
+            await db.clearSession();
+            persistedSession = null;
+          } else {
+            const fingerprint = await hashFiles(persistedFiles);
+            if (persistedSession.filesFingerprint !== fingerprint) {
+              await db.clearSession();
+              persistedSession = null;
+            }
+          }
+        }
+        if (persistedSession && isResumableStatus(persistedSession.status)) {
+          if (persistedSession.status !== 'interrupted') {
+            persistedSession = {
+              ...persistedSession,
+              status: 'interrupted',
+              updatedAt: Date.now(),
+            };
+            await db.saveSession(persistedSession);
+          }
+          if (persistedSession.analysisSnapshot) setAnalysis(persistedSession.analysisSnapshot);
+          if ((persistedSession.mcqsSnapshot || []).length > 0) setMcqs(sortMcqsByQuestionNumber(persistedSession.mcqsSnapshot || []));
+          if (persistedSession.duplicatesSnapshot.length > 0) setDuplicates(persistedSession.duplicatesSnapshot);
+          if ((persistedSession.failedBatchIndices || []).length > 0) setFailedBatchIndices(persistedSession.failedBatchIndices);
+          setCurrentCount(persistedSession.currentCount || 0);
+          setResumeSession(persistedSession);
+        }
+
         // 2. Check MCQs
         let persistedMcqs = await db.getAllMCQs();
         if (persistedMcqs.length === 0) {
@@ -118,7 +186,7 @@ const App: React.FC = () => {
             }
           }
         }
-        if (persistedMcqs.length > 0) setMcqs(persistedMcqs);
+        if (persistedMcqs.length > 0 && !persistedSession) setMcqs(persistedMcqs);
 
         setIsLoaded(true);
         console.log("Pro Storage (IndexedDB) ready.");
@@ -137,8 +205,34 @@ const App: React.FC = () => {
 
   // Save MCQs on change
   useEffect(() => {
-    if (isLoaded) db.saveMCQs(mcqs);
+    if (!isLoaded) return;
+    if (activeSessionRef.current) return;
+    mcqPersistChainRef.current = mcqPersistChainRef.current
+      .catch(() => undefined)
+      .then(() => db.saveMCQs(mcqs));
   }, [mcqs, isLoaded]);
+
+  // Save uploaded files on change so reload/reset doesn't force re-upload
+  useEffect(() => {
+    if (!isLoaded) return;
+    db.saveFiles(getPersistableFiles(files));
+  }, [files, isLoaded]);
+
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+
+  useEffect(() => {
+    mcqsRef.current = mcqs;
+  }, [mcqs]);
+
+  useEffect(() => {
+    duplicatesRef.current = duplicates;
+  }, [duplicates]);
+
+  useEffect(() => {
+    analysisRef.current = analysis;
+  }, [analysis]);
 
   // Dark Mode State
   // Dark Mode State
@@ -178,10 +272,17 @@ const App: React.FC = () => {
 
   // Reset lỗi khi file thay đổi để tránh lệch Index
   useEffect(() => {
-    if (files.length > 0) {
+    if (!isLoaded) return;
+    const signature = files.map((file) => file.id).join('|');
+    if (previousFilesSignatureRef.current === null) {
+      previousFilesSignatureRef.current = signature;
+      return;
+    }
+    if (signature !== previousFilesSignatureRef.current && files.length > 0 && !activeSessionRef.current && !resumeSession) {
       setFailedBatchIndices([]);
     }
-  }, [files]);
+    previousFilesSignatureRef.current = signature;
+  }, [files, isLoaded, resumeSession]);
 
   const handleInstallApp = async () => {
     if (!deferredPrompt) return;
@@ -264,18 +365,20 @@ const App: React.FC = () => {
   // Helper to process files for analysis/generation
   const prepareFiles = async (
     forcedMode?: 'gemini' | 'tesseract',
-    controller?: ProcessingController
+    controller?: ProcessingController,
+    runtimeSettings?: AppSettings
   ): Promise<UploadedFile[]> => {
+    const activeSettings = runtimeSettings || settings;
     const mode = forcedMode || ocrMode;
     let processedFiles: UploadedFile[] = [];
 
     // Pre-processing: Chuyển PDF thành ảnh nếu Provider không phải Google (Vertex/OpenRouter/ShopAI không nhận PDF raw)
-    const needsPdfRasterization = settings.provider !== 'google' && mode !== 'gemini';
+    const needsPdfRasterization = activeSettings.provider !== 'google' && mode !== 'gemini';
     for (const file of files) {
       await controller?.waitIfPaused();
 
       if (file.type === 'application/pdf' && needsPdfRasterization) {
-         setProgressStatus(`Đang chuyển đổi PDF sang ảnh để tương thích với ${settings.provider}...`);
+         setProgressStatus(`Đang chuyển đổi PDF sang ảnh để tương thích với ${activeSettings.provider}...`);
          try {
            const pdfDataUrl = file.content.startsWith('data:') ? file.content : `data:application/pdf;base64,${file.content}`;
            const imageBase64s = await convertPdfToImages(pdfDataUrl);
@@ -342,7 +445,17 @@ const App: React.FC = () => {
   };
 
   const startProcessingController = () => {
-    const controller = createProcessingController((state) => setProcessingState(state));
+    const controller = createProcessingController((state) => {
+      setProcessingState(state);
+      const active = activeSessionRef.current;
+      if (!active) return;
+      const status: ProcessingSessionStatus = state === 'paused' ? 'paused' : 'running';
+      const next = { ...active, status, updatedAt: Date.now() };
+      activeSessionRef.current = next;
+      sessionPersistChainRef.current = sessionPersistChainRef.current
+        .catch(() => undefined)
+        .then(() => db.saveSession(next));
+    });
     processingControllerRef.current = controller;
     setProcessingState('running');
     return controller;
@@ -377,6 +490,246 @@ const App: React.FC = () => {
     controller.requestPause();
     toast.info("Đã nhận yêu cầu tạm dừng. Hệ thống sẽ dừng ở checkpoint an toàn gần nhất.");
   };
+
+  const uniqueAgainst = (newList: MCQ[], existingList: MCQ[]): MCQ[] => {
+    const uniqueNew: MCQ[] = [];
+    for (const q of newList) {
+      const result = findDuplicate(q, [...existingList, ...uniqueNew]);
+      if (!result.isDup) uniqueNew.push(q);
+    }
+    return uniqueNew;
+  };
+
+  const setVisibleMcqs = async (items: MCQ[]) => {
+    const sorted = sortMcqsByQuestionNumber(items);
+    mcqsRef.current = sorted;
+    setMcqs(sorted);
+    if (!activeSessionRef.current) {
+      mcqPersistChainRef.current = mcqPersistChainRef.current
+        .catch(() => undefined)
+        .then(() => db.saveMCQs(sorted));
+      await mcqPersistChainRef.current;
+    }
+    return sorted;
+  };
+
+  const appendVisibleMcqs = async (items: MCQ[]) => {
+    const uniqueNew = uniqueAgainst(items, mcqsRef.current);
+    if (uniqueNew.length === 0) return [];
+    await setVisibleMcqs([...mcqsRef.current, ...uniqueNew]);
+    return uniqueNew;
+  };
+
+  const runGenerationPhase = async ({
+    phase,
+    filesToUse,
+    requestSettings,
+    expectedQuestionCount,
+    controller,
+    progressPrefix,
+    retryIndices,
+    isAdvancedMode = false,
+    retryProfile,
+    autoRescue = false,
+    seedQuestions = [],
+    seedDuplicates = [],
+    seedAutoSkippedCount = 0,
+    liveAppendToVisible = false,
+    comparisonBaselineCount,
+    comparisonFailedBatchIndices = [],
+    comparisonFailedBatchDetails = [],
+    existingCompletedBatchIndices = [],
+    forcedOcrMode,
+  }: {
+    phase: ProcessingPhase;
+    filesToUse: UploadedFile[];
+    requestSettings: AppSettings;
+    expectedQuestionCount: number;
+    controller: ProcessingController;
+    progressPrefix?: string;
+    retryIndices?: number[];
+    isAdvancedMode?: boolean;
+    retryProfile?: 'normal' | 'rescue';
+    autoRescue?: boolean;
+    seedQuestions?: MCQ[];
+    seedDuplicates?: DuplicateInfo[];
+    seedAutoSkippedCount?: number;
+    liveAppendToVisible?: boolean;
+    comparisonBaselineCount?: number;
+    comparisonFailedBatchIndices?: number[];
+    comparisonFailedBatchDetails?: GeneratedResponse['failedBatchDetails'];
+    existingCompletedBatchIndices?: number[];
+    forcedOcrMode?: 'gemini' | 'tesseract';
+  }) => {
+    let phaseQuestions = sortMcqsByQuestionNumber(seedQuestions);
+    let phaseDuplicates = [...seedDuplicates];
+    let phaseAutoSkippedCount = seedAutoSkippedCount;
+
+    await persistSession(await buildSessionBase(phase, requestSettings, {
+      totalTopLevelBatches: retryIndices?.length || 0,
+      completedBatchIndices: existingCompletedBatchIndices,
+      failedBatchIndices: [],
+      failedBatchDetails: [],
+      forcedOcrMode,
+      autoSkippedCount: liveAppendToVisible ? 0 : phaseAutoSkippedCount,
+      currentCount: liveAppendToVisible ? mcqsRef.current.length : phaseQuestions.length,
+      resumeRetryIndices: retryIndices,
+      mcqsSnapshot: mcqsRef.current,
+      duplicatesSnapshot: duplicatesRef.current,
+      phaseQuestionsSnapshot: phaseQuestions,
+      phaseDuplicatesSnapshot: phaseDuplicates,
+      phaseAutoSkippedCount: phaseAutoSkippedCount,
+      phaseCurrentCount: phaseQuestions.length,
+      phaseComparisonBaselineCount: comparisonBaselineCount,
+      phaseComparisonFailedBatchIndices: comparisonFailedBatchIndices,
+      phaseComparisonFailedBatchDetails: comparisonFailedBatchDetails,
+    }));
+
+    const res = await generateQuestions(
+      filesToUse,
+      requestSettings,
+      0,
+      (status, count) => {
+        setProgressStatus(progressPrefix ? `${progressPrefix}${status}` : status);
+        setCurrentCount(count);
+      },
+      expectedQuestionCount,
+      (newBatch) => {
+        const persistBatch = async () => {
+          if (liveAppendToVisible) {
+            await appendVisibleMcqs(newBatch);
+          }
+          phaseQuestions = sortMcqsByQuestionNumber([...phaseQuestions, ...newBatch]);
+        };
+        void persistBatch();
+      },
+      retryIndices,
+      isAdvancedMode,
+      {
+        controller,
+        retryProfile,
+        autoRescue,
+        resumeMode: existingCompletedBatchIndices.length > 0 || seedQuestions.length > 0,
+        completedBatchIndices: existingCompletedBatchIndices,
+        existingQuestions: phaseQuestions,
+        existingDuplicates: phaseDuplicates,
+        existingAutoSkippedCount: phaseAutoSkippedCount,
+        sessionPhase: phase,
+        onCheckpoint: (checkpoint: ProcessingCheckpoint) => {
+          void updateActiveSession({
+            totalTopLevelBatches: checkpoint.totalTopLevelBatches,
+            completedBatchIndices: checkpoint.completedBatchIndices,
+            failedBatchIndices: checkpoint.failedBatchIndices,
+            failedBatchDetails: checkpoint.failedBatchDetails,
+            currentCount: checkpoint.currentCount,
+            mcqsSnapshot: checkpoint.questionsSnapshot,
+            duplicatesSnapshot: checkpoint.duplicatesSnapshot,
+            autoSkippedCount: checkpoint.autoSkippedCount,
+            phaseQuestionsSnapshot: checkpoint.questionsSnapshot,
+            phaseDuplicatesSnapshot: checkpoint.duplicatesSnapshot,
+            phaseAutoSkippedCount: checkpoint.autoSkippedCount,
+            phaseCurrentCount: checkpoint.questionsSnapshot.length,
+          });
+          mcqPersistChainRef.current = mcqPersistChainRef.current
+            .catch(() => undefined)
+            .then(() => db.saveMCQs(checkpoint.questionsSnapshot));
+        },
+      }
+    );
+
+    phaseQuestions = sortMcqsByQuestionNumber(res.questions);
+    phaseDuplicates = [...(res.duplicates || [])];
+    phaseAutoSkippedCount = res.autoSkippedCount || phaseAutoSkippedCount;
+
+    await updateActiveSession({
+      totalTopLevelBatches: retryIndices?.length || activeSessionRef.current?.totalTopLevelBatches || 0,
+      failedBatchIndices: res.failedBatches || [],
+      failedBatchDetails: res.failedBatchDetails || [],
+      currentCount: liveAppendToVisible ? mcqsRef.current.length : phaseQuestions.length,
+      mcqsSnapshot: mcqsRef.current,
+      duplicatesSnapshot: phaseDuplicates,
+      autoSkippedCount: liveAppendToVisible ? phaseAutoSkippedCount : (activeSessionRef.current?.autoSkippedCount || phaseAutoSkippedCount),
+      phaseQuestionsSnapshot: phaseQuestions,
+      phaseDuplicatesSnapshot: phaseDuplicates,
+      phaseAutoSkippedCount: phaseAutoSkippedCount,
+      phaseCurrentCount: phaseQuestions.length,
+    });
+
+    return {
+      res,
+      phaseQuestions,
+      phaseDuplicates,
+      phaseAutoSkippedCount,
+    };
+  };
+
+  const persistSession = async (session: ProcessingSession) => {
+    activeSessionRef.current = session;
+    setResumeSession(session);
+    sessionPersistChainRef.current = sessionPersistChainRef.current
+      .catch(() => undefined)
+      .then(() => db.saveSession(session));
+    await sessionPersistChainRef.current;
+  };
+
+  const updateActiveSession = async (partial: Partial<ProcessingSession>) => {
+    const current = activeSessionRef.current || await db.getSession();
+    if (!current) return null;
+    const next: ProcessingSession = {
+      ...current,
+      ...partial,
+      id: 'current',
+      updatedAt: partial.updatedAt ?? Date.now(),
+    };
+    activeSessionRef.current = next;
+    setResumeSession(next);
+    sessionPersistChainRef.current = sessionPersistChainRef.current
+      .catch(() => undefined)
+      .then(() => db.saveSession(next));
+    await sessionPersistChainRef.current;
+    return next;
+  };
+
+  const clearResumeSession = async () => {
+    activeSessionRef.current = null;
+    setResumeSession(null);
+    sessionPersistChainRef.current = sessionPersistChainRef.current
+      .catch(() => undefined)
+      .then(() => db.clearSession());
+    await sessionPersistChainRef.current;
+  };
+
+  const buildSessionBase = async (
+    phase: ProcessingPhase,
+    settingsSnapshot: AppSettings,
+    extras: Partial<ProcessingSession> = {}
+  ): Promise<ProcessingSession> => ({
+    id: 'current',
+    status: 'running',
+    phase,
+    createdAt: extras.createdAt ?? Date.now(),
+    updatedAt: Date.now(),
+    filesFingerprint: await hashFiles(getPersistableFiles(filesRef.current)),
+    forcedOcrMode: extras.forcedOcrMode,
+    settingsSnapshot,
+    analysisSnapshot: analysisRef.current,
+    totalTopLevelBatches: extras.totalTopLevelBatches ?? 0,
+    completedBatchIndices: extras.completedBatchIndices ?? [],
+    failedBatchIndices: extras.failedBatchIndices ?? [],
+    failedBatchDetails: extras.failedBatchDetails ?? [],
+    duplicatesSnapshot: extras.duplicatesSnapshot ?? duplicatesRef.current,
+    autoSkippedCount: extras.autoSkippedCount ?? 0,
+    currentCount: extras.currentCount ?? mcqsRef.current.length,
+    resumeRetryIndices: extras.resumeRetryIndices,
+    mcqsSnapshot: extras.mcqsSnapshot ?? mcqsRef.current,
+    phaseQuestionsSnapshot: extras.phaseQuestionsSnapshot ?? [],
+    phaseDuplicatesSnapshot: extras.phaseDuplicatesSnapshot ?? [],
+    phaseAutoSkippedCount: extras.phaseAutoSkippedCount ?? 0,
+    phaseCurrentCount: extras.phaseCurrentCount ?? 0,
+    phaseComparisonBaselineCount: extras.phaseComparisonBaselineCount,
+    phaseComparisonFailedBatchIndices: extras.phaseComparisonFailedBatchIndices ?? [],
+    phaseComparisonFailedBatchDetails: extras.phaseComparisonFailedBatchDetails ?? [],
+  });
 
   const handleAnalyze = async () => {
     if (files.length === 0) return;
@@ -420,7 +773,7 @@ const App: React.FC = () => {
         return;
       }
 
-      const filesToUse = await prepareFiles();
+      const filesToUse = await prepareFiles(undefined, undefined, requestSettings);
       const res = await analyzeDocument(filesToUse, requestSettings);
       setAnalysis(res);
       toast.success(`Phân tích thành công! Dự kiến có khoảng ${res.estimatedCount} câu hỏi.`);
@@ -453,39 +806,38 @@ const App: React.FC = () => {
       return;
     }
 
+    await clearResumeSession();
     setLoading(true);
     setCurrentCount(0);
     setProgressStatus("Đang chuẩn bị xử lý...");
     setMcqs([]);
+    mcqsRef.current = [];
+    await db.saveMCQs([]);
     setFailedBatchIndices([]);
     setAudit(null);
     setShowAudit(false);
     setDuplicates([]);
+    duplicatesRef.current = [];
     setShowDuplicates(false);
+    let completed = false;
 
     try {
       const controller = startProcessingController();
+      const settingsSnapshot = { ...requestSettings };
+      let activeOcrMode: 'gemini' | 'tesseract' = ocrMode;
 
       // 1. Initial Attempt (Default Mode)
-      let filesToUse = await prepareFiles(undefined, controller);
+      let filesToUse = await prepareFiles(activeOcrMode, controller, settingsSnapshot);
       const expectedQuestionCount = analysis?.estimatedCount || getDetectedDocxMcqCount();
-      let res = await generateQuestions(filesToUse, requestSettings, 0, (status, count) => {
-        setProgressStatus(status);
-        setCurrentCount(count);
-      }, expectedQuestionCount, (newBatch) => {
-        // REAL-TIME UPDATE: Append new questions immediately
-        setMcqs(prev => {
-          const updated = [...prev, ...newBatch];
-          // Sort valid numbers
-          return updated.sort((a, b) => {
-            const getNum = (str: string) => {
-              const m = str.match(/(\d+)/);
-              return m ? parseInt(m[1]) : 999999;
-            };
-            return getNum(a.question) - getNum(b.question);
-          });
-        });
-      }, undefined, false, { controller });
+      let { res } = await runGenerationPhase({
+        phase: 'initial',
+        filesToUse,
+        requestSettings: settingsSnapshot,
+        expectedQuestionCount,
+        controller,
+        liveAppendToVisible: true,
+        forcedOcrMode: activeOcrMode,
+      });
 
       // 2. Auto-Fallback Check
       // If we used Gemini (Cloud) AND got bad results (< 60% of estimate), try Tesseract
@@ -499,20 +851,50 @@ const App: React.FC = () => {
             await waitWithController(2000, controller);
 
             try {
-              const tesseractFiles = await prepareFiles('tesseract', controller);
+              const tesseractFiles = await prepareFiles('tesseract', controller, settingsSnapshot);
               // If OCR produced text, let's retry generation
               if (tesseractFiles.some(f => f.type === 'text/plain' && f.content.length > 50)) {
-                setProgressStatus("Đang trích xuất lại với dữ liệu từ Local OCR...");
-                const fallbackRes = await generateQuestions(tesseractFiles, requestSettings, 0, (status, count) => {
-                  setProgressStatus(`${status} (Fallback Loop)`);
-                  setCurrentCount(count);
-                }, analysis.estimatedCount, undefined, undefined, false, { controller });
+                const fallbackPhase = await runGenerationPhase({
+                  phase: 'fallback',
+                  filesToUse: tesseractFiles,
+                  requestSettings: settingsSnapshot,
+                  expectedQuestionCount: analysis.estimatedCount,
+                  controller,
+                  progressPrefix: '',
+                  liveAppendToVisible: false,
+                  comparisonBaselineCount: count,
+                  comparisonFailedBatchIndices: res.failedBatches || [],
+                  comparisonFailedBatchDetails: res.failedBatchDetails || [],
+                  forcedOcrMode: 'tesseract',
+                });
+                const fallbackRes = fallbackPhase.res;
 
-                // Use fallback results if they are better or non-empty
-                if (fallbackRes.questions.length > count) {
-                  res = fallbackRes;
-                  filesToUse = tesseractFiles; // Update filesToUse to reflect what was actually used
+                const preferredOutcome = selectPreferredPhaseOutcome({
+                  baselineQuestions: res.questions as MCQ[],
+                  baselineFailedBatchIndices: res.failedBatches || [],
+                  baselineFailedBatchDetails: res.failedBatchDetails || [],
+                  baselineMode: activeOcrMode,
+                  candidateQuestions: fallbackRes.questions as MCQ[],
+                  candidateFailedBatchIndices: fallbackRes.failedBatches || [],
+                  candidateFailedBatchDetails: fallbackRes.failedBatchDetails || [],
+                  candidateMode: 'tesseract',
+                });
+
+                if (preferredOutcome.useCandidate) {
+                  res = {
+                    ...fallbackRes,
+                    failedBatches: preferredOutcome.failedBatchIndices,
+                    failedBatchDetails: preferredOutcome.failedBatchDetails,
+                  };
+                  filesToUse = tesseractFiles;
+                  activeOcrMode = 'tesseract';
+                  await setVisibleMcqs(sortMcqsByQuestionNumber(fallbackRes.questions.map((q, i) => ({
+                    ...q,
+                    id: q.id || `q-${Date.now()}-${i}`,
+                  }))));
                   console.log("Fallback successful, replaced results.");
+                } else {
+                  setFailedBatchIndices(preferredOutcome.failedBatchIndices);
                 }
               }
             } catch (fallbackError) {
@@ -527,27 +909,20 @@ const App: React.FC = () => {
       if (res.failedBatches && res.failedBatches.length > 0) {
         const initialFailed = [...res.failedBatches];
         try {
-          setProgressStatus(`Đang tự cứu ${initialFailed.length} phần lỗi • đã thêm 0 câu`);
-          const rescueRes = await generateQuestions(
+          const rescuePhase = await runGenerationPhase({
+            phase: 'rescue',
             filesToUse,
-            requestSettings,
-            0,
-            (status, count) => {
-              setProgressStatus(status);
-              setCurrentCount(count);
-            },
+            requestSettings: settingsSnapshot,
             expectedQuestionCount,
-            (newBatch) => {
-              setMcqs(prev => {
-                const uniqueNew = deduplicateQuestions(newBatch, prev);
-                autoRescuedCount += uniqueNew.length;
-                return [...prev, ...uniqueNew].sort((a, b) => (extractQuestionNumber(a.question) || 999999) - (extractQuestionNumber(b.question) || 999999));
-              });
-            },
-            initialFailed,
-            true,
-            { retryProfile: 'rescue', autoRescue: true, controller }
-          );
+            controller,
+            retryIndices: initialFailed,
+            isAdvancedMode: true,
+            retryProfile: 'rescue',
+            autoRescue: true,
+            liveAppendToVisible: true,
+            forcedOcrMode: activeOcrMode,
+          });
+          const rescueRes = rescuePhase.res;
 
           const uniqueRescued = deduplicateQuestions(rescueRes.questions as MCQ[], res.questions as MCQ[]);
           autoRescuedCount = Math.max(autoRescuedCount, uniqueRescued.length);
@@ -565,9 +940,9 @@ const App: React.FC = () => {
       }
 
       const formatted = res.questions.map((q, i) => ({
-        ...q, id: `q - ${Date.now()} -${i} `
+        ...q, id: q.id || `q - ${Date.now()} -${i} `
       }));
-      setMcqs(formatted);
+      await setVisibleMcqs(formatted);
 
       // 3. Thông báo lỗi cho các Batch thất bại (nếu có)
       if (res.failedBatches && res.failedBatches.length > 0) {
@@ -590,6 +965,7 @@ const App: React.FC = () => {
       // Store duplicates for display
       if (res.duplicates && res.duplicates.length > 0) {
         setDuplicates(res.duplicates);
+        duplicatesRef.current = res.duplicates;
       }
 
       // Tự động kiểm toán nếu số lượng quá thấp
@@ -598,23 +974,20 @@ const App: React.FC = () => {
       } else if (!analysis && expectedQuestionCount > 0 && formatted.length < expectedQuestionCount * 0.8) {
         runAudit(formatted.length, filesToUse);
       }
+      completed = true;
     } catch (e: any) {
       toast.error(translateErrorForUser(e, 'Trích xuất'));
     }
     finally {
+      if (completed) await clearResumeSession();
       clearProcessingController();
       setLoading(false);
     }
   };
 
-  const deduplicateQuestions = (newList: MCQ[], existingList: MCQ[]): MCQ[] => {
-    const uniqueNew: MCQ[] = [];
-    for (const q of newList) {
-      const result = findDuplicate(q, [...existingList, ...uniqueNew]);
-      if (!result.isDup) uniqueNew.push(q);
-    }
-    return uniqueNew;
-  };
+  function deduplicateQuestions(newList: MCQ[], existingList: MCQ[]): MCQ[] {
+    return uniqueAgainst(newList, existingList);
+  }
 
   const summarizeBatchFailures = (details?: GeneratedResponse['failedBatchDetails'], failedBatches: number[] = []) => {
     if (!details || details.length === 0) {
@@ -635,37 +1008,271 @@ const App: React.FC = () => {
     return `${reasons}. ${advice}`;
   };
 
+  const handleDiscardResumeSession = async () => {
+    await clearResumeSession();
+    await db.saveMCQs(mcqsRef.current);
+    setProgressStatus("");
+    setCurrentCount(0);
+    setFailedBatchIndices([]);
+    toast.info("Đã bỏ phiên dang dở. File và dữ liệu đã khôi phục vẫn được giữ lại.");
+  };
+
+  const handleResumeSession = async () => {
+    const session = resumeSession;
+    if (!session || files.length === 0) return;
+    if (warnVisionRecommendedDocx()) return;
+
+    setLoading(true);
+    setCurrentCount(session.currentCount ?? session.phaseCurrentCount ?? mcqsRef.current.length);
+    setProgressStatus(`Đang tiếp tục ${formatSessionPhase(session.phase).toLowerCase()}...`);
+    setFailedBatchIndices(session.failedBatchIndices || []);
+    setDuplicates(session.duplicatesSnapshot || []);
+    duplicatesRef.current = session.duplicatesSnapshot || [];
+    let resumedSuccessfully = false;
+
+    try {
+      const controller = startProcessingController();
+      let activeOcrMode: 'gemini' | 'tesseract' = session.forcedOcrMode || 'gemini';
+      let filesToUse = await prepareFiles(activeOcrMode, controller, session.settingsSnapshot);
+      const expectedQuestionCount = session.analysisSnapshot?.estimatedCount || getDetectedDocxMcqCount();
+
+      if (session.phase === 'initial') {
+        let { res } = await runGenerationPhase({
+          phase: 'initial',
+          filesToUse,
+          requestSettings: session.settingsSnapshot,
+          expectedQuestionCount,
+          controller,
+          seedQuestions: mcqsRef.current,
+          seedDuplicates: [],
+          existingCompletedBatchIndices: session.completedBatchIndices,
+          liveAppendToVisible: true,
+          forcedOcrMode: activeOcrMode,
+        });
+
+        if (activeOcrMode === 'gemini' && session.analysisSnapshot && session.analysisSnapshot.estimatedCount > 0) {
+          const count = res.questions.length;
+          if (count < session.analysisSnapshot.estimatedCount * 0.9) {
+            const hasImages = files.some(f => f.type.startsWith('image/'));
+            if (hasImages) {
+              const tesseractFiles = await prepareFiles('tesseract', controller, session.settingsSnapshot);
+              if (tesseractFiles.some(f => f.type === 'text/plain' && f.content.length > 50)) {
+                const fallbackPhase = await runGenerationPhase({
+                  phase: 'fallback',
+                  filesToUse: tesseractFiles,
+                  requestSettings: session.settingsSnapshot,
+                  expectedQuestionCount: session.analysisSnapshot.estimatedCount,
+                  controller,
+                  seedQuestions: [],
+                  seedDuplicates: [],
+                  comparisonBaselineCount: count,
+                  comparisonFailedBatchIndices: res.failedBatches || [],
+                  comparisonFailedBatchDetails: res.failedBatchDetails || [],
+                  forcedOcrMode: 'tesseract',
+                });
+
+                const preferredOutcome = selectPreferredPhaseOutcome({
+                  baselineQuestions: res.questions as MCQ[],
+                  baselineFailedBatchIndices: res.failedBatches || [],
+                  baselineFailedBatchDetails: res.failedBatchDetails || [],
+                  baselineMode: activeOcrMode,
+                  candidateQuestions: fallbackPhase.res.questions as MCQ[],
+                  candidateFailedBatchIndices: fallbackPhase.res.failedBatches || [],
+                  candidateFailedBatchDetails: fallbackPhase.res.failedBatchDetails || [],
+                  candidateMode: 'tesseract',
+                });
+
+                if (preferredOutcome.useCandidate) {
+                  res = {
+                    ...fallbackPhase.res,
+                    failedBatches: preferredOutcome.failedBatchIndices,
+                    failedBatchDetails: preferredOutcome.failedBatchDetails,
+                  };
+                  filesToUse = tesseractFiles;
+                  activeOcrMode = 'tesseract';
+                  await setVisibleMcqs(sortMcqsByQuestionNumber(fallbackPhase.res.questions));
+                } else {
+                  setFailedBatchIndices(preferredOutcome.failedBatchIndices);
+                }
+              }
+            }
+          }
+        }
+
+        if (res.failedBatches && res.failedBatches.length > 0) {
+          const rescuePhase = await runGenerationPhase({
+            phase: 'rescue',
+            filesToUse,
+            requestSettings: session.settingsSnapshot,
+            expectedQuestionCount,
+            controller,
+            retryIndices: res.failedBatches,
+            isAdvancedMode: true,
+            retryProfile: 'rescue',
+            autoRescue: true,
+            liveAppendToVisible: true,
+            forcedOcrMode: activeOcrMode,
+          });
+          const uniqueRescued = deduplicateQuestions(rescuePhase.res.questions as MCQ[], res.questions as MCQ[]);
+          res = {
+            ...res,
+            questions: [...res.questions, ...uniqueRescued],
+            duplicates: [...(res.duplicates || []), ...(rescuePhase.res.duplicates || [])],
+            failedBatches: rescuePhase.res.failedBatches || [],
+            failedBatchDetails: rescuePhase.res.failedBatchDetails || [],
+            autoSkippedCount: (res.autoSkippedCount || 0) + (rescuePhase.res.autoSkippedCount || 0),
+          };
+        }
+
+        await setVisibleMcqs(sortMcqsByQuestionNumber(res.questions));
+        setFailedBatchIndices(res.failedBatches || []);
+        setDuplicates(res.duplicates || []);
+        duplicatesRef.current = res.duplicates || [];
+      } else if (session.phase === 'fallback') {
+        const fallbackPhase = await runGenerationPhase({
+          phase: 'fallback',
+          filesToUse,
+          requestSettings: session.settingsSnapshot,
+          expectedQuestionCount,
+          controller,
+          seedQuestions: session.phaseQuestionsSnapshot || [],
+          seedDuplicates: session.phaseDuplicatesSnapshot || [],
+          seedAutoSkippedCount: session.phaseAutoSkippedCount || 0,
+          existingCompletedBatchIndices: session.completedBatchIndices || [],
+          comparisonBaselineCount: session.phaseComparisonBaselineCount || mcqsRef.current.length,
+          comparisonFailedBatchIndices: session.phaseComparisonFailedBatchIndices || [],
+          comparisonFailedBatchDetails: session.phaseComparisonFailedBatchDetails || [],
+          forcedOcrMode: 'tesseract',
+        });
+
+        const preferredOutcome = selectPreferredPhaseOutcome({
+          baselineQuestions: mcqsRef.current,
+          baselineFailedBatchIndices: session.phaseComparisonFailedBatchIndices || [],
+          baselineFailedBatchDetails: session.phaseComparisonFailedBatchDetails || [],
+          baselineMode: 'gemini',
+          candidateQuestions: fallbackPhase.res.questions as MCQ[],
+          candidateFailedBatchIndices: fallbackPhase.res.failedBatches || [],
+          candidateFailedBatchDetails: fallbackPhase.res.failedBatchDetails || [],
+          candidateMode: 'tesseract',
+        });
+
+        let selectedRes: GeneratedResponse = preferredOutcome.useCandidate
+          ? {
+              ...fallbackPhase.res,
+              failedBatches: preferredOutcome.failedBatchIndices,
+              failedBatchDetails: preferredOutcome.failedBatchDetails,
+            }
+          : {
+              questions: preferredOutcome.questions,
+              duplicates: session.duplicatesSnapshot || [],
+              failedBatches: preferredOutcome.failedBatchIndices,
+              failedBatchDetails: preferredOutcome.failedBatchDetails,
+              autoSkippedCount: session.autoSkippedCount || 0,
+            };
+
+        if (preferredOutcome.useCandidate) {
+          activeOcrMode = 'tesseract';
+          filesToUse = await prepareFiles('tesseract', controller, session.settingsSnapshot);
+          await setVisibleMcqs(sortMcqsByQuestionNumber(fallbackPhase.res.questions));
+        } else {
+          activeOcrMode = preferredOutcome.forcedOcrMode || 'gemini';
+          filesToUse = await prepareFiles(activeOcrMode, controller, session.settingsSnapshot);
+          await setVisibleMcqs(sortMcqsByQuestionNumber(preferredOutcome.questions));
+        }
+
+        if (selectedRes.failedBatches && selectedRes.failedBatches.length > 0) {
+          const rescuePhase = await runGenerationPhase({
+            phase: 'rescue',
+            filesToUse,
+            requestSettings: session.settingsSnapshot,
+            expectedQuestionCount,
+            controller,
+            retryIndices: selectedRes.failedBatches,
+            isAdvancedMode: true,
+            retryProfile: 'rescue',
+            autoRescue: true,
+            liveAppendToVisible: true,
+            forcedOcrMode: activeOcrMode,
+          });
+          const uniqueRescued = deduplicateQuestions(rescuePhase.res.questions as MCQ[], selectedRes.questions as MCQ[]);
+          selectedRes = {
+            ...selectedRes,
+            questions: [...selectedRes.questions, ...uniqueRescued],
+            duplicates: [...(selectedRes.duplicates || []), ...(rescuePhase.res.duplicates || [])],
+            failedBatches: rescuePhase.res.failedBatches || [],
+            failedBatchDetails: rescuePhase.res.failedBatchDetails || [],
+            autoSkippedCount: (selectedRes.autoSkippedCount || 0) + (rescuePhase.res.autoSkippedCount || 0),
+          };
+        }
+
+        await setVisibleMcqs(sortMcqsByQuestionNumber(selectedRes.questions as MCQ[]));
+        setFailedBatchIndices(selectedRes.failedBatches || []);
+        setDuplicates(selectedRes.duplicates || []);
+        duplicatesRef.current = selectedRes.duplicates || [];
+      } else {
+        const retryIndices = session.resumeRetryIndices || session.failedBatchIndices || [];
+        const resumedPhase = await runGenerationPhase({
+          phase: session.phase,
+          filesToUse,
+          requestSettings: session.settingsSnapshot,
+          expectedQuestionCount,
+          controller,
+          progressPrefix: session.phase === 'retryFailed' ? '[CƠ CHẾ CHUYÊN GIA] ' : '',
+          retryIndices,
+          isAdvancedMode: true,
+          retryProfile: 'rescue',
+          autoRescue: session.phase === 'rescue',
+          liveAppendToVisible: true,
+          existingCompletedBatchIndices: session.completedBatchIndices || [],
+          seedQuestions: session.phaseQuestionsSnapshot || [],
+          seedDuplicates: session.phaseDuplicatesSnapshot || [],
+          seedAutoSkippedCount: session.phaseAutoSkippedCount || 0,
+          forcedOcrMode: activeOcrMode,
+        });
+        setFailedBatchIndices(resumedPhase.res.failedBatches || []);
+        setDuplicates(resumedPhase.res.duplicates || []);
+        duplicatesRef.current = resumedPhase.res.duplicates || [];
+      }
+
+      toast.success("Đã tiếp tục xong phiên dang dở.");
+      resumedSuccessfully = true;
+    } catch (e: any) {
+      toast.error(translateErrorForUser(e, 'Tiếp tục'));
+    } finally {
+      if (resumedSuccessfully) await clearResumeSession();
+      clearProcessingController();
+      setLoading(false);
+    }
+  };
+
   const handleRetryFailed = async () => {
     if (files.length === 0 || failedBatchIndices.length === 0) return;
     if (warnVisionRecommendedDocx()) return;
     const requestSettings = getRequestSettings(currentFilesRequireVision());
     
+    await clearResumeSession();
     setLoading(true);
     setCurrentCount(0);
     setProgressStatus(`Đang quét lại ${failedBatchIndices.length} phần lỗi...`);
+    let retryCompleted = false;
     
     try {
       const controller = startProcessingController();
-      const filesToUse = await prepareFiles(undefined, controller);
-      const res = await generateQuestions(
-        filesToUse, 
-        requestSettings, 
-        0, 
-        (status, count) => {
-          setProgressStatus(`[CƠ CHẾ CHUYÊN GIA] ${status}`);
-          setCurrentCount(count);
-        }, 
-        analysis?.estimatedCount || 0,
-        (newBatch) => {
-          setMcqs(prev => {
-            const uniqueNew = deduplicateQuestions(newBatch, prev);
-            return [...prev, ...uniqueNew].sort((a,b) => (extractQuestionNumber(a.question) || 0) - (extractQuestionNumber(b.question) || 0));
-          });
-        },
-        failedBatchIndices,
-        true, // Enable isAdvancedMode (Resilience 2.0)
-        { retryProfile: 'rescue', controller }
-      );
+      const filesToUse = await prepareFiles(ocrMode, controller, requestSettings);
+      const retryPhase = await runGenerationPhase({
+        phase: 'retryFailed',
+        filesToUse,
+        requestSettings: requestSettings,
+        expectedQuestionCount: analysis?.estimatedCount || 0,
+        controller,
+        progressPrefix: '[CƠ CHẾ CHUYÊN GIA] ',
+        retryIndices: failedBatchIndices,
+        isAdvancedMode: true,
+        retryProfile: 'rescue',
+        liveAppendToVisible: true,
+        forcedOcrMode: ocrMode,
+      });
+      const res = retryPhase.res;
 
       if (res.failedBatches && res.failedBatches.length > 0) {
         setFailedBatchIndices(res.failedBatches);
@@ -674,9 +1281,13 @@ const App: React.FC = () => {
         setFailedBatchIndices([]);
         toast.success("Đã quét lại thành công tất cả các phần lỗi!");
       }
+      setDuplicates(res.duplicates || []);
+      duplicatesRef.current = res.duplicates || [];
+      retryCompleted = true;
     } catch (e: any) {
       toast.error(translateErrorForUser(e, 'Quét lại'));
     } finally {
+      if (retryCompleted) await clearResumeSession();
       clearProcessingController();
       setLoading(false);
     }
@@ -692,7 +1303,7 @@ const App: React.FC = () => {
     setAuditing(true);
     try {
       const requestSettings = getRequestSettings((processedFiles || files).some(file => file.type === 'application/pdf' || file.type.startsWith('image/')));
-      const filesToUse = processedFiles || await prepareFiles();
+      const filesToUse = processedFiles || await prepareFiles(undefined, undefined, requestSettings);
       const res = await auditMissingQuestions(filesToUse, count, requestSettings);
       setAudit(res);
       setShowAudit(true);
@@ -1136,6 +1747,38 @@ const App: React.FC = () => {
 
         {/* Main Content - Results */}
         <div className={`space-y-6 ${isSplitView ? 'col-span-6 h-full overflow-y-auto pr-2' : 'lg:col-span-8'}`}>
+          {resumeSession && !loading && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-black uppercase tracking-wider text-amber-800 dark:text-amber-300">
+                    Phát hiện phiên dang dở
+                  </h3>
+                  <p className="text-sm text-amber-900 dark:text-amber-100">
+                    {formatSessionPhase(resumeSession.phase)} • {resumeSession.completedBatchIndices.length}/{resumeSession.totalTopLevelBatches || '?'} batch • {resumeSession.settingsSnapshot.provider} / {resumeSession.settingsSnapshot.model}
+                  </p>
+                  <p className="text-xs text-amber-700/80 dark:text-amber-200/80">
+                    Cập nhật lần cuối: {new Date(resumeSession.updatedAt).toLocaleString('vi-VN')}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleDiscardResumeSession}
+                    className="rounded-xl border border-amber-300 px-4 py-2 text-xs font-black uppercase tracking-wider text-amber-800 transition hover:bg-amber-100 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                  >
+                    Bỏ phiên cũ
+                  </button>
+                  <button
+                    onClick={handleResumeSession}
+                    className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-black uppercase tracking-wider text-white transition hover:bg-amber-600"
+                  >
+                    Tiếp tục phiên dang dở
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Warning for Split View if no files */}
           {isSplitView && files.length === 0 && (
             <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-lg flex items-center gap-3">
@@ -1198,11 +1841,18 @@ const App: React.FC = () => {
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => {
-                    if (confirm("Xóa toàn bộ dữ liệu hiện tại?")) {
+                  onClick={async () => {
+                    if (confirm("Xóa toàn bộ dữ liệu hiện tại, file đã lưu, phiên dang dở và cache AI?")) {
                       setMcqs([]);
-                      db.clearAll();
+                      mcqsRef.current = [];
+                      setFiles([]);
+                      filesRef.current = [];
                       setDuplicates([]);
+                      duplicatesRef.current = [];
+                      setFailedBatchIndices([]);
+                      setResumeSession(null);
+                      activeSessionRef.current = null;
+                      await db.clearAll();
                     }
                   }}
                   className="px-4 py-2 bg-gray-100 text-gray-700 font-medium text-sm rounded-lg hover:bg-gray-200 shadow-sm flex items-center gap-2 transition-all"

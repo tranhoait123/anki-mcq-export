@@ -116,6 +116,48 @@ export interface UploadedFile {
 export type ProgressCallback = (message: string, count: number) => void;
 export type BatchCallback = (newQuestions: MCQ[]) => void;
 export type ProcessingState = 'running' | 'pausing' | 'paused';
+export type ProcessingPhase = 'initial' | 'fallback' | 'rescue' | 'retryFailed';
+export type ProcessingSessionStatus = 'idle' | 'running' | 'paused' | 'interrupted' | 'completed' | 'discarded';
+
+export interface ProcessingCheckpoint {
+  batchIndex: number;
+  totalTopLevelBatches: number;
+  completedBatchIndices: number[];
+  failedBatchIndices: number[];
+  failedBatchDetails: BatchFailureInfo[];
+  questionsSnapshot: MCQ[];
+  duplicatesSnapshot: DuplicateInfo[];
+  autoSkippedCount: number;
+  currentCount: number;
+}
+
+export interface ProcessingSession {
+  id: 'current';
+  status: ProcessingSessionStatus;
+  phase: ProcessingPhase;
+  createdAt: number;
+  updatedAt: number;
+  filesFingerprint: string;
+  forcedOcrMode?: 'gemini' | 'tesseract';
+  settingsSnapshot: AppSettings;
+  analysisSnapshot: AnalysisResult | null;
+  totalTopLevelBatches: number;
+  completedBatchIndices: number[];
+  failedBatchIndices: number[];
+  failedBatchDetails: BatchFailureInfo[];
+  duplicatesSnapshot: DuplicateInfo[];
+  autoSkippedCount: number;
+  currentCount: number;
+  resumeRetryIndices?: number[];
+  mcqsSnapshot?: MCQ[];
+  phaseQuestionsSnapshot?: MCQ[];
+  phaseDuplicatesSnapshot?: DuplicateInfo[];
+  phaseAutoSkippedCount?: number;
+  phaseCurrentCount?: number;
+  phaseComparisonBaselineCount?: number;
+  phaseComparisonFailedBatchIndices?: number[];
+  phaseComparisonFailedBatchDetails?: BatchFailureInfo[];
+}
 
 export interface ProcessingController {
   requestPause: () => void;

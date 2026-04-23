@@ -1,6 +1,6 @@
 import { PDFDocument } from 'pdf-lib';
 import { GoogleGenAI, Type } from "@google/genai";
-import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, ProcessingController } from "../types";
+import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, ProcessingCheckpoint, ProcessingController, ProcessingPhase } from "../types";
 import { db } from './db';
 import { findDuplicate } from '../utils/dedupe';
 import { coerceModelForProvider, coerceModelForProviderInput, DEFAULT_GEMINI_MODEL, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage, ModelTokenProfile } from '../utils/models';
@@ -22,6 +22,13 @@ interface GenerateQuestionsOptions {
   retryProfile?: RetryProfileName;
   autoRescue?: boolean;
   controller?: ProcessingController;
+  resumeMode?: boolean;
+  completedBatchIndices?: number[];
+  existingQuestions?: MCQ[];
+  existingDuplicates?: DuplicateInfo[];
+  existingAutoSkippedCount?: number;
+  sessionPhase?: ProcessingPhase;
+  onCheckpoint?: (checkpoint: ProcessingCheckpoint) => void;
 }
 
 const getFileTextContent = (file: UploadedFile): string =>
@@ -115,7 +122,7 @@ const getAdaptiveVisionPagesPerChunk = (profile: ModelTokenProfile, adaptiveBatc
   adaptiveBatching ? Math.max(3, Math.min(5, profile.visionPagesPerBatch)) : 3;
 
 // Helper: Hashing for cache identification
-const hashFiles = async (files: UploadedFile[]): Promise<string> => {
+export const hashFiles = async (files: UploadedFile[]): Promise<string> => {
   const sortedFiles = [...files].sort((a, b) => a.name.localeCompare(b.name));
   const combined = sortedFiles.map(f => `${f.name}:${getFileTextContent(f)}`).join('|');
   const msgUint8 = new TextEncoder().encode(combined);
@@ -1401,14 +1408,66 @@ export const generateQuestions = async (
       }
     };
 
-    let allQuestions: any[] = [];
-    let allDuplicates: any[] = [];
+    let allQuestions: any[] = [...(options.existingQuestions || [])];
+    let allDuplicates: any[] = [...(options.existingDuplicates || [])];
     let failedBatches: number[] = [];
     let failedBatchDetails: BatchFailureInfo[] = [];
     let duplicateCounter = 0;
-    let autoSkippedCount = 0;
+    let autoSkippedCount = options.existingAutoSkippedCount || 0;
     let rescueCompleted = 0;
     const rescueTotal = retryIndices?.length || 0;
+    const skippedBatchSet = new Set(options.completedBatchIndices || []);
+    const phaseBatchNumbers = retryIndices && retryIndices.length > 0
+      ? [...retryIndices]
+      : Array.from({ length: allParts.length }, (_, idx) => idx + 1);
+    const totalTopLevelBatches = phaseBatchNumbers.length;
+    const batchQuestions = new Map<number, MCQ[]>();
+    const batchDuplicates = new Map<number, DuplicateInfo[]>();
+    const batchAutoSkipped = new Map<number, number>();
+
+    const appendBatchQuestions = (batchNumber: number, questions: MCQ[]) => {
+      if (questions.length === 0) return;
+      const current = batchQuestions.get(batchNumber) || [];
+      batchQuestions.set(batchNumber, [...current, ...questions]);
+    };
+
+    const appendBatchDuplicates = (batchNumber: number, duplicates: DuplicateInfo[]) => {
+      if (duplicates.length === 0) return;
+      const current = batchDuplicates.get(batchNumber) || [];
+      batchDuplicates.set(batchNumber, [...current, ...duplicates]);
+    };
+
+    const incrementBatchAutoSkipped = (batchNumber: number, count: number) => {
+      if (count <= 0) return;
+      batchAutoSkipped.set(batchNumber, (batchAutoSkipped.get(batchNumber) || 0) + count);
+    };
+
+    const buildCheckpointSnapshot = (completedBatchNumbers: number[]) => {
+      const questionList = [...(options.existingQuestions || [])];
+      const duplicateList = [...(options.existingDuplicates || [])];
+      let safeAutoSkippedCount = options.existingAutoSkippedCount || 0;
+
+      completedBatchNumbers
+        .slice()
+        .sort((a, b) => a - b)
+        .forEach((batchNumber) => {
+          questionList.push(...(batchQuestions.get(batchNumber) || []));
+          duplicateList.push(...(batchDuplicates.get(batchNumber) || []));
+          safeAutoSkippedCount += batchAutoSkipped.get(batchNumber) || 0;
+        });
+
+      questionList.sort((a, b) => {
+        const numA = extractQuestionNumber(a.question) || 999999;
+        const numB = extractQuestionNumber(b.question) || 999999;
+        return numA - numB;
+      });
+
+      return {
+        questionsSnapshot: questionList,
+        duplicatesSnapshot: duplicateList,
+        autoSkippedCount: safeAutoSkippedCount,
+      };
+    };
 
     const recordBatchFailure = (index: number, label: string, error: any, stage: BatchFailureInfo['stage']) => {
       const batchNumber = index + 1;
@@ -1429,12 +1488,12 @@ export const generateQuestions = async (
     let completedBatches = 0;
     const CONCURRENCY_LIMIT = runtimeSettings.concurrencyLimit || 1;
 
-    const totalBatches = allParts.length;
+    const totalBatches = totalTopLevelBatches;
     const stableFallbackModel = getProviderFallbackModel(runtimeSettings.provider);
     const extractionModel = isAdvancedMode || isRescueMode ? stableFallbackModel : runtimeSettings.model;
 
     // Hàm xử lý Batch chính có khả năng Đệ quy (Subdivision)
-    const processBatch = async (part: any, index: number, depth: number = 0, forceJsonRepair: boolean = false) => {
+    const processBatch = async (part: any, index: number, depth: number = 0, forceJsonRepair: boolean = false, topLevelIndex: number = index) => {
       const batchLabel = depth === 0 ? `${index + 1}` : `${index + 1}${String.fromCharCode(96 + depth)}`;
 
       try {
@@ -1444,7 +1503,7 @@ export const generateQuestions = async (
         if (adaptiveBatching && depth === 0 && part.nativeMcqBatch && expectedAtStart > adaptiveQuestionCap) {
           const cappedParts = splitStructuredPartByBatchSize(part, adaptiveQuestionCap);
           if (cappedParts.length > 1) {
-            await Promise.all(cappedParts.map((p) => processBatch(p, index, depth + 1, forceJsonRepair)));
+            await Promise.all(cappedParts.map((p) => processBatch(p, index, depth + 1, forceJsonRepair, topLevelIndex)));
             return;
           }
         }
@@ -1528,6 +1587,8 @@ export const generateQuestions = async (
           const missingCount = Number((rawNewQs as any).__missingCount || 0);
           applyTrustedSourceLabel(rawNewQs, part);
           const newQs = [];
+          const batchNewDuplicates: DuplicateInfo[] = [];
+          let batchNewAutoSkipped = 0;
           for (const q of rawNewQs) {
             const result = findDuplicate(q, [...allQuestions, ...newQs]);
             if (!result.isDup) {
@@ -1537,7 +1598,7 @@ export const generateQuestions = async (
               duplicateCounter++;
               // Chỉ thêm vào danh sách Review nếu độ trùng lặp < 98% (không phải auto-skip)
               if (!result.isAutoSkip) {
-                allDuplicates.push({
+                const duplicateInfo = {
                   id: `dup-${Date.now()}-${duplicateCounter}`,
                   question: q.question.substring(0, 50),
                   reason: result.reason || 'Duplicate found',
@@ -1546,9 +1607,12 @@ export const generateQuestions = async (
                   matchedData: result.matchedData,
                   score: result.score,
                   fieldScores: result.fieldScores
-                });
+                };
+                allDuplicates.push(duplicateInfo);
+                batchNewDuplicates.push(duplicateInfo);
               } else {
                 autoSkippedCount++;
+                batchNewAutoSkipped++;
                 console.log(`⏩ Auto-skipped identical MCQ (~100%): ${q.question.substring(0, 50)}...`);
               }
             }
@@ -1556,9 +1620,12 @@ export const generateQuestions = async (
 
           if (newQs.length > 0) {
             allQuestions.push(...newQs);
+            appendBatchQuestions(topLevelIndex + 1, newQs);
             if (onBatchComplete) onBatchComplete(newQs);
             console.log(`✅ Batch ${batchLabel}: Found ${newQs.length} questions.`);
           }
+          appendBatchDuplicates(topLevelIndex + 1, batchNewDuplicates);
+          incrementBatchAutoSkipped(topLevelIndex + 1, batchNewAutoSkipped);
 
           if (salvagedPartial && missingCount > 0) {
             throw new Error(`AI_FORMAT_ERROR_PARTIAL_SALVAGE: Đã cứu ${rawNewQs.length} câu hợp lệ nhưng còn thiếu khoảng ${missingCount} câu.`);
@@ -1569,13 +1636,13 @@ export const generateQuestions = async (
         const expectedQuestions = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
         if (part.sourceMode === 'docxImage' && !forceJsonRepair && (errorKind === 'empty' || errorKind === 'format')) {
           console.warn(`🔎 DOCX image batch ${batchLabel} returned empty/invalid. Retrying once with stricter Vision prompt...`);
-          await processBatch(part, index, depth, true);
+          await processBatch(part, index, depth, true, topLevelIndex);
           return;
         }
 
         if (adaptiveBatching && !forceJsonRepair && depth === 0 && errorKind === 'format' && (expectedQuestions > 10 || estimateTextTokens(part.text || '') > 4000)) {
           console.warn(`🔧 Batch ${batchLabel} format failed. Retrying once with strict JSON repair before splitting...`);
-          await processBatch(part, index, depth, true);
+          await processBatch(part, index, depth, true, topLevelIndex);
           return;
         }
 
@@ -1602,7 +1669,7 @@ export const generateQuestions = async (
           ).filter(p => p.text.trim().length > 0);
 
           // Chạy song song cả 4 phần để tối ưu thời gian
-          await Promise.all(parts.map((p, i) => processBatch(p, index, depth + 1)));
+          await Promise.all(parts.map((p, i) => processBatch(p, index, depth + 1, false, topLevelIndex)));
           const progressAfterSplit = allQuestions.length + allDuplicates.length + autoSkippedCount;
           if (depth === 0 && progressAfterSplit === progressBeforeSplit && !failedBatches.includes(index + 1)) {
             recordBatchFailure(index, batchLabel, e, 'split');
@@ -1617,6 +1684,22 @@ export const generateQuestions = async (
           onProgress(`⚠️ Phần ${batchLabel} lỗi: ${detail.message}. Đang tiếp tục...`, allQuestions.length);
         }
       } finally {
+        if (depth === 0) {
+          skippedBatchSet.add(index + 1);
+          const completedBatchIndices = Array.from(skippedBatchSet).sort((a, b) => a - b);
+          const checkpointSnapshot = buildCheckpointSnapshot(completedBatchIndices);
+          options.onCheckpoint?.({
+            batchIndex: index + 1,
+            totalTopLevelBatches,
+            completedBatchIndices,
+            failedBatchIndices: Array.from(new Set(failedBatches)).sort((a, b) => a - b),
+            failedBatchDetails: [...failedBatchDetails].sort((a, b) => a.index - b.index || a.label.localeCompare(b.label)),
+            questionsSnapshot: checkpointSnapshot.questionsSnapshot,
+            duplicatesSnapshot: checkpointSnapshot.duplicatesSnapshot,
+            autoSkippedCount: checkpointSnapshot.autoSkippedCount,
+            currentCount: checkpointSnapshot.questionsSnapshot.length,
+          });
+        }
         if (isRescueMode && depth === 0) rescueCompleted++;
       }
     };
@@ -1624,6 +1707,7 @@ export const generateQuestions = async (
     const activePromises: Promise<void>[] = [];
     for (let i = 0; i < allParts.length; i++) {
       await controller?.waitIfPaused();
+      if (skippedBatchSet.has(i + 1)) continue;
 
       // Nếu đang chạy chế độ Retry, chỉ xử lý những index có trong danh sách
       if (retryIndices && retryIndices.length > 0 && !retryIndices.includes(i + 1)) {

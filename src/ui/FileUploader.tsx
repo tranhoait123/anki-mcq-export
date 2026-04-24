@@ -356,6 +356,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
         <input
           type="file"
           id="fileInput"
+          data-testid="file-input"
           multiple
           accept=".pdf,.txt,.md,.docx,.png,.jpg,.jpeg,.webp,.heic"
           className="hidden"

@@ -5,6 +5,16 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+  const alias = mode === 'e2e'
+    ? [
+        { find: './core/brain', replacement: path.resolve(__dirname, 'src/e2e/mocks/brain.ts') },
+        { find: '@/core/brain', replacement: path.resolve(__dirname, 'src/e2e/mocks/brain.ts') },
+        { find: '@', replacement: path.resolve(__dirname, '.') },
+      ]
+    : {
+        '@': path.resolve(__dirname, '.'),
+      };
+
   return {
     server: {
       port: 3000,
@@ -43,9 +53,7 @@ export default defineConfig(({ mode }) => {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
     },
     resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
-      }
+      alias,
     },
     build: {
       rollupOptions: {
@@ -58,6 +66,9 @@ export default defineConfig(({ mode }) => {
           }
         }
       }
+    },
+    test: {
+      exclude: ['node_modules/**', 'dist/**', 'tests/e2e/**'],
     }
   };
 });

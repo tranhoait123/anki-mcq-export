@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UploadedFile, MCQ, GeneratedResponse, AnalysisResult, AuditResult, DuplicateInfo, AppSettings, ProcessingCheckpoint, ProcessingController, ProcessingPhase, ProcessingSession, ProcessingSessionStatus, ProcessingState } from './types';
+import { UploadedFile, MCQ, GeneratedResponse, AnalysisResult, AuditResult, DuplicateInfo, AppSettings, ProcessingCheckpoint, ProcessingController, ProcessingPhase } from './types';
 import FileUploader from './ui/FileUploader';
 import MCQDisplay from './ui/MCQDisplay';
 import SettingsModal from './ui/SettingsModal';
@@ -8,92 +8,66 @@ import DuplicatesReviewModal from './ui/DuplicatesReviewModal';
 import { generateQuestions, analyzeDocument, auditMissingQuestions, hashFiles, translateErrorForUser } from './core/brain';
 // @ts-ignore
 import { db } from './core/db';
-import { BrainCircuit, Loader2, Download, CheckCircle2, AlertTriangle, ScanText, Moon, Sun, Settings as SettingsIcon, Columns, FileText, DownloadCloud, Sparkles, Filter, Trash2, Copy, RotateCcw, Info, Pause, Play } from 'lucide-react';
+import { BrainCircuit, Loader2, Download, CheckCircle2, AlertTriangle, ScanText, Moon, Sun, Settings as SettingsIcon, Columns, FileText, DownloadCloud, Sparkles, RotateCcw, Info, Pause, Play } from 'lucide-react';
 import { extractTextWithTesseract } from './core/vision';
-import { buildAnkiHtml, formatRichText } from './core/anki';
-import { buildStudyDocxBlob } from './core/docxExport';
-import { isOptionCorrect } from './utils/text';
 import { findDuplicate } from './utils/dedupe';
-import { coerceModelForProvider, coerceModelForProviderInput, DEFAULT_GEMINI_MODEL, isModelAllowedForProvider } from './utils/models';
+import { coerceModelForProviderInput } from './utils/models';
 import { toast } from 'sonner';
 import { convertPdfToImages } from './utils/pdfProcessor';
-import { createProcessingController } from './utils/processingControl';
 import { selectPreferredPhaseOutcome } from './utils/resumeSession';
-
-const isDocxFile = (file?: UploadedFile | null) =>
-  !!file && (
-    file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    || file.name.toLowerCase().endsWith('.docx')
-  );
-
-const getPersistableFiles = (files: UploadedFile[]): UploadedFile[] =>
-  files
-    .filter((file) => !file.isProcessing && Boolean(file.content))
-    .map((file) => ({ ...file, isProcessing: false, progress: 100 }));
-
-const sortMcqsByQuestionNumber = (items: MCQ[]): MCQ[] => {
-  const getNum = (str: string) => {
-    const m = str.match(/(\d+)/);
-    return m ? parseInt(m[1]) : 999999;
-  };
-  return [...items].sort((a, b) => getNum(a.question) - getNum(b.question));
-};
-
-const isResumableStatus = (status: ProcessingSessionStatus) =>
-  status === 'running' || status === 'paused' || status === 'interrupted';
-
-const formatSessionPhase = (phase: ProcessingPhase) => {
-  if (phase === 'fallback') return 'Fallback OCR';
-  if (phase === 'rescue') return 'Tự cứu batch lỗi';
-  if (phase === 'retryFailed') return 'Quét lại batch lỗi';
-  return 'Trích xuất chính';
-};
+import { formatSessionPhase, getPersistableFiles, isDocxFile, isResumableStatus, sortMcqsByQuestionNumber, summarizeBatchFailures } from './utils/appHelpers';
+import { useExportActions } from './hooks/useExportActions';
+import { useProcessingSession } from './hooks/useProcessingSession';
+import { useProcessingControllerState } from './hooks/useProcessingControllerState';
+import { usePersistedSettings } from './hooks/usePersistedSettings';
 
 const App: React.FC = () => {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [mcqs, setMcqs] = useState<MCQ[]>([]);
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [auditing, setAuditing] = useState(false);
+  const [, setAuditing] = useState(false);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [audit, setAudit] = useState<AuditResult | null>(null);
   const [progressStatus, setProgressStatus] = useState("");
   const [currentCount, setCurrentCount] = useState(0);
   const [showAudit, setShowAudit] = useState(false);
-  const [ocrMode, setOcrMode] = useState<'gemini' | 'tesseract'>('gemini');
+  const [ocrMode] = useState<'gemini' | 'tesseract'>('gemini');
   const [duplicates, setDuplicates] = useState<DuplicateInfo[]>([]);
   const [failedBatchIndices, setFailedBatchIndices] = useState<number[]>([]);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isSplitView, setIsSplitView] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [processingState, setProcessingState] = useState<ProcessingState>('running');
-  const processingControllerRef = React.useRef<ProcessingController | null>(null);
-  const [resumeSession, setResumeSession] = useState<ProcessingSession | null>(null);
-  const activeSessionRef = React.useRef<ProcessingSession | null>(null);
   const resultsPanelRef = React.useRef<HTMLDivElement | null>(null);
   const filesRef = React.useRef<UploadedFile[]>([]);
   const mcqsRef = React.useRef<MCQ[]>([]);
   const duplicatesRef = React.useRef<DuplicateInfo[]>([]);
   const analysisRef = React.useRef<AnalysisResult | null>(null);
   const previousFilesSignatureRef = React.useRef<string | null>(null);
-  const sessionPersistChainRef = React.useRef<Promise<void>>(Promise.resolve());
   const mcqPersistChainRef = React.useRef<Promise<void>>(Promise.resolve());
-  const [exportAction, setExportAction] = useState<'downloadCsv' | 'downloadDocx' | null>(null);
+  const { exportAction, downloadCSV, downloadDOCX } = useExportActions(mcqs, files);
+  const {
+    resumeSession,
+    setResumeSession,
+    activeSessionRef,
+    persistSession,
+    persistSessionSnapshot,
+    updateActiveSession,
+    clearResumeSession,
+    buildSessionBase,
+  } = useProcessingSession({ filesRef, mcqsRef, duplicatesRef, analysisRef });
+  const {
+    processingState,
+    startProcessingController,
+    clearProcessingController,
+    waitWithController,
+    handleTogglePause,
+  } = useProcessingControllerState(activeSessionRef, persistSessionSnapshot);
 
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
-  const [settings, setSettings] = useState<AppSettings>({
-    apiKey: '',
-    shopAIKeyKey: '',
-    provider: 'google',
-    model: 'gemini-3.1-flash-lite-preview',
-    customPrompt: '',
-    skipAnalysis: true,
-    concurrencyLimit: 1,
-    adaptiveBatching: true,
-    batchingMode: 'safe',
-  });
+  const { settings, setSettings, loadPersistedSettings } = usePersistedSettings(isLoaded);
 
   // Initialization & Migration: Load from DB or Migration from localStorage
   useEffect(() => {
@@ -102,44 +76,7 @@ const App: React.FC = () => {
         await db.init();
 
         // 1. Check Settings
-        let persistedSettings = await db.getSettings();
-        if (!persistedSettings) {
-          // Try migration
-          const legacy = localStorage.getItem('anki_mcq_settings');
-          if (legacy) {
-            persistedSettings = JSON.parse(legacy);
-            if (persistedSettings) await db.saveSettings(persistedSettings);
-          }
-        }
-        if (persistedSettings) {
-          // Ensure provider is known before validating provider-specific model IDs.
-          if (!persistedSettings.provider) persistedSettings.provider = 'google';
-
-          // Migration to April 2026 Lineup
-          if (persistedSettings.model?.includes('gemini-1.5')) persistedSettings.model = 'gemini-2.5-flash';
-          if (persistedSettings.model === 'gemini-3-flash' || persistedSettings.model === 'gemini-3-flash-preview') persistedSettings.model = 'gemini-3-flash-preview';
-          if (persistedSettings.model === 'gemini-3-pro' || persistedSettings.model === 'gemini-3-pro-preview') persistedSettings.model = 'gemini-3.1-pro-preview';
-          if (persistedSettings.model === 'gemini-3.1-flash-lite') persistedSettings.model = 'gemini-3.1-flash-lite-preview';
-          
-          // Provider safety: only Gemini-native providers must reject non-Gemini model IDs.
-          if (!persistedSettings.model || !isModelAllowedForProvider(persistedSettings.provider, persistedSettings.model)) {
-            console.warn("🛡️ Detected missing or provider-incompatible model. Resetting to Gemini 3.1 Flash-Lite.");
-            persistedSettings.model = coerceModelForProvider(persistedSettings.provider, persistedSettings.model || DEFAULT_GEMINI_MODEL);
-          }
-
-          // Ensure new fields exist
-          if (persistedSettings.shopAIKeyKey === undefined) persistedSettings.shopAIKeyKey = '';
-          if (persistedSettings.openRouterKey === undefined) persistedSettings.openRouterKey = '';
-          if (persistedSettings.vertexProjectId === undefined) persistedSettings.vertexProjectId = '';
-          if (persistedSettings.vertexLocation === undefined) persistedSettings.vertexLocation = 'us-central1';
-          if (persistedSettings.vertexAccessToken === undefined) persistedSettings.vertexAccessToken = '';
-          if (persistedSettings.skipAnalysis === undefined) persistedSettings.skipAnalysis = true;
-          if (persistedSettings.concurrencyLimit === undefined) persistedSettings.concurrencyLimit = 1;
-          if (persistedSettings.adaptiveBatching === undefined) persistedSettings.adaptiveBatching = true;
-          if (persistedSettings.batchingMode === undefined) persistedSettings.batchingMode = 'safe';
-          
-          setSettings(persistedSettings);
-        }
+        await loadPersistedSettings();
 
         // 1.5 Check Files
         const persistedFiles = getPersistableFiles(await db.getFiles());
@@ -198,12 +135,7 @@ const App: React.FC = () => {
       }
     };
     initData();
-  }, []);
-
-  // Save Settings on Change
-  useEffect(() => {
-    if (isLoaded) db.saveSettings(settings);
-  }, [settings, isLoaded]);
+  }, [loadPersistedSettings, setResumeSession]);
 
   // Save MCQs on change
   useEffect(() => {
@@ -212,7 +144,7 @@ const App: React.FC = () => {
     mcqPersistChainRef.current = mcqPersistChainRef.current
       .catch(() => undefined)
       .then(() => db.saveMCQs(mcqs));
-  }, [mcqs, isLoaded]);
+  }, [activeSessionRef, mcqs, isLoaded]);
 
   // Save uploaded files on change so reload/reset doesn't force re-upload
   useEffect(() => {
@@ -284,7 +216,7 @@ const App: React.FC = () => {
       setFailedBatchIndices([]);
     }
     previousFilesSignatureRef.current = signature;
-  }, [files, isLoaded, resumeSession]);
+  }, [activeSessionRef, files, isLoaded, resumeSession]);
 
   const handleInstallApp = async () => {
     if (!deferredPrompt) return;
@@ -350,19 +282,6 @@ const App: React.FC = () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
-
-  // Helper: Auto-Clean text for MCQ question/options
-  const cleanText = (text: string, type: 'question' | 'option') => {
-    if (!text) return "";
-    let cleaned = text.trim();
-    if (type === 'question') {
-      cleaned = cleaned.replace(/^(?:Câu|Question|Bài)\s*\d+[:.]\s*/i, "");
-      cleaned = cleaned.replace(/^\d+[:.]\s*/, "");
-    } else {
-      cleaned = cleaned.replace(/^[A-Ea-e][:.)]\s*/, "");
-    }
-    return cleaned;
-  };
 
   // Helper to process files for analysis/generation
   const prepareFiles = async (
@@ -444,53 +363,6 @@ const App: React.FC = () => {
     }
 
     return textProcessedFiles;
-  };
-
-  const startProcessingController = () => {
-    const controller = createProcessingController((state) => {
-      setProcessingState(state);
-      const active = activeSessionRef.current;
-      if (!active) return;
-      const status: ProcessingSessionStatus = state === 'paused' ? 'paused' : 'running';
-      const next = { ...active, status, updatedAt: Date.now() };
-      activeSessionRef.current = next;
-      sessionPersistChainRef.current = sessionPersistChainRef.current
-        .catch(() => undefined)
-        .then(() => db.saveSession(next));
-    });
-    processingControllerRef.current = controller;
-    setProcessingState('running');
-    return controller;
-  };
-
-  const clearProcessingController = () => {
-    processingControllerRef.current?.resume();
-    processingControllerRef.current = null;
-    setProcessingState('running');
-  };
-
-  const waitWithController = async (ms: number, controller?: ProcessingController) => {
-    let remaining = Math.max(0, ms);
-    while (remaining > 0) {
-      await controller?.waitIfPaused();
-      const step = Math.min(250, remaining);
-      await new Promise((resolve) => setTimeout(resolve, step));
-      remaining -= step;
-    }
-  };
-
-  const handleTogglePause = () => {
-    const controller = processingControllerRef.current;
-    if (!controller || !loading) return;
-
-    if (controller.isPauseRequested()) {
-      controller.resume();
-      toast.success("Đã tiếp tục xử lý.");
-      return;
-    }
-
-    controller.requestPause();
-    toast.info("Đã nhận yêu cầu tạm dừng. Hệ thống sẽ dừng ở checkpoint an toàn gần nhất.");
   };
 
   const uniqueAgainst = (newList: MCQ[], existingList: MCQ[]): MCQ[] => {
@@ -664,74 +536,6 @@ const App: React.FC = () => {
       phaseAutoSkippedCount,
     };
   };
-
-  const persistSession = async (session: ProcessingSession) => {
-    activeSessionRef.current = session;
-    setResumeSession(session);
-    sessionPersistChainRef.current = sessionPersistChainRef.current
-      .catch(() => undefined)
-      .then(() => db.saveSession(session));
-    await sessionPersistChainRef.current;
-  };
-
-  const updateActiveSession = async (partial: Partial<ProcessingSession>) => {
-    const current = activeSessionRef.current || await db.getSession();
-    if (!current) return null;
-    const next: ProcessingSession = {
-      ...current,
-      ...partial,
-      id: 'current',
-      updatedAt: partial.updatedAt ?? Date.now(),
-    };
-    activeSessionRef.current = next;
-    setResumeSession(next);
-    sessionPersistChainRef.current = sessionPersistChainRef.current
-      .catch(() => undefined)
-      .then(() => db.saveSession(next));
-    await sessionPersistChainRef.current;
-    return next;
-  };
-
-  const clearResumeSession = async () => {
-    activeSessionRef.current = null;
-    setResumeSession(null);
-    sessionPersistChainRef.current = sessionPersistChainRef.current
-      .catch(() => undefined)
-      .then(() => db.clearSession());
-    await sessionPersistChainRef.current;
-  };
-
-  const buildSessionBase = async (
-    phase: ProcessingPhase,
-    settingsSnapshot: AppSettings,
-    extras: Partial<ProcessingSession> = {}
-  ): Promise<ProcessingSession> => ({
-    id: 'current',
-    status: 'running',
-    phase,
-    createdAt: extras.createdAt ?? Date.now(),
-    updatedAt: Date.now(),
-    filesFingerprint: await hashFiles(getPersistableFiles(filesRef.current)),
-    forcedOcrMode: extras.forcedOcrMode,
-    settingsSnapshot,
-    analysisSnapshot: analysisRef.current,
-    totalTopLevelBatches: extras.totalTopLevelBatches ?? 0,
-    completedBatchIndices: extras.completedBatchIndices ?? [],
-    failedBatchIndices: extras.failedBatchIndices ?? [],
-    failedBatchDetails: extras.failedBatchDetails ?? [],
-    duplicatesSnapshot: extras.duplicatesSnapshot ?? duplicatesRef.current,
-    autoSkippedCount: extras.autoSkippedCount ?? 0,
-    currentCount: extras.currentCount ?? mcqsRef.current.length,
-    resumeRetryIndices: extras.resumeRetryIndices,
-    mcqsSnapshot: extras.mcqsSnapshot ?? mcqsRef.current,
-    phaseQuestionsSnapshot: extras.phaseQuestionsSnapshot ?? [],
-    phaseDuplicatesSnapshot: extras.phaseDuplicatesSnapshot ?? [],
-    phaseAutoSkippedCount: extras.phaseAutoSkippedCount ?? 0,
-    phaseCurrentCount: extras.phaseCurrentCount ?? 0,
-    phaseComparisonBaselineCount: extras.phaseComparisonBaselineCount,
-    phaseComparisonFailedBatchIndices: extras.phaseComparisonFailedBatchIndices ?? [],
-    phaseComparisonFailedBatchDetails: extras.phaseComparisonFailedBatchDetails ?? [],
-  });
 
   const handleAnalyze = async () => {
     if (files.length === 0) return;
@@ -990,25 +794,6 @@ const App: React.FC = () => {
   function deduplicateQuestions(newList: MCQ[], existingList: MCQ[]): MCQ[] {
     return uniqueAgainst(newList, existingList);
   }
-
-  const summarizeBatchFailures = (details?: GeneratedResponse['failedBatchDetails'], failedBatches: number[] = []) => {
-    if (!details || details.length === 0) {
-      return `Phần lỗi: ${failedBatches.join(', ')}. Lý do chưa xác định rõ; hãy thử quét lại phần lỗi hoặc đổi model nếu lặp lại.`;
-    }
-
-    const labelsByReason: Record<string, string[]> = {};
-    for (const detail of details) {
-      const label = detail.label || String(detail.index);
-      labelsByReason[detail.message] = labelsByReason[detail.message] || [];
-      if (!labelsByReason[detail.message].includes(label)) labelsByReason[detail.message].push(label);
-    }
-
-    const reasons = Object.entries(labelsByReason)
-      .map(([message, labels]) => `${labels.join(', ')}: ${message}`)
-      .join(' • ');
-    const advice = Array.from(new Set(details.map(detail => detail.advice))).slice(0, 2).join(' ');
-    return `${reasons}. ${advice}`;
-  };
 
   const handleDiscardResumeSession = async () => {
     await clearResumeSession();
@@ -1295,12 +1080,6 @@ const App: React.FC = () => {
     }
   };
 
-  const extractQuestionNumber = (q: string) => {
-    // Ưu tiên các định dạng: "Câu 1", "1.", "Q1", "1/"
-    const m = q.match(/(?:Câu|Q|Question)?\s*(\d+)[\.\/\:]?/i);
-    return m ? parseInt(m[1]) : null;
-  };
-
   const runAudit = async (count: number, processedFiles?: UploadedFile[]) => {
     setAuditing(true);
     try {
@@ -1377,116 +1156,6 @@ const App: React.FC = () => {
     if (confirm('Bạn có chắc muốn xóa câu hỏi này không?')) {
       setMcqs(prev => prev.filter(m => m.id !== id));
       toast.success("Đã xóa câu hỏi");
-    }
-  };
-
-  // buildAnkiHtml moved to core/anki.ts
-
-  const generateCSVData = () => {
-    try {
-      if (mcqs.length === 0) return "";
-
-      const headers = ["Question", "A", "B", "C", "D", "E", "CorrectAnswer", "ExplanationHTML", "Source"];
-      const rows = mcqs.map((m, idx) => {
-        try {
-          const esc = (t: string) => `"${(t || "").replace(/"/g, '""')}"`;
-          
-          // Chốt chặn an toàn cho dữ liệu
-          const cleanQ = cleanText(m.question || "Nội dung trống", 'question');
-          const formattedQ = formatRichText(cleanQ);
-
-          const rawOps = Array.isArray(m.options) ? m.options : [];
-          const ops = [...rawOps];
-          while (ops.length < 5) ops.push("");
-          const cleanOps = ops.map(o => formatRichText(cleanText(o || "", 'option')));
-
-          const correctIndex = rawOps.findIndex((opt, i) => isOptionCorrect(opt, m.correctAnswer || "", i));
-          const correctLetter = correctIndex !== -1 
-            ? String.fromCharCode(65 + correctIndex) 
-            : ((m.correctAnswer || "").match(/^[A-E]/i)?.[0]?.toUpperCase() || m.correctAnswer || "A");
-
-          let explanationHtml = "";
-          if (m.explanation && typeof m.explanation === 'object') {
-            explanationHtml = buildAnkiHtml(m.explanation, m.difficulty || "Trung bình", m.depthAnalysis || "Vận dụng");
-          } else if (typeof m.explanation === 'string') {
-            explanationHtml = formatRichText(m.explanation);
-          } else {
-            explanationHtml = "<i>Không có giải thích.</i>";
-          }
-
-          return [esc(formattedQ), ...cleanOps.map(esc), esc(correctLetter), esc(explanationHtml), esc(m.source || "")].join(",");
-        } catch (err) {
-          console.warn(`Lỗi tại câu ${idx + 1}:`, err);
-          return null;
-        }
-      }).filter(Boolean);
-
-      return "\uFEFF" + [headers.join(","), ...rows].join("\n");
-    } catch (e: any) {
-      toast.error(`📄 Lỗi tạo file CSV: ${e.message}. Hãy thử xuất lại hoặc đổi sang định dạng khác.`);
-      return null;
-    }
-  };
-
-  const downloadCSV = async () => {
-    setExportAction('downloadCsv');
-    try {
-      await new Promise(resolve => setTimeout(resolve, 0));
-      const csv = generateCSVData();
-      if (!csv) return;
-
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-
-      let filename = "Anki_Export";
-      if (files.length > 0) {
-        const baseName = files[0].name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "_");
-        filename = `[ANKI]_${baseName}`;
-      }
-
-      const url = URL.createObjectURL(blob);
-      link.href = url;
-      link.download = `${filename}_${new Date().toISOString().slice(0, 10)}.csv`;
-      link.click();
-      URL.revokeObjectURL(url);
-
-      toast.success("Tải file thành công! Lưu ý khi Import vào Anki: 1. Chọn dấu phẩy (Comma) - 2. Tích chọn 'Allow HTML in fields'", {
-        duration: 6000,
-      });
-    } finally {
-      setExportAction(null);
-    }
-  };
-
-  const downloadDOCX = async () => {
-    if (mcqs.length === 0) {
-      toast.error("Chưa có câu hỏi để xuất DOCX.");
-      return;
-    }
-
-    setExportAction('downloadDocx');
-    try {
-      await new Promise(resolve => setTimeout(resolve, 0));
-      let filename = "MCQ_Study";
-      let sourceName = "MCQ Study Export";
-      if (files.length > 0) {
-        const baseName = files[0].name.replace(/\.[^/.]+$/, "");
-        sourceName = baseName;
-        filename = `[DOCX]_${baseName.replace(/[^a-zA-Z0-9]/g, "_")}`;
-      }
-
-      const blob = await buildStudyDocxBlob(mcqs, sourceName);
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-      link.href = url;
-      link.download = `${filename}_${new Date().toISOString().slice(0, 10)}.docx`;
-      link.click();
-      URL.revokeObjectURL(url);
-      toast.success("Đã xuất file DOCX để học trực tiếp.");
-    } catch (e: any) {
-      toast.error(`📄 Lỗi tạo file DOCX: ${e.message || 'Không rõ lỗi'}. CSV hiện tại không bị ảnh hưởng.`);
-    } finally {
-      setExportAction(null);
     }
   };
 
@@ -1665,6 +1334,7 @@ const App: React.FC = () => {
             {!analysis ? (
               <button
                 onClick={handleAnalyze}
+                data-testid="analyze-button"
                 disabled={analyzing || files.length === 0}
                 className="w-full py-4 pro-gradient text-white font-black rounded-2xl hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-indigo-100 dark:shadow-none flex items-center justify-center gap-3 text-sm uppercase tracking-widest"
               >
@@ -1684,6 +1354,7 @@ const App: React.FC = () => {
 
                 <button
                   onClick={handleGenerate}
+                  data-testid="generate-button"
                   disabled={loading}
                   className="w-full py-4 bg-slate-900 dark:bg-indigo-600 text-white font-black rounded-2xl hover:scale-[1.02] active:scale-95 shadow-xl transition-all flex items-center justify-center gap-3 uppercase tracking-widest"
                 >
@@ -1803,7 +1474,7 @@ const App: React.FC = () => {
               </div>
               <div className="flex justify-end">
                 <button
-                  onClick={handleTogglePause}
+                  onClick={() => handleTogglePause(loading)}
                   className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black uppercase tracking-wider transition-all ${
                     processingState === 'running'
                       ? 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
@@ -1825,6 +1496,7 @@ const App: React.FC = () => {
                     <div className="flex items-center gap-3">
                       <h2 className="text-xl font-black tracking-tight text-slate-900 dark:text-white">Kết quả</h2>
                       <span className="rounded-full bg-indigo-50 px-3 py-1 text-sm font-bold text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-300">
+                        <span data-testid="result-count" className="sr-only">{mcqs.length}</span>
                         {mcqs.length} câu
                       </span>
                     </div>
@@ -1852,6 +1524,7 @@ const App: React.FC = () => {
                   <div className="flex flex-wrap gap-2 lg:justify-end">
                     <button
                       onClick={downloadCSV}
+                      data-testid="export-csv-button"
                       disabled={exportAction !== null}
                       className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white shadow-[0_14px_32px_-18px_rgba(5,150,105,0.85)] transition-all hover:-translate-y-0.5 hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
                     >

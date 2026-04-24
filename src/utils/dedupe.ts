@@ -273,6 +273,11 @@ const formatPercent = (score: number): number => Math.round(score * 100);
 
 export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQuestions: T[]): DuplicateMatch<T> => {
   const candidateFingerprint = buildMCQFingerprint(candidate);
+  let bestAutoSkipMatch: DuplicateMatch<T> | null = null;
+  let bestAutoSkipPriority = -1;
+  let bestAutoSkipScore = -1;
+  let bestReviewMatch: DuplicateMatch<T> | null = null;
+  let bestReviewScore = -1;
 
   for (const existing of existingQuestions) {
     const exactFingerprint = candidateFingerprint === buildMCQFingerprint(existing);
@@ -282,8 +287,8 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
 
     // Immediate auto‑skip when the shared stem overlap is very high (>= 0.9)
     const overlapScore = tailAfterSharedStemScore(candidate.question || '', existing.question || '');
-    if (overlapScore !== null && overlapScore >= 0.9) {
-      return {
+    if (overlapScore !== null && overlapScore >= 0.9 && !answerConflict) {
+      const match: DuplicateMatch<T> = {
         action: 'autoSkip',
         isDup: true,
         isAutoSkip: true,
@@ -293,10 +298,15 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
         score: overlapScore,
         fieldScores: { ...fieldScores, composite: overlapScore },
       };
+      if (bestAutoSkipPriority < 2 || (bestAutoSkipPriority === 2 && overlapScore > bestAutoSkipScore)) {
+        bestAutoSkipPriority = 2;
+        bestAutoSkipScore = overlapScore;
+        bestAutoSkipMatch = match;
+      }
     }
 
-    if (exactFingerprint) {
-      return {
+    if (exactFingerprint && !answerConflict) {
+      const match: DuplicateMatch<T> = {
         action: 'autoSkip',
         isDup: true,
         isAutoSkip: true,
@@ -306,6 +316,11 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
         score: 1,
         fieldScores: { question: 1, optionsBySlot: 1, optionsAsSet: 1, composite: 1 },
       };
+      if (bestAutoSkipPriority < 3) {
+        bestAutoSkipPriority = 3;
+        bestAutoSkipScore = 1;
+        bestAutoSkipMatch = match;
+      }
     }
 
     if (
@@ -315,7 +330,7 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
         fieldScores.optionsAsSet >= 0.95 &&
         !answerConflict
       ) {
-      return {
+      const match: DuplicateMatch<T> = {
         action: 'autoSkip',
         isDup: true,
         isAutoSkip: true,
@@ -325,6 +340,11 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
         score: fieldScores.composite,
         fieldScores,
       };
+      if (bestAutoSkipPriority < 1 || (bestAutoSkipPriority === 1 && fieldScores.composite > bestAutoSkipScore)) {
+        bestAutoSkipPriority = 1;
+        bestAutoSkipScore = fieldScores.composite;
+        bestAutoSkipMatch = match;
+      }
     }
 
     if (
@@ -332,18 +352,26 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
         fieldScores.question >= 0.78 &&
         optionsScore >= 0.75
       ) {
-      return {
+      const reviewMatch: DuplicateMatch<T> = {
         action: 'review',
         isDup: true,
         isAutoSkip: false,
-        reason: `Question + A-E tương đồng cao (~${formatPercent(fieldScores.composite)}%; Q ${formatPercent(fieldScores.question)}%, A-E ${formatPercent(optionsScore)}%)`,
+        reason: `${answerConflict ? 'Trùng mạnh nhưng xung đột đáp án' : 'Question + A-E tương đồng cao'} (~${formatPercent(fieldScores.composite)}%; Q ${formatPercent(fieldScores.question)}%, A-E ${formatPercent(optionsScore)}%)`,
         matchedWith: (existing.question || '').substring(0, 60),
         matchedData: existing,
         score: fieldScores.composite,
         fieldScores,
       };
+      const effectiveScore = fieldScores.composite + (answerConflict ? 0.03 : 0);
+      if (effectiveScore > bestReviewScore) {
+        bestReviewScore = effectiveScore;
+        bestReviewMatch = reviewMatch;
+      }
     }
   }
+
+  if (bestAutoSkipMatch) return bestAutoSkipMatch;
+  if (bestReviewMatch) return bestReviewMatch;
 
   return {
     action: 'unique',

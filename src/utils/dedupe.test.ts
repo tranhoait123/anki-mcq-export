@@ -121,4 +121,60 @@ describe('MCQ dedupe utilities', () => {
     const uniqueRetry = retry.filter(q => !findDuplicate(q, existing).isDup);
     expect(uniqueRetry).toHaveLength(0);
   });
+
+  it('does not auto-skip exact fingerprints when the answer conflicts', () => {
+    const original = makeMCQ({
+      question: 'Câu 7. Thuốc nào là lựa chọn phù hợp nhất?',
+      options: ['A. Metformin', 'B. Insulin', 'C. Statin', 'D. Aspirin', 'E. Furosemide'],
+      correctAnswer: 'A',
+    });
+    const conflicting = makeMCQ({
+      question: 'Thuốc nào là lựa chọn phù hợp nhất?',
+      options: ['A. Metformin', 'B. Insulin', 'C. Statin', 'D. Aspirin', 'E. Furosemide'],
+      correctAnswer: 'B',
+    });
+
+    const result = findDuplicate(conflicting, [original]);
+    expect(result.isDup).toBe(true);
+    expect(result.action).toBe('review');
+  });
+
+  it('does not auto-skip high shared-stem matches when the answer conflicts', () => {
+    const stem = 'Bệnh nhân nam 72 tuổi đau ngực kéo dài, troponin tăng, điện tâm đồ biến đổi động theo thời gian, có tiền sử tăng huyết áp và đái tháo đường nhiều năm.';
+    const original = makeMCQ({
+      question: `${stem} Chẩn đoán phù hợp nhất là gì?`,
+      options: ['A. STEMI', 'B. NSTEMI', 'C. Viêm màng ngoài tim', 'D. Bóc tách động mạch chủ', 'E. Trào ngược dạ dày thực quản'],
+      correctAnswer: 'A',
+    });
+    const conflicting = makeMCQ({
+      question: `${stem} Chẩn đoán phù hợp nhất là gì?`,
+      options: ['A. STEMI', 'B. NSTEMI', 'C. Viêm màng ngoài tim', 'D. Bóc tách động mạch chủ', 'E. Trào ngược dạ dày thực quản'],
+      correctAnswer: 'B',
+    });
+
+    const result = findDuplicate(conflicting, [original]);
+    expect(result.isDup).toBe(true);
+    expect(result.action).toBe('review');
+  });
+
+  it('prefers the strongest duplicate match instead of the first acceptable one', () => {
+    const weakReview = makeMCQ({
+      id: 'weak',
+      question: 'Điều trị đầu tay của tăng huyết áp ở bệnh nhân đái tháo đường là gì?',
+      options: ['A. ACEi', 'B. PPI', 'C. Kháng histamin', 'D. Morphin', 'E. Diazepam khác liều'],
+    });
+    const exact = makeMCQ({
+      id: 'exact',
+      question: 'Câu 8. Điều trị đầu tay của tăng huyết áp ở bệnh nhân đái tháo đường là gì?',
+      options: ['A. ACEi', 'B. PPI', 'C. Kháng histamin', 'D. Morphin', 'E. Diazepam'],
+    });
+    const candidate = makeMCQ({
+      question: 'Điều trị đầu tay của tăng huyết áp ở bệnh nhân đái tháo đường là gì?',
+      options: ['A. ACEi', 'B. PPI', 'C. Kháng histamin', 'D. Morphin', 'E. Diazepam'],
+    });
+
+    const result = findDuplicate(candidate, [weakReview, exact]);
+    expect(result.action).toBe('autoSkip');
+    expect(result.matchedData?.id).toBe('exact');
+  });
 });

@@ -1324,7 +1324,11 @@ const App: React.FC = () => {
       ...dup.fullData,
       id: `restored - ${Date.now()} `
     };
-    setMcqs(prev => [...prev, restoredMcq]);
+    setMcqs(prev => {
+      const result = findDuplicate(restoredMcq, prev);
+      if (result.isDup) return prev;
+      return [...prev, restoredMcq];
+    });
 
     // Remove from duplicates list by ID
     setDuplicates(prev => prev.filter(d => d.id !== dupId));
@@ -1350,7 +1354,14 @@ const App: React.FC = () => {
       id: `restored-bulk-${Date.now()}-${i}`
     }));
 
-    setMcqs(prev => [...prev, ...toRestore]);
+    setMcqs(prev => {
+      const accepted: MCQ[] = [];
+      for (const item of toRestore) {
+        const result = findDuplicate(item, [...prev, ...accepted]);
+        if (!result.isDup) accepted.push(item);
+      }
+      return [...prev, ...accepted];
+    });
     setDuplicates([]);
     setShowDuplicates(false);
     toast.success(`Đã khôi phục toàn bộ ${toRestore.length} câu hỏi bị loại`);

@@ -27,7 +27,7 @@ const DuplicatesPanel: React.FC<DuplicatesPanelProps> = ({ duplicates, showDupli
                 <div className="p-4 max-h-64 overflow-y-auto">
                     <div className="space-y-2">
                         {duplicates.map((d, i) => (
-                            <div key={i} className="text-xs p-2 bg-orange-50 border border-orange-100 rounded">
+                            <div key={d.id} className="text-xs p-2 bg-orange-50 border border-orange-100 rounded">
                                 <div className="flex justify-between items-start gap-2">
                                     <div className="flex-1 min-w-0">
                                         <div className="font-medium text-slate-700 truncate" title={d.question}>

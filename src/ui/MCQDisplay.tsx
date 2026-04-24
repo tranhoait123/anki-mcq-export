@@ -17,6 +17,7 @@ const OVERSCAN_COUNT = 6;
 const CARD_GAP = 32;
 const PREVIEW_CARD_ESTIMATE = 500;
 const EDIT_CARD_ESTIMATE = 900;
+const DIFFICULTY_ORDER = ['Easy', 'Medium', 'Hard'] as const;
 
 const getEstimatedHeight = (viewMode: 'edit' | 'preview', isEditing: boolean) => (
   isEditing ? EDIT_CARD_ESTIMATE : viewMode === 'preview' ? PREVIEW_CARD_ESTIMATE : 650
@@ -490,7 +491,20 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrol
   const deferredSearchTerm = useDeferredValue(searchTerm);
 
   const uniqueDifficulties = useMemo(
-    () => Array.from(new Set(mcqs.map(m => m.difficulty).filter(Boolean))).sort(),
+    () => {
+      const difficulties = Array.from(new Set(mcqs.map(m => m.difficulty).filter(Boolean)));
+      const order = new Map(DIFFICULTY_ORDER.map((value, index) => [value.toLowerCase(), index]));
+
+      return difficulties.sort((a, b) => {
+        const aRank = order.get(a.toLowerCase());
+        const bRank = order.get(b.toLowerCase());
+
+        if (aRank !== undefined && bRank !== undefined) return aRank - bRank;
+        if (aRank !== undefined) return -1;
+        if (bRank !== undefined) return 1;
+        return a.localeCompare(b);
+      });
+    },
     [mcqs]
   );
 

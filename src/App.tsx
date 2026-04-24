@@ -1231,18 +1231,18 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className={`mx-auto p-6 transition-all duration-300 ${isSplitView ? 'max-w-full grid grid-cols-12 gap-6 h-[calc(100vh-80px)] overflow-hidden' : 'max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-8'}`}>
+      <main className={`mx-auto transition-all duration-300 ${isSplitView ? 'grid h-[calc(100dvh-72px)] min-h-0 max-w-full grid-cols-12 gap-5 overflow-hidden p-4' : 'grid max-w-6xl grid-cols-1 gap-8 p-6 lg:grid-cols-12'}`}>
 
         {/* Split View: Left Panel (Source) */}
         {isSplitView && files.length > 0 && (
-          <div className="col-span-6 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col h-full overflow-hidden">
+          <div className="col-span-6 flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-900">
             <div className="p-3 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center shadow-sm">
               <span className="font-bold text-slate-700 dark:text-slate-200 text-sm flex items-center gap-2">
                 <FileText size={16} className="text-indigo-600" /> Tài liệu gốc
               </span>
               <span className="text-xs text-slate-500 truncate max-w-[200px]">{files[0].name}</span>
             </div>
-            <div className={`flex-1 overflow-auto bg-slate-500/10 p-4 ${isDocxFile(files[0]) ? '' : 'flex items-center justify-center'}`}>
+            <div className={`min-h-0 flex-1 overflow-auto bg-slate-500/10 p-3 ${isDocxFile(files[0]) ? '' : 'flex items-center justify-center'}`}>
               {previewUrl && files[0].type === 'application/pdf' ? (
                 <iframe
                   src={previewUrl}
@@ -1405,7 +1405,7 @@ const App: React.FC = () => {
         </div>
 
         {/* Main Content - Results */}
-        <div ref={resultsPanelRef} className={`space-y-6 ${isSplitView ? 'col-span-6 h-full overflow-y-auto pr-2' : 'lg:col-span-8'}`}>
+        <div ref={resultsPanelRef} className={`${isSplitView ? 'col-span-6 h-full min-h-0 space-y-4 overflow-y-auto pr-1' : 'space-y-6 lg:col-span-8'}`}>
           {resumeSession && !loading && (
             <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1544,7 +1544,7 @@ const App: React.FC = () => {
             </div>
           )}
 
-          <div className="min-h-[400px]">
+          <div className={isSplitView ? 'min-h-0' : 'min-h-[400px]'}>
             {exportAction && (
               <div className="mb-4 rounded-2xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-sm font-medium text-indigo-700 dark:border-indigo-900/40 dark:bg-indigo-950/20 dark:text-indigo-300">
                 {exportAction === 'downloadCsv' && 'Đang chuẩn bị file CSV...'}

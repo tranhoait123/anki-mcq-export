@@ -672,7 +672,11 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrol
         />
       ) : (
         <div className="space-y-8 pb-20">
-          {filtered.map((mcq, idx) => renderCard(mcq, idx))}
+          {filtered.map((mcq, idx) => (
+            <React.Fragment key={mcq.id}>
+              {renderCard(mcq, idx)}
+            </React.Fragment>
+          ))}
         </div>
       )}
     </div>

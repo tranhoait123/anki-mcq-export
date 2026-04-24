@@ -151,4 +151,32 @@ ${'Nội dung bổ sung đủ dài.\n'.repeat(20)}
     expect(analysis.textBatches).toHaveLength(2);
     expect(analysis.textBatches.every((batch) => batch.expectedQuestions === 35)).toBe(true);
   });
+
+  it('carries shared clinical vignette to later questions in the declared range', () => {
+    const sharedCase = 'Tình huống lâm sàng sau dùng cho câu 93-98 Bệnh nhân nữ 30 tuổi, nhập viện vì khó thở. Tĩnh mạch cổ nổi, phù chân, P2 mạnh.';
+    const page = scorePdfTextPage(`
+${sharedCase} Câu 93. Chẩn đoán bệnh van tim được nghĩ đến nhiều nhất là?
+A. Hẹp van hai lá
+B. Hở van động mạch chủ
+C. Hẹp van động mạch chủ
+D. Hở van hai lá
+${sharedCase} Câu 94. Nguyên nhân hở van 3 lá được nghĩ đến là?
+A. Cơ năng do tăng áp phổi
+B. Viêm nội tâm mạc
+C. Chấn thương
+D. Bẩm sinh
+Câu 95. Đặc điểm suy tim của bệnh nhân này là?
+A. Suy tim phải
+B. Suy tim trái
+C. Suy tim toàn bộ
+D. Không suy tim
+`, 1);
+
+    const analysis = buildPdfTextAnalysisFromPages([page], 3, 1, 10);
+    const combinedText = analysis.textBatches.map((batch) => batch.text).join('\n');
+
+    expect(combinedText).toContain('Question: Tình huống lâm sàng sau dùng cho câu 93-98');
+    expect(combinedText).toContain('Bệnh nhân nữ 30 tuổi, nhập viện vì khó thở');
+    expect(combinedText).toContain('Câu 95. Đặc điểm suy tim của bệnh nhân này là?');
+  });
 });

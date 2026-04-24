@@ -1494,6 +1494,11 @@ export const generateQuestions = async (
       batchQuestions.set(batchNumber, [...current, ...questions]);
     };
 
+    const isSameTopLevelBatchDuplicate = (batchNumber: number, matchedData?: MCQ) => {
+      if (!matchedData) return false;
+      return (batchQuestions.get(batchNumber) || []).some(question => question.id === matchedData.id);
+    };
+
     const appendBatchDuplicates = (batchNumber: number, duplicates: DuplicateInfo[]) => {
       if (duplicates.length === 0) return;
       const current = batchDuplicates.get(batchNumber) || [];
@@ -1663,8 +1668,10 @@ export const generateQuestions = async (
               newQs.push(q);
             } else {
               duplicateCounter++;
+              const sameTopLevelBatchDuplicate = isSameTopLevelBatchDuplicate(topLevelIndex + 1, result.matchedData);
               // Chỉ thêm vào danh sách Review nếu độ trùng lặp < 98% (không phải auto-skip)
               if (!result.isAutoSkip) {
+                if (sameTopLevelBatchDuplicate) continue;
                 const duplicateInfo = {
                   id: `dup-${Date.now()}-${duplicateCounter}`,
                   question: q.question.substring(0, 50),
@@ -1678,6 +1685,7 @@ export const generateQuestions = async (
                 allDuplicates.push(duplicateInfo);
                 batchNewDuplicates.push(duplicateInfo);
               } else {
+                if (sameTopLevelBatchDuplicate) continue;
                 autoSkippedCount++;
                 batchNewAutoSkipped++;
                 console.log(`⏩ Auto-skipped identical MCQ (~100%): ${q.question.substring(0, 50)}...`);

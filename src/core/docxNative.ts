@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { applySharedCaseContextToQuestion, extractSharedCaseContexts } from '../utils/sharedCaseContext';
 
 export interface DocxParagraph {
   text: string;
@@ -67,6 +68,9 @@ const normalizeParagraphText = (value: string): string =>
     .replace(/[ \t]+/g, ' ')
     .replace(/\s+\n/g, '\n')
     .trim();
+
+const extractSharedCaseContextsFromParagraphs = (paragraphs: DocxParagraph[]) =>
+  extractSharedCaseContexts(paragraphs.map(paragraph => normalizeParagraphText(paragraph.text)).filter(Boolean).join('\n'));
 
 const extractParagraphText = (paragraphXml: string): string => {
   const pieces: string[] = [];
@@ -295,11 +299,15 @@ export const extractDocxEmbeddedImages = async (
 
 export const parseMcqsFromParagraphs = (paragraphs: DocxParagraph[]): NativeDocxMcq[] => {
   const mcqs: NativeDocxMcq[] = [];
+  const sharedCaseContexts = extractSharedCaseContextsFromParagraphs(paragraphs);
   let questionLines: string[] = [];
   let options: { letter: string; text: string; highlighted: boolean }[] = [];
 
   const flush = () => {
-    const cleanQuestion = questionLines.join(' ').replace(/\s+/g, ' ').trim();
+    const cleanQuestion = applySharedCaseContextToQuestion(
+      questionLines.join(' ').replace(/\s+/g, ' ').trim(),
+      sharedCaseContexts
+    );
     const cleanOptions = options.map((option) => `${option.letter}. ${option.text.replace(/\s+/g, ' ').trim()}`);
     if (cleanQuestion && cleanOptions.length >= 4) {
       const highlightedOption = options.find((option) => option.highlighted);

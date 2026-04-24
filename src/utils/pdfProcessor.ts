@@ -1,3 +1,5 @@
+import { applySharedCaseContextToBlocks } from './sharedCaseContext';
+
 // Local Assets Strategy:
 // CMaps and fonts are served locally from public/ for offline stability.
 const getAssetUrl = (path: string) => {
@@ -210,11 +212,13 @@ const parseMcqBlocksFromText = (text: string): string[] => {
     }
     flush();
 
-    return blocks.map((block, index) => [
+    const structuredBlocks = blocks.map((block, index) => [
         `<<<MCQ ${index + 1}>>>`,
         `Question: ${block.question.join(' ').replace(/\s+/g, ' ').trim()}`,
         ...block.options.map((option) => `${option.letter}. ${option.text.replace(/\s+/g, ' ').trim()}`),
     ].join('\n'));
+
+    return applySharedCaseContextToBlocks(text, structuredBlocks);
 };
 
 const buildStructuredPdfText = (blocks: string[]): string => `[PDF_TEXT_MCQ_COUNT: ${blocks.length}]\n\n${blocks.join('\n\n')}`;

@@ -489,6 +489,7 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrol
   const [requestedScrollIndex, setRequestedScrollIndex] = useState<number | null>(null);
 
   const deferredSearchTerm = useDeferredValue(searchTerm);
+  const toolbarStickyTopClass = useWindowScroll ? 'top-16' : 'top-0';
 
   const uniqueDifficulties = useMemo(
     () => {
@@ -593,7 +594,7 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrol
 
   return (
     <div className="space-y-8">
-      <div className="glass sticky top-16 z-40 rounded-3xl p-4 transition-all hover:shadow-lg">
+      <div className={`glass sticky ${toolbarStickyTopClass} z-40 rounded-3xl p-4 transition-all hover:shadow-lg`}>
         <div className="space-y-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="flex flex-1 items-center gap-3 rounded-2xl bg-slate-100 px-4 py-3 dark:bg-slate-800/50">

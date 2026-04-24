@@ -219,6 +219,13 @@ const parseMcqBlocksFromText = (text: string): string[] => {
 
 const buildStructuredPdfText = (blocks: string[]): string => `[PDF_TEXT_MCQ_COUNT: ${blocks.length}]\n\n${blocks.join('\n\n')}`;
 
+const normalizeBlockFingerprint = (block: string): string =>
+    block
+        .replace(/^<<<MCQ\s+\d+>>>\s*/i, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+
 const chunkBlocks = (blocks: string[], batchSize = 10): string[][] => {
     const chunks: string[][] = [];
     const safeBatchSize = Math.max(1, Math.floor(batchSize));
@@ -231,13 +238,20 @@ export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChun
     const ranges = buildPageRanges(pageCount, pagesPerChunk, overlap);
     const textBatches: PdfTextBatch[] = [];
     const visionPageRanges: PdfPageRange[] = [];
+    const seenBlockFingerprints = new Set<string>();
 
     for (const range of ranges) {
         const rangePages = pages.slice(range.start - 1, range.end);
         const allGood = rangePages.length > 0 && rangePages.every((page) => page.quality === 'goodText');
         if (allGood) {
             const joinedText = rangePages.map((page) => page.text).join('\n\n');
-            const blocks = parseMcqBlocksFromText(joinedText);
+            const blocks = parseMcqBlocksFromText(joinedText).filter((block) => {
+                const fingerprint = normalizeBlockFingerprint(block);
+                if (!fingerprint) return false;
+                if (seenBlockFingerprints.has(fingerprint)) return false;
+                seenBlockFingerprints.add(fingerprint);
+                return true;
+            });
             const sparseBlockRisk = joinedText.length > 2500 && blocks.length < 2;
             if (blocks.length > 0 && !sparseBlockRisk) {
                 chunkBlocks(blocks, structuredBatchSize).forEach((chunk) => {

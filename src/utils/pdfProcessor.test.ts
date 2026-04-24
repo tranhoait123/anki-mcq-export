@@ -10,6 +10,15 @@ D. Lựa chọn bốn có nội dung đủ dài
 Giải thích ngắn để text layer đủ dài và giữ nhiều dòng rõ ràng.
 `).join('\n');
 
+const numberedMcqPage = (start = 1, questionCount = 2) => Array.from({ length: questionCount }, (_, index) => `
+Câu ${start + index}: Nội dung riêng của câu ${start + index}
+A. Lựa chọn A của câu ${start + index}
+B. Lựa chọn B của câu ${start + index}
+C. Lựa chọn C của câu ${start + index}
+D. Lựa chọn D của câu ${start + index}
+Giải thích ngắn cho câu ${start + index}, có thêm dữ kiện mô tả đủ dài để text layer ổn định và parser giữ đúng cấu trúc.
+`).join('\n');
+
 describe('PDF safe hybrid text analysis', () => {
   it('scores clean MCQ text pages as goodText', () => {
     const page = scorePdfTextPage(cleanMcqPage(4), 1);
@@ -87,13 +96,30 @@ ${'Nội dung bổ sung đủ dài.\n'.repeat(20)}
   });
 
   it('uses text batches for clean pages and no vision ranges', () => {
-    const pages = Array.from({ length: 6 }, (_, index) => scorePdfTextPage(cleanMcqPage(3), index + 1));
+    const pages = Array.from({ length: 6 }, (_, index) => scorePdfTextPage(numberedMcqPage(index * 3 + 1, 3), index + 1));
     const analysis = buildPdfTextAnalysisFromPages(pages, 3, 1);
 
     expect(analysis.mode).toBe('textOnlyCandidate');
     expect(analysis.textBatches.length).toBeGreaterThan(1);
     expect(analysis.visionPageRanges).toHaveLength(0);
     expect(analysis.detectedMcqCount).toBeGreaterThan(0);
+  });
+
+  it('deduplicates structured text blocks repeated by overlapping page ranges', () => {
+    const pages = [
+      scorePdfTextPage(numberedMcqPage(1, 3), 1),
+      scorePdfTextPage(numberedMcqPage(4, 3), 2),
+      scorePdfTextPage(numberedMcqPage(7, 3), 3),
+      scorePdfTextPage(numberedMcqPage(10, 3), 4),
+      scorePdfTextPage(numberedMcqPage(13, 3), 5),
+    ];
+
+    const analysis = buildPdfTextAnalysisFromPages(pages, 3, 1, 10);
+    const combinedText = analysis.textBatches.map((batch) => batch.text).join('\n');
+
+    expect(analysis.detectedMcqCount).toBe(15);
+    expect(combinedText.match(/Câu 7:/g)?.length || 0).toBe(1);
+    expect(combinedText.match(/Câu 9:/g)?.length || 0).toBe(1);
   });
 
   it('sends mixed batches with scan pages to vision', () => {

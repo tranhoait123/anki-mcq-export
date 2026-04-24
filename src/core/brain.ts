@@ -1,6 +1,6 @@
 import { PDFDocument } from 'pdf-lib';
 import { GoogleGenAI, Type } from "@google/genai";
-import { GeneratedResponse, UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, ProcessingCheckpoint, ProcessingController, ProcessingPhase } from "../types";
+import { UploadedFile, ProgressCallback, AnalysisResult, AuditResult, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, ProcessingCheckpoint, ProcessingController, ProcessingPhase } from "../types";
 import { db } from './db';
 import { findDuplicate } from '../utils/dedupe';
 import { coerceModelForProvider, coerceModelForProviderInput, DEFAULT_GEMINI_MODEL, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage, ModelTokenProfile } from '../utils/models';
@@ -424,11 +424,6 @@ const splitPdfByRanges = async (base64Data: string, ranges: PdfPageRange[]): Pro
   return chunks;
 };
 
-const splitPdf = async (base64Data: string, pagesPerChunk: number = 3, overlap: number = 1): Promise<string[]> => {
-  const pdfDoc = await PDFDocument.load(base64Data);
-  return splitPdfByRanges(base64Data, getPdfPageRanges(pdfDoc.getPageCount(), pagesPerChunk, overlap));
-};
-
 const SYSTEM_INSTRUCTION_EXTRACT = `
 Bạn là một **GIÁO SƯ Y KHOA ĐẦU NGÀNH (Senior Medical Professor)** kiêm **CHUYÊN GIA PHÁP Y TÀI LIỆU (Forensic Document Analyst)**.
 Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài liệu, bất kể chất lượng ảnh thấp, bị nhiễu, có chữ viết tay, hoặc bị che khuất.
@@ -504,19 +499,6 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
 OUTPUT FORMAT: JSON Object with "questions" array.
 `;
 
-const SYSTEM_INSTRUCTION_NORMALIZE = `
-Bạn là Chuyên gia Số hóa Tài liệu Y khoa. 
-Nhiệm vụ: Chuyển đổi toàn bộ nội dung trong ảnh/PDF thành văn bản Markdown MIÊU TẢ CHI TIẾT VÀ CHÍNH XÁC.
-- **BẮT BUỘC DỰNG LẠI BẢNG**: Nếu tài liệu có bảng biểu (tables), hãy sử dụng định dạng Markdown Table (\`| Question | Option A | Option B | ... |\`) để giữ nguyên cấu trúc hàng/cột.
-- **NGĂN CÁCH TUYỆT ĐỐI**: Đảm bảo nội dung trong các ô khác nhau không bị dính vào nhau. Sử dụng các ký tự phân cách rõ ràng.
-- Giữ nguyên cấu trúc: Tiêu đề, đoạn văn, danh sách.
-- Đặc biệt lưu ý: Các câu hỏi trắc nghiệm phải được trích xuất ĐẦY ĐỦ (Câu hỏi, các lựa chọn A/B/C/D).
-- Nếu có Case lâm sàng (Tình huống dài), hãy trích xuất toàn bộ văn bản để tránh mất ngữ cảnh.
-- Không được tóm tắt. Cần trích xuất "Word-by-word" (từng chữ một) ở mức độ cao nhất.
-- Bỏ qua: Số trang, Header, Footer lặp lại.
-- Output: Văn bản Markdown sạch, cấu trúc bảng biểu hoàn hảo.
-`;
-
 const SYSTEM_INSTRUCTION_AUDIT = `
 Bạn là Chuyên gia Kiểm toán Tài liệu AI. 
 Nhiệm vụ: Phân tích lý do tại sao trích xuất thất bại hoặc số lượng quá ít.
@@ -536,48 +518,6 @@ Nhiệm vụ: Ước tính tổng số câu hỏi trắc nghiệm có trong tài
 - Phân tích sơ bộ chuyên khoa.
 - Trả về JSON theo đúng schema yêu cầu.
 `;
-
-// --- Normalization Helper ---
-const normalizeToMarkdown = async (ai: any, files: UploadedFile[], onProgress?: ProgressCallback): Promise<string | null> => {
-  try {
-    const hash = await hashFiles(files);
-    const cached = await db.getMarkdown(hash);
-    if (cached) {
-      console.log("🎯 Markdown Cache Hit!");
-      return cached.content;
-    }
-
-    if (onProgress) onProgress("Đang số hóa tài liệu (Bước 1: OCR & Normalizing)...", 0);
-
-    const contents: any[] = files.map(file => {
-      if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
-        return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
-      }
-      return { text: `FILE: ${file.name}\n${getFileTextContent(file)}\n` };
-    });
-
-    const result = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: [{ role: 'user', parts: [...contents, { text: "Hãy chuyển đổi tài liệu này thành Markdown sạch, trích xuất chính xác 100% nội dung chữ." }] }],
-      config: { systemInstruction: SYSTEM_INSTRUCTION_NORMALIZE }
-    });
-
-    const text = result.text;
-
-    if (text) {
-      await db.saveMarkdown({
-        id: hash,
-        content: text,
-        createdAt: Date.now()
-      });
-      return text;
-    }
-    return null;
-  } catch (e) {
-    console.warn("⚠️ Normalization failed:", e);
-    return null;
-  }
-};
 
 const userKeyRotator = new UserKeyRotator();
 
@@ -646,7 +586,7 @@ const extractJson = (text: string): string => {
     try {
       JSON.parse(result);
       return result;
-    } catch (e) {
+    } catch {
       // Nếu vẫn lỗi, thử lùi lại đến dấu ngăn cách gần nhất
       const lastComma = result.lastIndexOf(',');
       if (lastComma !== -1) {
@@ -1251,9 +1191,9 @@ async function executeWithUserRotation<T>(
 export const generateQuestions = async (
   files: UploadedFile[],
   settings: AppSettings,
-  limit: number = 0,
+  _limit: number = 0,
   onProgress?: ProgressCallback,
-  expectedCount: number = 0,
+  _expectedCount: number = 0,
   onBatchComplete?: BatchCallback,
   retryIndices?: number[],
   isAdvancedMode: boolean = false,
@@ -1553,7 +1493,6 @@ export const generateQuestions = async (
     };
 
     // --- STEP 2: BATCH PROCESSING ---
-    let completedBatches = 0;
     const getConcurrencyLimit = () => (
       runtimeSettings.provider === 'google'
         ? userKeyRotator.getRecommendedConcurrency(requestedConcurrency)
@@ -1636,7 +1575,7 @@ export const generateQuestions = async (
                   const cacheSessionKey = `${hashApiKey(currentKey)}_${activeModel}`;
                   if (!part.text && !sessionCache[cacheSessionKey]) {
                     sessionCache[cacheSessionKey] = (async () => {
-                      try { return await getOrSetContextCache(aiInstance, files, activeModel, finalInstruction, currentKey); } catch (e) { return null; }
+                      try { return await getOrSetContextCache(aiInstance, files, activeModel, finalInstruction, currentKey); } catch { return null; }
                     })();
                   }
                   const kCacheName = part.text ? null : await sessionCache[cacheSessionKey];
@@ -1744,7 +1683,7 @@ export const generateQuestions = async (
           ).filter(p => p.text.trim().length > 0);
 
           // Chạy song song cả 4 phần để tối ưu thời gian
-          await Promise.all(parts.map((p, i) => processBatch(p, index, depth + 1, false, topLevelIndex)));
+          await Promise.all(parts.map((p) => processBatch(p, index, depth + 1, false, topLevelIndex)));
           const progressAfterSplit = allQuestions.length + allDuplicates.length + autoSkippedCount;
           if (depth === 0 && progressAfterSplit === progressBeforeSplit && !failedBatches.includes(index + 1)) {
             recordBatchFailure(index, batchLabel, e, 'split');
@@ -1788,7 +1727,6 @@ export const generateQuestions = async (
 
       // Nếu đang chạy chế độ Retry, chỉ xử lý những index có trong danh sách
       if (retryIndices && retryIndices.length > 0 && !retryIndices.includes(i + 1)) {
-        completedBatches++;
         continue;
       }
 

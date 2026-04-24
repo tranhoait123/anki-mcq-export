@@ -209,7 +209,7 @@ const textBlockParagraphs = async (label: string, text: string) => {
     if (block.type === 'table') {
       try {
         children.push(await createDocxTable(block.rows));
-      } catch (e) {
+      } catch {
         for (const row of block.rows) children.push(await paragraph(row.join(' - '), { spacing: { after: 80 } }));
       }
       continue;

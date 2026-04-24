@@ -1,4 +1,4 @@
-import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useState } from 'react';
 import { X, ArrowRight, CheckCircle2, Trash2, RotateCcw, Info, Hash, FileText, Search } from 'lucide-react';
 import { DuplicateInfo, MCQ } from '../types';
 

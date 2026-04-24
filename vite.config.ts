@@ -61,11 +61,14 @@ export default defineConfig(({ mode }) => {
           manualChunks: {
             vendor: ['react', 'react-dom'],
             ui: ['lucide-react'],
-            utils: ['mammoth'],
+            docx: ['docx', 'mammoth', 'jszip'],
+            pdf: ['pdf-lib', 'pdfjs-dist'],
+            ocr: ['tesseract.js'],
             genai: ['@google/genai']
           }
         }
-      }
+      },
+      chunkSizeWarningLimit: 1000,
     },
     test: {
       exclude: ['node_modules/**', 'dist/**', 'tests/e2e/**'],

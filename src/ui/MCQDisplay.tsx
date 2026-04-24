@@ -1,4 +1,4 @@
-import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { MCQ, Explanation } from '../types';
 import { CheckCircle2, Search, Quote, Lightbulb, AlertTriangle, Target, Eye, PenLine, Trash2, Filter, FileText, ArrowUp } from 'lucide-react';
 import { buildAnkiHtml, formatRichText } from '../core/anki';
@@ -360,7 +360,7 @@ const VirtualizedMCQList: React.FC<VirtualizedMCQListProps> = ({
     });
   };
 
-  const scrollToIndex = (index: number, align: 'start' | 'center' = 'start') => {
+  const scrollToIndex = useCallback((index: number, align: 'start' | 'center' = 'start') => {
     if (index < 0 || index >= items.length || !listRef.current) return;
 
     const targetTop = measurements.positions[index];
@@ -385,7 +385,7 @@ const VirtualizedMCQList: React.FC<VirtualizedMCQListProps> = ({
       : Math.max(0, relativeTop - 24);
 
     scrollEl.scrollTo({ top: nextTop, behavior: 'smooth' });
-  };
+  }, [editingId, items, measurements.heights, measurements.positions, scrollContainerRef, useWindowScroll, viewMode]);
 
   useEffect(() => {
     if (!items.length) {
@@ -438,13 +438,13 @@ const VirtualizedMCQList: React.FC<VirtualizedMCQListProps> = ({
     if (!editingId) return;
     const editingIndex = items.findIndex(item => item.id === editingId);
     if (editingIndex >= 0) scrollToIndex(editingIndex, 'center');
-  }, [editingId, items, measurements.positions]);
+  }, [editingId, items, measurements.positions, scrollToIndex]);
 
   useEffect(() => {
     if (requestedScrollIndex === null) return;
     scrollToIndex(requestedScrollIndex);
     onScrollRequestHandled();
-  }, [onScrollRequestHandled, requestedScrollIndex]);
+  }, [onScrollRequestHandled, requestedScrollIndex, scrollToIndex]);
 
   const visibleItems = items.slice(viewportRange.start, viewportRange.end);
 

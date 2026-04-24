@@ -6,16 +6,7 @@ const getWorker = async (): Promise<Worker> => {
     if (!workerPromise) {
         workerPromise = (async () => {
             const Tesseract = await import('tesseract.js');
-            const worker = await Tesseract.createWorker('vie', 1, {
-                logger: m => {
-                    // Global logger - difficult to map to specific file progress here directly
-                    // We can use a custom event or callback if needed, but for simplicity
-                    // we might just rely on the recognize call's return or manage progress differently.
-                    // However, Tesseract.js v5 createWorker doesn't accept logger in options the same way as before?
-                    // Wait, the previous code used: await Tesseract.createWorker('vie', 1, { logger: ... })
-                    // Let's keep it simple.
-                }
-            });
+            const worker = await Tesseract.createWorker('vie', 1);
             return worker;
         })();
     }
@@ -26,12 +17,14 @@ export const extractTextWithTesseract = async (
     imageSource: string | File,
     onProgress?: (progress: number) => void
 ): Promise<string> => {
+    onProgress?.(0);
     try {
         const worker = await getWorker();
 
         const ret = await worker.recognize(imageSource);
 
         // Do NOT terminate worker. Keep it alive for reuse.
+        onProgress?.(100);
         return ret.data.text;
     } catch (error) {
         console.error("Tesseract OCR Error:", error);

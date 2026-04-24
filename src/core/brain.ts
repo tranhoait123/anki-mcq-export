@@ -907,7 +907,7 @@ const toGoogleContentPart = (part: any): any => {
 };
 
 export const buildGoogleBatchMessage = (part: any, batchPrompt: string, cachedContent?: string) => {
-  if (cachedContent) return [{ text: batchPrompt }];
+  if (cachedContent && !part.inlineData) return [{ text: batchPrompt }];
   return [toGoogleContentPart(part), { text: batchPrompt }];
 };
 
@@ -1588,7 +1588,7 @@ export const generateQuestions = async (
         const batchStartingKey = runtimeSettings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
         const expectedQuestions = expectedAtStart;
         const isDocxImageBatch = part.sourceMode === 'docxImage';
-        const sourceInstruction = `SOURCE_LABEL: ${getTrustedSourceLabel(part)}\nBắt buộc trường "source" của mọi câu hỏi trong batch này phải copy y nguyên SOURCE_LABEL. Không tự bịa tên đề, năm, chương, trang, file đáp án hoặc nguồn khác.`;
+        const sourceInstruction = `SOURCE_LABEL: ${getTrustedSourceLabel(part)}\nBắt buộc trường "source" của mọi câu hỏi trong batch này phải copy y nguyên SOURCE_LABEL. CHỈ được trích xuất câu hỏi nằm trong đúng SOURCE_LABEL của batch hiện tại. Nếu tài liệu/cache còn chứa phần khác, bỏ qua hoàn toàn các câu ngoài phạm vi SOURCE_LABEL này dù nội dung rất giống. Không tự bịa tên đề, năm, chương, trang, file đáp án hoặc nguồn khác.`;
         const structuredSourceLabel = part.sourceMode === 'pdfText' ? 'PDF TEXT STRUCTURED' : 'DOCX';
         const repairInstruction = forceJsonRepair
           ? 'LƯU Ý SỬA JSON: Lần trước batch này bị lỗi định dạng hoặc thiếu câu. Hãy trả về JSON hợp lệ tuyệt đối, đóng đủ mọi ngoặc, không markdown, không giải thích ngoài JSON.'

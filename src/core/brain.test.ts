@@ -68,12 +68,25 @@ describe('Core Logic', () => {
     expect(message).toContain('gemini-*');
   });
 
-  it('omits document parts from Google batch messages when context cache is available', () => {
+  it('omits text parts from Google batch messages when context cache is available', () => {
     const part = { text: 'very long document part', sourceLabel: 'demo.pdf | Trang 1' };
     const prompt = 'Dựa trên tài liệu đã cache, hãy trích xuất Phần 1.';
 
     expect(buildGoogleBatchMessage(part, prompt, 'cachedContents/abc')).toEqual([{ text: prompt }]);
     expect(buildGoogleBatchMessage(part, prompt)).toEqual([{ text: 'very long document part' }, { text: prompt }]);
+  });
+
+  it('still includes inline vision parts even when context cache is available', () => {
+    const part = {
+      inlineData: { mimeType: 'application/pdf', data: 'base64-data' },
+      sourceLabel: 'demo.pdf | Trang 10-12',
+    };
+    const prompt = 'Dựa trên tài liệu đã cache, chỉ trích xuất trong phạm vi hiện tại.';
+
+    expect(buildGoogleBatchMessage(part, prompt, 'cachedContents/abc')).toEqual([
+      { inlineData: { mimeType: 'application/pdf', data: 'base64-data' } },
+      { text: prompt },
+    ]);
   });
 
   it('builds Vertex AI OpenAI-compatible requests with the documented endpoint and model prefix', () => {

@@ -71,6 +71,7 @@ const App: React.FC = () => {
   const processingControllerRef = React.useRef<ProcessingController | null>(null);
   const [resumeSession, setResumeSession] = useState<ProcessingSession | null>(null);
   const activeSessionRef = React.useRef<ProcessingSession | null>(null);
+  const resultsPanelRef = React.useRef<HTMLDivElement | null>(null);
   const filesRef = React.useRef<UploadedFile[]>([]);
   const mcqsRef = React.useRef<MCQ[]>([]);
   const duplicatesRef = React.useRef<DuplicateInfo[]>([]);
@@ -78,6 +79,7 @@ const App: React.FC = () => {
   const previousFilesSignatureRef = React.useRef<string | null>(null);
   const sessionPersistChainRef = React.useRef<Promise<void>>(Promise.resolve());
   const mcqPersistChainRef = React.useRef<Promise<void>>(Promise.resolve());
+  const [exportAction, setExportAction] = useState<'downloadCsv' | 'downloadDocx' | null>(null);
 
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
@@ -1380,40 +1382,6 @@ const App: React.FC = () => {
 
   // buildAnkiHtml moved to core/anki.ts
 
-  const handleCopyCSV = () => {
-    if (mcqs.length === 0) return;
-
-    const headers = ["Question", "A", "B", "C", "D", "E", "CorrectAnswer", "ExplanationHTML", "Source"];
-    const rows = mcqs.map(m => {
-      const esc = (t: string) => `"${(t || "").replace(new RegExp('"', 'g'), '""')}"`;
-
-      const cleanQ = cleanText(m.question, 'question');
-      const formattedQ = formatRichText(cleanQ);
-
-      const ops = [...m.options];
-      while (ops.length < 5) ops.push("");
-      const cleanOps = ops.map(o => formatRichText(cleanText(o, 'option')));
-
-      const correctIndex = m.options.findIndex((opt, i) => isOptionCorrect(opt, m.correctAnswer, i));
-      const correctLetter = correctIndex !== -1 
-        ? String.fromCharCode(65 + correctIndex) 
-        : (m.correctAnswer.match(/^[A-E]/i)?.[0]?.toUpperCase() || m.correctAnswer);
-
-      return [
-        esc(formattedQ),
-        esc(cleanOps[0]), esc(cleanOps[1]), esc(cleanOps[2]), esc(cleanOps[3]), esc(cleanOps[4]),
-        esc(correctLetter),
-        esc(buildAnkiHtml(m.explanation, m.difficulty, m.depthAnalysis)),
-        esc(m.source)
-      ].join(",");
-    });
-
-    const csvContent = [headers.join(","), ...rows].join("\n");
-    navigator.clipboard.writeText(csvContent);
-    // Simple alert for feedback
-    toast.success("Đã copy toàn bộ nội dung CSV vào bộ nhớ đệm! (Bạn có thể paste vào Excel/Sheets)");
-  };
-
   const generateCSVData = () => {
     try {
       if (mcqs.length === 0) return "";
@@ -1460,29 +1428,34 @@ const App: React.FC = () => {
     }
   };
 
-  const downloadCSV = () => {
-    const csv = generateCSVData();
-    if (!csv) return;
-    
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
+  const downloadCSV = async () => {
+    setExportAction('downloadCsv');
+    try {
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const csv = generateCSVData();
+      if (!csv) return;
 
-    // Smart Filename
-    let filename = "Anki_Export";
-    if (files.length > 0) {
-      const baseName = files[0].name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "_");
-      filename = `[ANKI]_${baseName}`;
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+
+      let filename = "Anki_Export";
+      if (files.length > 0) {
+        const baseName = files[0].name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "_");
+        filename = `[ANKI]_${baseName}`;
+      }
+
+      const url = URL.createObjectURL(blob);
+      link.href = url;
+      link.download = `${filename}_${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+
+      toast.success("Tải file thành công! Lưu ý khi Import vào Anki: 1. Chọn dấu phẩy (Comma) - 2. Tích chọn 'Allow HTML in fields'", {
+        duration: 6000,
+      });
+    } finally {
+      setExportAction(null);
     }
-
-    const url = URL.createObjectURL(blob);
-    link.href = url;
-    link.download = `${filename}_${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-
-    toast.success("Tải file thành công! Lưu ý khi Import vào Anki: 1. Chọn dấu phẩy (Comma) - 2. Tích chọn 'Allow HTML in fields'", {
-      duration: 6000,
-    });
   };
 
   const downloadDOCX = async () => {
@@ -1491,7 +1464,9 @@ const App: React.FC = () => {
       return;
     }
 
+    setExportAction('downloadDocx');
     try {
+      await new Promise(resolve => setTimeout(resolve, 0));
       let filename = "MCQ_Study";
       let sourceName = "MCQ Study Export";
       if (files.length > 0) {
@@ -1510,6 +1485,8 @@ const App: React.FC = () => {
       toast.success("Đã xuất file DOCX để học trực tiếp.");
     } catch (e: any) {
       toast.error(`📄 Lỗi tạo file DOCX: ${e.message || 'Không rõ lỗi'}. CSV hiện tại không bị ảnh hưởng.`);
+    } finally {
+      setExportAction(null);
     }
   };
 
@@ -1757,7 +1734,7 @@ const App: React.FC = () => {
         </div>
 
         {/* Main Content - Results */}
-        <div className={`space-y-6 ${isSplitView ? 'col-span-6 h-full overflow-y-auto pr-2' : 'lg:col-span-8'}`}>
+        <div ref={resultsPanelRef} className={`space-y-6 ${isSplitView ? 'col-span-6 h-full overflow-y-auto pr-2' : 'lg:col-span-8'}`}>
           {resumeSession && !loading && (
             <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1841,61 +1818,73 @@ const App: React.FC = () => {
           )}
 
           {mcqs.length > 0 && !loading && (
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 pb-4">
-              <div>
-                <h2 className="font-bold text-slate-800 text-lg flex items-center gap-2">
-                  Kết quả
-                  <span className="bg-slate-100 text-slate-500 text-xs py-0.5 px-2 rounded-full font-normal">
-                    {mcqs.length} câu
-                  </span>
-                </h2>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={async () => {
-                    if (confirm("Xóa toàn bộ dữ liệu hiện tại, file đã lưu, phiên dang dở và cache AI?")) {
-                      setMcqs([]);
-                      mcqsRef.current = [];
-                      setFiles([]);
-                      filesRef.current = [];
-                      setDuplicates([]);
-                      duplicatesRef.current = [];
-                      setFailedBatchIndices([]);
-                      setResumeSession(null);
-                      activeSessionRef.current = null;
-                      await db.clearAll();
-                    }
-                  }}
-                  className="px-4 py-2 bg-gray-100 text-gray-700 font-medium text-sm rounded-lg hover:bg-gray-200 shadow-sm flex items-center gap-2 transition-all"
-                >
-                  <AlertTriangle size={16} /> Xóa hết
-                </button>
-                <button
-                  onClick={handleCopyCSV}
-                  className="px-4 py-2 bg-indigo-600 text-white font-medium text-sm rounded-lg hover:bg-indigo-700 shadow-sm flex items-center gap-2 transition-all"
-                  title="Copy nội dung CSV vào bộ nhớ đệm"
-                >
-                  <ScanText size={16} /> Copy CSV
-                </button>
-                <button
-                  onClick={downloadCSV}
-                  className="px-4 py-2 bg-emerald-600 text-white font-medium text-sm rounded-lg hover:bg-emerald-700 shadow-sm flex items-center gap-2 transition-all"
-                >
-                  <Download size={16} /> Xuất CSV Anki
-                </button>
-                <button
-                  onClick={downloadDOCX}
-                  className="px-4 py-2 bg-sky-600 text-white font-medium text-sm rounded-lg hover:bg-sky-700 shadow-sm flex items-center gap-2 transition-all"
-                  title="Xuất file Word để học trực tiếp"
-                >
-                  <FileText size={16} /> Xuất DOCX
-                </button>
+            <div className="rounded-3xl border border-slate-200/80 bg-white/80 p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
+              <div className="flex flex-col gap-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-xl font-black tracking-tight text-slate-900 dark:text-white">Kết quả</h2>
+                      <span className="rounded-full bg-indigo-50 px-3 py-1 text-sm font-bold text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-300">
+                        {mcqs.length} câu
+                      </span>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (confirm("Xóa toàn bộ dữ liệu hiện tại, file đã lưu, phiên dang dở và cache AI?")) {
+                          setMcqs([]);
+                          mcqsRef.current = [];
+                          setFiles([]);
+                          filesRef.current = [];
+                          setDuplicates([]);
+                          duplicatesRef.current = [];
+                          setFailedBatchIndices([]);
+                          setResumeSession(null);
+                          activeSessionRef.current = null;
+                          await db.clearAll();
+                        }
+                      }}
+                      className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-rose-600 transition-all hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                    >
+                      <AlertTriangle size={14} /> Xóa toàn bộ dữ liệu
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 lg:justify-end">
+                    <button
+                      onClick={downloadCSV}
+                      disabled={exportAction !== null}
+                      className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white shadow-[0_14px_32px_-18px_rgba(5,150,105,0.85)] transition-all hover:-translate-y-0.5 hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                    >
+                      {exportAction === 'downloadCsv' ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />} Xuất CSV Anki
+                    </button>
+                    <button
+                      onClick={downloadDOCX}
+                      disabled={exportAction !== null}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-sky-200/80 bg-sky-50 px-5 py-3 text-sm font-bold text-sky-700 shadow-[0_14px_32px_-22px_rgba(14,165,233,0.65)] transition-all hover:-translate-y-0.5 hover:border-sky-300 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 dark:border-sky-900/50 dark:bg-sky-950/20 dark:text-sky-300 dark:hover:bg-sky-950/35"
+                      title="Xuất file Word để học trực tiếp"
+                    >
+                      {exportAction === 'downloadDocx' ? <Loader2 className="animate-spin" size={16} /> : <FileText size={16} />} Xuất DOCX
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
           <div className="min-h-[400px]">
-            <MCQDisplay mcqs={mcqs} onUpdate={handleUpdateMCQ} onDelete={handleDeleteMCQ} />
+            {exportAction && (
+              <div className="mb-4 rounded-2xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-sm font-medium text-indigo-700 dark:border-indigo-900/40 dark:bg-indigo-950/20 dark:text-indigo-300">
+                {exportAction === 'downloadCsv' && 'Đang chuẩn bị file CSV...'}
+                {exportAction === 'downloadDocx' && 'Đang dựng file DOCX để tải về...'}
+              </div>
+            )}
+            <MCQDisplay
+              mcqs={mcqs}
+              onUpdate={handleUpdateMCQ}
+              onDelete={handleDeleteMCQ}
+              scrollContainerRef={resultsPanelRef}
+              useWindowScroll={!isSplitView}
+            />
 
             {!loading && mcqs.length === 0 && !analyzing && !files.length && (
               <div className="h-full flex flex-col items-center justify-center text-slate-300 py-20">

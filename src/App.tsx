@@ -1488,7 +1488,7 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {mcqs.length > 0 && !loading && (
+          {mcqs.length > 0 && !loading && !isSplitView && (
             <div className="rounded-3xl border border-slate-200/80 bg-white/80 p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
               <div className="flex flex-col gap-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

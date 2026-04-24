@@ -668,7 +668,7 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrol
         </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {mcqs.length > 0 && filtered.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50/70 px-6 py-12 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-400">
           Không tìm thấy câu hỏi phù hợp với bộ lọc hiện tại.
         </div>

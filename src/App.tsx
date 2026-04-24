@@ -1843,7 +1843,7 @@ const App: React.FC = () => {
                           await db.clearAll();
                         }
                       }}
-                      className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-rose-600 transition-all hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                      className="inline-flex items-center gap-2 rounded-xl border border-rose-200/80 bg-rose-50/80 px-3 py-2 text-xs font-black text-rose-700 shadow-sm transition-all hover:border-rose-300 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/25 dark:text-rose-300 dark:hover:bg-rose-950/45"
                     >
                       <AlertTriangle size={14} /> Xóa toàn bộ dữ liệu
                     </button>

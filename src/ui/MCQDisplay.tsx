@@ -497,11 +497,15 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrol
   const [difficultyFilter, setDifficultyFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('preview');
   const [requestedScrollIndex, setRequestedScrollIndex] = useState<number | null>(null);
+  const questionViewportRef = useRef<HTMLDivElement | null>(null);
 
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const toolbarStickyTopClass = useWindowScroll ? 'top-16' : 'top-0';
   const layoutSpacingClass = useWindowScroll ? 'space-y-8' : 'space-y-4';
   const splitReadingMode = !useWindowScroll;
+  const constrainQuestionScroll = useWindowScroll && mcqs.length > 0;
+  const questionScrollContainerRef = constrainQuestionScroll ? questionViewportRef : scrollContainerRef;
+  const compactCards = splitReadingMode || constrainQuestionScroll;
 
   const uniqueDifficulties = useMemo(
     () => {
@@ -600,8 +604,34 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrol
         onOptionChange={handleOptionChange}
         onExplanationChange={handleExplanationChange}
         onDelete={onDelete}
-        compact={splitReadingMode}
+        compact={compactCards}
       />
+    </div>
+  );
+
+  const questionListContent = mcqs.length > 0 && filtered.length === 0 ? (
+    <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50/70 px-6 py-12 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-400">
+      Không tìm thấy câu hỏi phù hợp với bộ lọc hiện tại.
+    </div>
+  ) : isLargeList ? (
+    <VirtualizedMCQList
+      items={filtered}
+      editingId={editingId}
+      editForm={editForm}
+      viewMode={viewMode}
+      renderCard={renderCard}
+      scrollContainerRef={questionScrollContainerRef}
+      useWindowScroll={!constrainQuestionScroll && useWindowScroll}
+      requestedScrollIndex={requestedScrollIndex}
+      onScrollRequestHandled={() => setRequestedScrollIndex(null)}
+    />
+  ) : (
+    <div className={`${compactCards ? 'space-y-4 pb-6' : 'space-y-8 pb-20'}`}>
+      {filtered.map((mcq, idx) => (
+        <React.Fragment key={mcq.id}>
+          {renderCard(mcq, idx)}
+        </React.Fragment>
+      ))}
     </div>
   );
 
@@ -682,30 +712,15 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrol
         </div>
       </div>
 
-      {mcqs.length > 0 && filtered.length === 0 ? (
-        <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50/70 px-6 py-12 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-400">
-          Không tìm thấy câu hỏi phù hợp với bộ lọc hiện tại.
+      {constrainQuestionScroll ? (
+        <div
+          ref={questionViewportRef}
+          className="mcq-question-viewport h-[min(86dvh,1080px)] min-h-[640px] overflow-y-auto overscroll-contain rounded-[2rem] pr-2"
+        >
+          {questionListContent}
         </div>
-      ) : isLargeList ? (
-        <VirtualizedMCQList
-          items={filtered}
-          editingId={editingId}
-          editForm={editForm}
-          viewMode={viewMode}
-          renderCard={renderCard}
-          scrollContainerRef={scrollContainerRef}
-          useWindowScroll={useWindowScroll}
-          requestedScrollIndex={requestedScrollIndex}
-          onScrollRequestHandled={() => setRequestedScrollIndex(null)}
-        />
       ) : (
-        <div className={`${splitReadingMode ? 'space-y-4 pb-6' : 'space-y-8 pb-20'}`}>
-          {filtered.map((mcq, idx) => (
-            <React.Fragment key={mcq.id}>
-              {renderCard(mcq, idx)}
-            </React.Fragment>
-          ))}
-        </div>
+        questionListContent
       )}
     </div>
   );

@@ -44,6 +44,33 @@ export const getTrustedSourceLabel = (part: { sourceLabel?: string } = {}): stri
   return sourceLabel || 'Nguồn không xác định';
 };
 
+const normalizeSourceLabel = (value: string = ''): string =>
+  value.replace(/\s+/g, ' ').trim().toLowerCase();
+
+export const inferCompletedBatchIndicesFromExistingQuestions = (
+  parts: Array<{ text?: string; expectedQuestions?: number; sourceLabel?: string }>,
+  existingQuestions: MCQ[] = []
+): number[] => {
+  if (existingQuestions.length === 0) return [];
+
+  const sourceCounts = new Map<string, number>();
+  existingQuestions.forEach((question) => {
+    const source = normalizeSourceLabel(question.source || '');
+    if (!source) return;
+    sourceCounts.set(source, (sourceCounts.get(source) || 0) + 1);
+  });
+
+  return parts.reduce<number[]>((completed, part, index) => {
+    const expected = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
+    if (expected <= 0) return completed;
+
+    const source = normalizeSourceLabel(getTrustedSourceLabel(part));
+    const existingCount = sourceCounts.get(source) || 0;
+    if (existingCount >= expected) completed.push(index + 1);
+    return completed;
+  }, []);
+};
+
 export const applyTrustedSourceLabel = <T extends { source?: string }>(questions: T[], part: { sourceLabel?: string } = {}): T[] => {
   const sourceLabel = getTrustedSourceLabel(part);
   questions.forEach((question) => {
@@ -1419,7 +1446,19 @@ export const generateQuestions = async (
     let autoSkippedCount = options.existingAutoSkippedCount || 0;
     let rescueCompleted = 0;
     const rescueTotal = retryIndices?.length || 0;
-    const skippedBatchSet = new Set(options.completedBatchIndices || []);
+    const inferredCompletedBatchIndices = options.resumeMode
+      ? inferCompletedBatchIndicesFromExistingQuestions(allParts, options.existingQuestions || [])
+      : [];
+    const skippedBatchSet = new Set([
+      ...(options.completedBatchIndices || []),
+      ...inferredCompletedBatchIndices,
+    ]);
+    const inferredOnlyBatchIndices = inferredCompletedBatchIndices.filter(
+      index => !(options.completedBatchIndices || []).includes(index)
+    );
+    if (inferredOnlyBatchIndices.length > 0) {
+      console.warn(`↩️ Resume: inferred ${inferredOnlyBatchIndices.length} already-restored batch(es) from saved SOURCE_LABEL snapshots. Skipping re-scan: ${inferredOnlyBatchIndices.join(', ')}`);
+    }
     const phaseBatchNumbers = retryIndices && retryIndices.length > 0
       ? [...retryIndices]
       : Array.from({ length: allParts.length }, (_, idx) => idx + 1);

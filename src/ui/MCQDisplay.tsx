@@ -715,7 +715,7 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrol
       {constrainQuestionScroll ? (
         <div
           ref={questionViewportRef}
-          className="mcq-question-viewport h-[min(86dvh,1080px)] min-h-[640px] overflow-y-auto overscroll-contain rounded-[2rem] pr-2"
+          className="mcq-question-viewport h-[calc(100dvh-180px)] min-h-[880px] overflow-y-auto overscroll-contain rounded-[2rem] pr-2"
         >
           {questionListContent}
         </div>

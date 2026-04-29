@@ -1106,8 +1106,6 @@ const App: React.FC = () => {
       id: `restored - ${Date.now()} `
     };
     setMcqs(prev => {
-      const result = findDuplicate(restoredMcq, prev);
-      if (result.isDup) return prev;
       return [...prev, restoredMcq];
     });
 
@@ -1136,12 +1134,7 @@ const App: React.FC = () => {
     }));
 
     setMcqs(prev => {
-      const accepted: MCQ[] = [];
-      for (const item of toRestore) {
-        const result = findDuplicate(item, [...prev, ...accepted]);
-        if (!result.isDup) accepted.push(item);
-      }
-      return [...prev, ...accepted];
+      return [...prev, ...toRestore];
     });
     setDuplicates([]);
     setShowDuplicates(false);

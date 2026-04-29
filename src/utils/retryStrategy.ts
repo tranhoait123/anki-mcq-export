@@ -51,8 +51,9 @@ export const classifyBatchError = (error: any): BatchErrorKind => {
   const statusCode = error?.status || error?.statusCode || 0;
 
   if (statusCode === 401 || statusCode === 403 || msg.includes('401') || msg.includes('403') || msg.includes('permission denied') || msg.includes('forbidden')) return 'auth';
-  if ((msg.includes('api key') || msg.includes('api_key') || msg.includes('token')) && (msg.includes('invalid') || msg.includes('not found') || msg.includes('expired') || msg.includes('hết hạn'))) return 'auth';
-  if (statusCode === 429 || msg.includes('429') || msg.includes('quota') || msg.includes('exhausted') || msg.includes('resource_exhausted')) return 'rateLimit';
+  if ((msg.includes('api key') || msg.includes('api_key') || msg.includes('api-key') || msg.includes('token') || msg.includes('invalid_grant')) && (msg.includes('invalid') || msg.includes('not found') || msg.includes('expired') || msg.includes('hết hạn'))) return 'auth';
+  if (msg.includes('api_key_invalid') || msg.includes('key not valid')) return 'auth';
+  if (statusCode === 429 || msg.includes('429') || msg.includes('quota') || msg.includes('exhausted') || msg.includes('resource_exhausted') || msg.includes('too many requests') || msg.includes('rate limit')) return 'rateLimit';
   if (statusCode === 503 || statusCode === 504 || msg.includes('503') || msg.includes('504') || msg.includes('unavailable') || msg.includes('overloaded') || msg.includes('deadline') || msg.includes('timeout') || msg.includes('econnreset')) return 'serverBusy';
   if (msg.includes('không tìm thấy câu hỏi') || msg.includes('khong tim thay cau hoi') || msg.includes('questions.length') || msg.includes('empty')) return 'empty';
   if (msg.includes('ai_format_error') || msg.includes('json') || msg.includes('định dạng') || msg.includes('dinh dang') || msg.includes('format') || msg.includes('unexpected token') || msg.includes('truncated')) return 'format';

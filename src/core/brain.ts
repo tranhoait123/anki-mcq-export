@@ -1129,9 +1129,9 @@ async function executeWithUserRotation<T>(
       
       // Mở rộng bộ lọc lỗi để nhận diện thêm các trường hợp đặc biệt của Google AI
       const isPermissionDenied = msg.includes("403") || msg.includes("permission denied") || msg.includes("forbidden") || statusCode === 403;
-      const isRateLimit = msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || msg.includes("resource_exhausted") || msg.includes("timeout") || msg.includes("econnreset") || statusCode === 429;
+      const isRateLimit = msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || msg.includes("resource_exhausted") || msg.includes("too many requests") || msg.includes("rate limit") || msg.includes("timeout") || msg.includes("econnreset") || statusCode === 429;
       const isServerBusy = msg.includes("503") || msg.includes("unavailable") || msg.includes("overloaded") || msg.includes("deadline") || msg.includes("servicedown") || statusCode === 503;
-      const isKeyError = (msg.includes("api key") || msg.includes("api_key")) && (msg.includes("invalid") || msg.includes("not found") || msg.includes("expired"));
+      const isKeyError = ((msg.includes("api key") || msg.includes("api_key") || msg.includes("api-key") || msg.includes("token") || msg.includes("invalid_grant")) && (msg.includes("invalid") || msg.includes("not found") || msg.includes("expired"))) || msg.includes("key not valid");
       const isFormatError = msg.includes("json") || msg.includes("định dạng") || msg.includes("format") || msg.includes("unexpected token");
 
       if (isPermissionDenied || isRateLimit || isServerBusy || isKeyError || isFormatError) {

@@ -144,6 +144,33 @@ export const getModelGroups = (provider: AIProvider): ModelGroup[] => MODEL_GROU
 export const getModelValues = (provider: AIProvider): string[] =>
   getModelGroups(provider).flatMap(group => group.options.map(option => option.value));
 
+const LEGACY_GEMINI_MODEL_PATTERNS = [
+  /^gemini-1(?:\.|$|-)/,
+  /^gemini-2\.0(?:-|$)/,
+  /^gemini-pro$/,
+  /^gemini-3-pro-preview$/,
+];
+
+export const isLegacyGeminiModel = (model: string): boolean => {
+  const normalized = String(model || '').trim().toLowerCase().replace(/^google\//, '');
+  return LEGACY_GEMINI_MODEL_PATTERNS.some(pattern => pattern.test(normalized));
+};
+
+export const getModelLifecycleWarning = (provider: AIProvider, model: string): string | null => {
+  const normalizedModel = normalizeModelForProvider(provider, model || '');
+  const displayModel = normalizedModel || '(trống)';
+
+  if (!isModelAllowedForProvider(provider, normalizedModel)) {
+    return getProviderModelMismatchMessage(provider, model);
+  }
+
+  if ((provider === 'google' || provider === 'vertexai' || normalizedModel.includes('gemini')) && isLegacyGeminiModel(normalizedModel)) {
+    return `MODEL_LIFECYCLE_WARNING: Model "${displayModel}" là model Gemini cũ/deprecated. Ưu tiên gemini-3.1-flash-lite-preview hoặc gemini-3-flash-preview để giảm lỗi endpoint và giới hạn legacy.`;
+  }
+
+  return null;
+};
+
 const SHOPAIKEY_MODEL_ALIASES: Record<string, string> = {
   'openai/gpt-5.4-pro': 'gpt-5.4-pro',
   'openai/gpt-5.4': 'gpt-5.4',

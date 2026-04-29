@@ -18,6 +18,8 @@ describe('batch retry strategy', () => {
 
   it('classifies rate/server errors for short rescue retry', () => {
     expect(classifyBatchError(new Error('OpenRouter API Error: 429'))).toBe('rateLimit');
+    expect(classifyBatchError(new Error('Gemini API Error: too many requests; rate limit exceeded'))).toBe('rateLimit');
+    expect(classifyBatchError({ statusCode: 429, message: 'RetryInfo quota exhausted' })).toBe('rateLimit');
     expect(classifyBatchError(new Error('Gemini overloaded 503'))).toBe('serverBusy');
     expect(getRetryProfile('rescue').minAttempts).toBeLessThan(getRetryProfile('normal').minAttempts);
     expect(getRetryProfile('rescue').backoffCapMs).toBeLessThan(getRetryProfile('normal').backoffCapMs);
@@ -25,6 +27,8 @@ describe('batch retry strategy', () => {
 
   it('does not split auth failures', () => {
     expect(classifyBatchError(new Error('403 permission denied'))).toBe('auth');
+    expect(classifyBatchError(new Error('API_KEY_INVALID: API key not valid'))).toBe('auth');
+    expect(classifyBatchError(new Error('invalid_grant token expired'))).toBe('auth');
     expect(shouldSplitForError('auth')).toBe(false);
     expect(describeBatchError(new Error('403 permission denied')).advice).toContain('API key');
   });

@@ -271,6 +271,12 @@ export const scoreMCQDuplicate = (a: MCQLike, b: MCQLike): DuplicateFieldScores 
 
 const formatPercent = (score: number): number => Math.round(score * 100);
 
+const formatScoreSummary = (scores: DuplicateFieldScores, optionsScore: number, answerConflict: boolean): string =>
+  `${answerConflict ? 'Trùng mạnh nhưng xung đột đáp án' : 'Question + A-E tương đồng cao'} ` +
+  `(~${formatPercent(scores.composite)}%; Q ${formatPercent(scores.question)}%, ` +
+  `slot ${formatPercent(scores.optionsBySlot)}%, set ${formatPercent(scores.optionsAsSet)}%, ` +
+  `A-E ${formatPercent(optionsScore)}%)`;
+
 export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQuestions: T[]): DuplicateMatch<T> => {
   const candidateFingerprint = buildMCQFingerprint(candidate);
   let bestAutoSkipMatch: DuplicateMatch<T> | null = null;
@@ -284,26 +290,6 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
     const fieldScores = scoreMCQDuplicate(candidate, existing);
     const optionsScore = Math.max(fieldScores.optionsBySlot, fieldScores.optionsAsSet);
     const answerConflict = answersConflict(candidate, existing);
-
-    // Immediate auto‑skip when the shared stem overlap is very high (>= 0.9)
-    const overlapScore = tailAfterSharedStemScore(candidate.question || '', existing.question || '');
-    if (overlapScore !== null && overlapScore >= 0.9 && !answerConflict) {
-      const match: DuplicateMatch<T> = {
-        action: 'autoSkip',
-        isDup: true,
-        isAutoSkip: true,
-        reason: `Overlap stem high (~${formatPercent(overlapScore)}%)`,
-        matchedWith: (existing.question || '').substring(0, 60),
-        matchedData: existing,
-        score: overlapScore,
-        fieldScores: { ...fieldScores, composite: overlapScore },
-      };
-      if (bestAutoSkipPriority < 2 || (bestAutoSkipPriority === 2 && overlapScore > bestAutoSkipScore)) {
-        bestAutoSkipPriority = 2;
-        bestAutoSkipScore = overlapScore;
-        bestAutoSkipMatch = match;
-      }
-    }
 
     if (exactFingerprint && !answerConflict) {
       const match: DuplicateMatch<T> = {
@@ -324,10 +310,10 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
     }
 
     if (
-        fieldScores.composite >= 0.95 && // lowered auto‑skip threshold
-        fieldScores.question >= 0.93 && // slightly relaxed question threshold
-        fieldScores.optionsBySlot >= 0.95 &&
-        fieldScores.optionsAsSet >= 0.95 &&
+        fieldScores.composite >= 0.985 &&
+        fieldScores.question >= 0.985 &&
+        fieldScores.optionsBySlot >= 0.98 &&
+        fieldScores.optionsAsSet >= 0.98 &&
         !answerConflict
       ) {
       const match: DuplicateMatch<T> = {
@@ -347,16 +333,24 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
       }
     }
 
+    const reorderedOptionsReview =
+      fieldScores.question >= 0.9 &&
+      fieldScores.optionsAsSet >= 0.95 &&
+      fieldScores.optionsBySlot < 0.9;
+
     if (
-        fieldScores.composite >= 0.82 && // lowered review threshold
-        fieldScores.question >= 0.78 &&
-        optionsScore >= 0.75
+        (
+          fieldScores.composite >= 0.82 &&
+          fieldScores.question >= 0.78 &&
+          optionsScore >= 0.75
+        ) ||
+        reorderedOptionsReview
       ) {
       const reviewMatch: DuplicateMatch<T> = {
         action: 'review',
         isDup: true,
         isAutoSkip: false,
-        reason: `${answerConflict ? 'Trùng mạnh nhưng xung đột đáp án' : 'Question + A-E tương đồng cao'} (~${formatPercent(fieldScores.composite)}%; Q ${formatPercent(fieldScores.question)}%, A-E ${formatPercent(optionsScore)}%)`,
+        reason: `${reorderedOptionsReview ? 'Options giống nhưng đổi vị trí; cần review' : formatScoreSummary(fieldScores, optionsScore, answerConflict)}`,
         matchedWith: (existing.question || '').substring(0, 60),
         matchedData: existing,
         score: fieldScores.composite,

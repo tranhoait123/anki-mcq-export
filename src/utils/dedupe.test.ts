@@ -68,7 +68,44 @@ describe('MCQ dedupe utilities', () => {
     });
 
     const result = findDuplicate(changedOption, [original]);
-    expect(result.action).not.toBe('autoSkip');
+    expect(result.action).toBe('review');
+    expect(result.reason).toContain('slot');
+    expect(result.reason).toContain('set');
+  });
+
+  it('reviews instead of auto-skipping when options are the same but reordered', () => {
+    const original = makeMCQ({
+      question: 'Câu 3b. Điều trị đầu tay phù hợp nhất là gì?',
+      options: ['A. Metformin', 'B. Insulin', 'C. Statin', 'D. Aspirin', 'E. Furosemide'],
+      correctAnswer: 'A',
+    });
+    const reordered = makeMCQ({
+      question: 'Điều trị đầu tay phù hợp nhất là gì?',
+      options: ['A. Insulin', 'B. Metformin', 'C. Statin', 'D. Aspirin', 'E. Furosemide'],
+      correctAnswer: 'B',
+    });
+
+    const result = findDuplicate(reordered, [original]);
+    expect(result.action).toBe('review');
+    expect(result.isAutoSkip).toBe(false);
+    expect(result.reason).toContain('Options giống nhưng đổi vị trí');
+    expect(result.fieldScores?.optionsAsSet).toBeGreaterThanOrEqual(0.95);
+    expect(result.fieldScores?.optionsBySlot).toBeLessThan(0.9);
+  });
+
+  it('reviews high-similarity matches with missing options instead of auto-skipping', () => {
+    const original = makeMCQ({
+      question: 'Câu 3c. Yếu tố nguy cơ chính của bệnh mạch vành là gì?',
+      options: ['A. Tăng huyết áp', 'B. Đái tháo đường', 'C. Hút thuốc lá', 'D. Rối loạn lipid máu', 'E. Tuổi cao'],
+    });
+    const missingOption = makeMCQ({
+      question: 'Yếu tố nguy cơ chính của bệnh mạch vành là gì?',
+      options: ['A. Tăng huyết áp', 'B. Đái tháo đường', 'C. Hút thuốc lá', 'D. Rối loạn lipid máu'],
+    });
+
+    const result = findDuplicate(missingOption, [original]);
+    expect(result.action).toBe('review');
+    expect(result.isAutoSkip).toBe(false);
   });
 
   it('rejects duplicates when negative logic flips', () => {
@@ -92,6 +129,19 @@ describe('MCQ dedupe utilities', () => {
     });
 
     expect(findDuplicate(treatment, [diagnosis]).isDup).toBe(false);
+  });
+
+  it('keeps same-topic questions unique when the learning objective differs', () => {
+    const diagnosis = makeMCQ({
+      question: 'Bệnh nhân đau ngực sau xương ức lan tay trái. Chẩn đoán phù hợp nhất là gì?',
+      options: ['A. Nhồi máu cơ tim', 'B. Viêm phổi', 'C. Trào ngược dạ dày', 'D. Cơn hoảng loạn', 'E. Viêm cơ tim'],
+    });
+    const prevention = makeMCQ({
+      question: 'Bệnh nhân có nguy cơ bệnh mạch vành cao. Biện pháp dự phòng thứ phát quan trọng nhất là gì?',
+      options: ['A. Statin', 'B. Kháng sinh', 'C. Thuốc ngủ', 'D. Corticoid', 'E. Kháng histamin'],
+    });
+
+    expect(findDuplicate(prevention, [diagnosis]).action).toBe('unique');
   });
 
   it('can be used to catch duplicates inside one incoming batch', () => {
@@ -176,5 +226,31 @@ describe('MCQ dedupe utilities', () => {
     const result = findDuplicate(candidate, [weakReview, exact]);
     expect(result.action).toBe('autoSkip');
     expect(result.matchedData?.id).toBe('exact');
+  });
+
+  it('keeps few-hundred-question dedupe fast enough for interactive review', () => {
+    const unique: MCQ[] = [];
+    const incoming = Array.from({ length: 300 }, (_, index) => makeMCQ({
+      id: `bench-${index}`,
+      question: `Câu ${index + 10}. Dấu hiệu đặc hiệu số ${index} trong bệnh cảnh ${index % 17} là gì?`,
+      options: [
+        `A. Lựa chọn alpha ${index}`,
+        `B. Lựa chọn beta ${index}`,
+        `C. Lựa chọn gamma ${index}`,
+        `D. Lựa chọn delta ${index}`,
+        `E. Lựa chọn epsilon ${index}`,
+      ],
+    }));
+
+    const startedAt = performance.now();
+    for (const q of incoming) {
+      const result = findDuplicate(q, unique);
+      if (!result.isDup) unique.push(q);
+    }
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(unique.length).toBeGreaterThan(0);
+    expect(unique.length).toBeLessThanOrEqual(300);
+    expect(elapsedMs).toBeLessThan(4000);
   });
 });

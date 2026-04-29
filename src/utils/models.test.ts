@@ -6,7 +6,9 @@ import {
   getModelTokenProfile,
   coerceModelForProvider,
   coerceModelForProviderInput,
+  getModelLifecycleWarning,
   isVisionCapableModel,
+  isLegacyGeminiModel,
   isModelAllowedForProvider,
   normalizeModelForProvider,
 } from './models';
@@ -95,6 +97,24 @@ describe('AI model registry', () => {
     expect(coerceModelForProvider('vertexai', 'openai/gpt-5.4')).toBe('gemini-3.1-flash-lite-preview');
     expect(coerceModelForProvider('openrouter', 'deepseek/deepseek-v3.2')).toBe('deepseek/deepseek-v3.2');
     expect(coerceModelForProvider('shopaikey', 'deepseek/deepseek-v3.2')).toBe('deepseek-v3.2');
+  });
+
+  it('flags legacy Gemini model choices without blocking compatible provider coercion', () => {
+    expect(isLegacyGeminiModel('gemini-2.0-flash')).toBe(true);
+    expect(isLegacyGeminiModel('google/gemini-2.0-flash-001')).toBe(true);
+    expect(isLegacyGeminiModel('gemini-3-pro-preview')).toBe(true);
+    expect(isLegacyGeminiModel('gemini-3-flash-preview')).toBe(false);
+    expect(isLegacyGeminiModel('gemini-3.1-flash-lite-preview')).toBe(false);
+
+    expect(getModelLifecycleWarning('google', 'gemini-2.0-flash')).toContain('MODEL_LIFECYCLE_WARNING');
+    expect(getModelLifecycleWarning('vertexai', 'gemini-2.0-flash-001')).toContain('MODEL_LIFECYCLE_WARNING');
+    expect(getModelLifecycleWarning('openrouter', 'google/gemini-2.0-flash')).toContain('MODEL_LIFECYCLE_WARNING');
+    expect(getModelLifecycleWarning('google', 'gemini-3.1-flash-lite-preview')).toBeNull();
+  });
+
+  it('surfaces provider mismatch through the lifecycle guardrail', () => {
+    expect(getModelLifecycleWarning('google', 'openai/gpt-5.4')).toContain('MODEL_PROVIDER_MISMATCH');
+    expect(getModelLifecycleWarning('openrouter', 'openai/gpt-5.4')).toBeNull();
   });
 
   it('coerces text-only gateway models to vision fallbacks for image or PDF input', () => {

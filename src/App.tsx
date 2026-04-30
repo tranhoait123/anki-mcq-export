@@ -35,6 +35,7 @@ const App: React.FC = () => {
   const [ocrMode] = useState<'gemini' | 'tesseract'>('gemini');
   const [duplicates, setDuplicates] = useState<DuplicateInfo[]>([]);
   const [failedBatchIndices, setFailedBatchIndices] = useState<number[]>([]);
+  const [retryFailedAttempted, setRetryFailedAttempted] = useState(false);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -135,12 +136,14 @@ const App: React.FC = () => {
     getRequestSettings,
     ocrMode,
     prepareFiles,
+    retryFailedAttempted,
     runGenerationPhase,
     setCurrentCount,
     setDuplicates,
     setFailedBatchIndices,
     setLoading,
     setProgressStatus,
+    setRetryFailedAttempted,
     startProcessingController,
     warnVisionRecommendedDocx,
   });
@@ -189,6 +192,7 @@ const App: React.FC = () => {
     setLoading,
     setMcqs,
     setProgressStatus,
+    setRetryFailedAttempted,
     setShowAudit,
     setShowDuplicates,
     setVisibleMcqs,
@@ -206,6 +210,7 @@ const App: React.FC = () => {
     setFailedBatchIndices,
     setFiles,
     setMcqs,
+    setRetryFailedAttempted,
     setResumeSession,
   });
 
@@ -235,6 +240,7 @@ const App: React.FC = () => {
     persistMcqs,
     resumeSession,
     setFailedBatchIndices,
+    setRetryFailedAttempted,
   });
 
   const displayedProgressStatus = processingState === 'paused'
@@ -284,6 +290,7 @@ const App: React.FC = () => {
         previewUrl={previewUrl}
         processingState={processingState}
         resultsPanelRef={resultsPanelRef}
+        retryFailedAttempted={retryFailedAttempted}
         resumeSession={resumeSession}
         setFiles={setFiles}
         setShowAudit={setShowAudit}

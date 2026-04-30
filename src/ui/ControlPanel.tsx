@@ -16,6 +16,7 @@ interface ControlPanelProps {
   isSplitView: boolean;
   loading: boolean;
   ocrMode: 'gemini' | 'tesseract';
+  retryFailedAttempted: boolean;
   setFiles: (files: UploadedFile[]) => void;
   setShowAudit: (show: boolean) => void;
   setShowDuplicates: (show: boolean) => void;
@@ -35,6 +36,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   isSplitView,
   loading,
   ocrMode,
+  retryFailedAttempted,
   setFiles,
   setShowAudit,
   setShowDuplicates,
@@ -81,13 +83,19 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             {loading ? <Loader2 className="animate-spin" /> : <><Sparkles size={18} /> Trích xuất câu hỏi</>}
           </button>
 
-          {failedBatchIndices.length > 0 && !loading && (
+          {failedBatchIndices.length > 0 && !loading && !retryFailedAttempted && (
             <button
               onClick={handleRetryFailed}
               className="w-full py-3 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 font-extrabold rounded-2xl border-2 border-orange-200 dark:border-orange-800 hover:bg-orange-600 hover:text-white dark:hover:bg-orange-600 transition-all flex items-center justify-center gap-2 uppercase tracking-tighter text-xs"
             >
               <RotateCcw size={16} /> Quét lại {failedBatchIndices.length} phần bị lỗi
             </button>
+          )}
+
+          {failedBatchIndices.length > 0 && !loading && retryFailedAttempted && (
+            <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs font-bold leading-relaxed text-orange-700 dark:border-orange-900/50 dark:bg-orange-950/20 dark:text-orange-300">
+              Đã quét lại phần lỗi một lần. Nếu vẫn còn lỗi, hãy đổi model/API key hoặc chia nhỏ tài liệu rồi chạy lại từ đầu.
+            </div>
           )}
         </div>
       )}

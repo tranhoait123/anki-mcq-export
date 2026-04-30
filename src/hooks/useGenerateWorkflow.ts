@@ -41,6 +41,7 @@ interface UseGenerateWorkflowParams {
   setLoading: React.Dispatch<React.SetStateAction<boolean>>;
   setMcqs: React.Dispatch<React.SetStateAction<MCQ[]>>;
   setProgressStatus: React.Dispatch<React.SetStateAction<string>>;
+  setRetryFailedAttempted: React.Dispatch<React.SetStateAction<boolean>>;
   setShowAudit: React.Dispatch<React.SetStateAction<boolean>>;
   setShowDuplicates: React.Dispatch<React.SetStateAction<boolean>>;
   setVisibleMcqs: (items: MCQ[]) => Promise<MCQ[]>;
@@ -72,6 +73,7 @@ export const useGenerateWorkflow = ({
   setLoading,
   setMcqs,
   setProgressStatus,
+  setRetryFailedAttempted,
   setShowAudit,
   setShowDuplicates,
   setVisibleMcqs,
@@ -95,6 +97,7 @@ export const useGenerateWorkflow = ({
     mcqsRef.current = [];
     await db.saveMCQs([]);
     setFailedBatchIndices([]);
+    setRetryFailedAttempted(false);
     setAudit(null);
     setShowAudit(false);
     setDuplicates([]);

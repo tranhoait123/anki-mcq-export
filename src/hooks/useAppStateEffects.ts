@@ -23,6 +23,7 @@ interface UseAppStateEffectsParams {
   persistMcqs: (items: MCQ[]) => Promise<void>;
   resumeSession: ProcessingSession | null;
   setFailedBatchIndices: React.Dispatch<React.SetStateAction<number[]>>;
+  setRetryFailedAttempted: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 export const useAppStateEffects = ({
@@ -39,6 +40,7 @@ export const useAppStateEffects = ({
   persistMcqs,
   resumeSession,
   setFailedBatchIndices,
+  setRetryFailedAttempted,
 }: UseAppStateEffectsParams) => {
   const previousFilesSignatureRef = React.useRef<string | null>(null);
 
@@ -81,7 +83,8 @@ export const useAppStateEffects = ({
     }
     if (signature !== previousFilesSignatureRef.current && files.length > 0 && !activeSessionRef.current && !resumeSession) {
       setFailedBatchIndices([]);
+      setRetryFailedAttempted(false);
     }
     previousFilesSignatureRef.current = signature;
-  }, [activeSessionRef, files, isLoaded, resumeSession, setFailedBatchIndices]);
+  }, [activeSessionRef, files, isLoaded, resumeSession, setFailedBatchIndices, setRetryFailedAttempted]);
 };

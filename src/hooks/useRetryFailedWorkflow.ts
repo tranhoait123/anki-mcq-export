@@ -26,12 +26,14 @@ interface UseRetryFailedWorkflowParams {
     controller?: ProcessingController,
     runtimeSettings?: AppSettings
   ) => Promise<UploadedFile[]>;
+  retryFailedAttempted: boolean;
   runGenerationPhase: (params: RunGenerationPhaseParams) => Promise<RunGenerationPhaseResult>;
   setCurrentCount: React.Dispatch<React.SetStateAction<number>>;
   setDuplicates: React.Dispatch<React.SetStateAction<DuplicateInfo[]>>;
   setFailedBatchIndices: React.Dispatch<React.SetStateAction<number[]>>;
   setLoading: React.Dispatch<React.SetStateAction<boolean>>;
   setProgressStatus: React.Dispatch<React.SetStateAction<string>>;
+  setRetryFailedAttempted: React.Dispatch<React.SetStateAction<boolean>>;
   startProcessingController: () => ProcessingController;
   warnVisionRecommendedDocx: () => boolean;
 }
@@ -47,21 +49,28 @@ export const useRetryFailedWorkflow = ({
   getRequestSettings,
   ocrMode,
   prepareFiles,
+  retryFailedAttempted,
   runGenerationPhase,
   setCurrentCount,
   setDuplicates,
   setFailedBatchIndices,
   setLoading,
   setProgressStatus,
+  setRetryFailedAttempted,
   startProcessingController,
   warnVisionRecommendedDocx,
 }: UseRetryFailedWorkflowParams) => {
   const handleRetryFailed = async () => {
     if (files.length === 0 || failedBatchIndices.length === 0) return;
+    if (retryFailedAttempted) {
+      toast.info("Đã quét lại phần lỗi một lần. Các phần còn lỗi nên để quét lại sau khi đổi file, model hoặc API key.");
+      return;
+    }
     if (warnVisionRecommendedDocx()) return;
     const requestSettings = getRequestSettings(currentFilesRequireVision());
 
     await clearResumeSession();
+    setRetryFailedAttempted(true);
     setLoading(true);
     setCurrentCount(0);
     setProgressStatus(`Đang quét lại ${failedBatchIndices.length} phần lỗi...`);

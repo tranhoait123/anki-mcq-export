@@ -40,6 +40,7 @@ interface AppWorkspaceProps {
   previewUrl: string | null;
   processingState: ProcessingState;
   resultsPanelRef: React.RefObject<HTMLDivElement | null>;
+  retryFailedAttempted: boolean;
   resumeSession: ProcessingSession | null;
   setFiles: (files: UploadedFile[]) => void;
   setShowAudit: (show: boolean) => void;
@@ -75,6 +76,7 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   previewUrl,
   processingState,
   resultsPanelRef,
+  retryFailedAttempted,
   resumeSession,
   setFiles,
   setShowAudit,
@@ -99,6 +101,7 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       isSplitView={isSplitView}
       loading={loading}
       ocrMode={ocrMode}
+      retryFailedAttempted={retryFailedAttempted}
       setFiles={setFiles}
       setShowAudit={setShowAudit}
       setShowDuplicates={setShowDuplicates}

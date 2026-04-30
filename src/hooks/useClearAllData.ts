@@ -16,6 +16,7 @@ interface UseClearAllDataParams {
   setFailedBatchIndices: React.Dispatch<React.SetStateAction<number[]>>;
   setFiles: React.Dispatch<React.SetStateAction<UploadedFile[]>>;
   setMcqs: React.Dispatch<React.SetStateAction<MCQ[]>>;
+  setRetryFailedAttempted: React.Dispatch<React.SetStateAction<boolean>>;
   setResumeSession: React.Dispatch<React.SetStateAction<ProcessingSession | null>>;
 }
 
@@ -28,6 +29,7 @@ export const useClearAllData = ({
   setFailedBatchIndices,
   setFiles,
   setMcqs,
+  setRetryFailedAttempted,
   setResumeSession,
 }: UseClearAllDataParams) => {
   const handleClearAllData = async () => {
@@ -39,6 +41,7 @@ export const useClearAllData = ({
     setDuplicates([]);
     duplicatesRef.current = [];
     setFailedBatchIndices([]);
+    setRetryFailedAttempted(false);
     setResumeSession(null);
     activeSessionRef.current = null;
     await db.clearAll();

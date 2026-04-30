@@ -27,7 +27,7 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrol
 
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const toolbarStickyTopClass = useWindowScroll ? 'top-16' : 'top-0';
-  const layoutSpacingClass = useWindowScroll ? 'space-y-8' : 'space-y-4';
+  const layoutSpacingClass = useWindowScroll ? 'space-y-5' : 'space-y-4';
   const splitReadingMode = !useWindowScroll;
   const constrainQuestionScroll = useWindowScroll && mcqs.length > 0;
   const questionScrollContainerRef = constrainQuestionScroll ? questionViewportRef : scrollContainerRef;
@@ -181,7 +181,7 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrol
       {constrainQuestionScroll ? (
         <div
           ref={questionViewportRef}
-          className="mcq-question-viewport h-[calc(100dvh-180px)] min-h-[880px] overflow-y-auto overscroll-contain rounded-[2rem] pr-2"
+          className="mcq-question-viewport h-[calc(100dvh-220px)] min-h-[520px] overflow-y-auto overscroll-contain rounded-[2rem] pr-2"
         >
           {questionListContent}
         </div>

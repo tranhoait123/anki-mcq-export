@@ -11,18 +11,18 @@ const UploadedFileList: React.FC<UploadedFileListProps> = ({ files, onRemoveFile
   if (files.length === 0) return null;
 
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-lg shadow border border-gray-100 dark:border-slate-800 p-4">
-      <h3 className="text-sm font-semibold text-gray-500 dark:text-slate-400 mb-2 uppercase tracking-wide">Tài liệu đã chọn ({files.length})</h3>
-      <ul className="space-y-2">
+    <div className="rounded-xl border border-gray-100 bg-white p-3 shadow dark:border-slate-800 dark:bg-slate-900">
+      <h3 className="mb-2 text-xs font-black uppercase tracking-wide text-gray-500 dark:text-slate-400">Tài liệu đã chọn ({files.length})</h3>
+      <ul className="max-h-[38dvh] space-y-2 overflow-y-auto pr-1 lg:max-h-[calc(100dvh-620px)]">
         {files.map((file, idx) => {
           const docxModeBadge = getDocxModeBadge(file);
           const pdfModeBadge = getPdfModeBadge(file);
 
           return (
-            <li key={idx} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-slate-800 rounded hover:bg-gray-100 dark:hover:bg-slate-700 transition">
+            <li key={idx} className="flex items-center justify-between rounded-lg bg-gray-50 p-2 transition hover:bg-gray-100 dark:bg-slate-800 dark:hover:bg-slate-700">
               <div className="flex items-center space-x-3 overflow-hidden flex-1">
                 <div className={`p-2 rounded ${file.isProcessing ? 'bg-amber-100 text-amber-600 dark:bg-amber-900 dark:text-amber-100' : 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-100'}`}>
-                  {file.isProcessing ? <Loader2 size={20} className="animate-spin" /> : <FileText size={20} />}
+                  {file.isProcessing ? <Loader2 size={18} className="animate-spin" /> : <FileText size={18} />}
                 </div>
                 <div className="flex flex-col min-w-0 flex-1">
                   <span className="text-sm font-medium truncate text-gray-700 dark:text-slate-200">{file.name}</span>

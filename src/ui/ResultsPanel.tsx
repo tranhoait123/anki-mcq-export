@@ -58,7 +58,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
   resultsPanelRef,
   resumeSession,
 }) => (
-  <div ref={resultsPanelRef} className={`${isSplitView ? 'col-span-6 h-full min-h-0 space-y-4 overflow-y-auto pr-1' : 'space-y-6 lg:col-span-8'}`}>
+  <div ref={resultsPanelRef} className={`min-w-0 ${isSplitView ? 'col-span-6 h-full min-h-0 space-y-4 overflow-y-auto pr-1' : 'space-y-5'}`}>
     {resumeSession && !loading && (
       <ResumeSessionBanner
         handleDiscardResumeSession={handleDiscardResumeSession}
@@ -97,7 +97,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
       />
     )}
 
-    <div className={isSplitView ? 'min-h-0' : 'min-h-[400px]'}>
+    <div className={isSplitView ? 'min-h-0' : 'min-h-[400px] min-w-0'}>
       {exportAction && (
         <ExportStatus exportAction={exportAction} />
       )}

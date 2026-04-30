@@ -42,8 +42,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   setShowDuplicates,
   showAudit,
 }) => (
-  <div className={`space-y-6 ${isSplitView ? 'hidden' : 'lg:col-span-4'}`}>
-    <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 space-y-5">
+  <div className={`min-w-0 space-y-4 ${isSplitView ? 'hidden' : 'lg:sticky lg:top-[92px] lg:max-h-[calc(100dvh-112px)] lg:overflow-y-auto lg:pr-1'}`}>
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 space-y-4">
       <FileUploader files={files} setFiles={setFiles} />
 
       {ocrMode === 'tesseract' && files.some(file => file.type.startsWith('image/')) && (
@@ -58,7 +58,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           onClick={handleAnalyze}
           data-testid="analyze-button"
           disabled={analyzing || files.length === 0}
-          className="w-full py-4 pro-gradient text-white font-black rounded-2xl hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-indigo-100 dark:shadow-none flex items-center justify-center gap-3 text-sm uppercase tracking-widest"
+          className="w-full py-3.5 pro-gradient text-white font-black rounded-2xl hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-indigo-100 dark:shadow-none flex items-center justify-center gap-3 text-sm uppercase tracking-widest"
         >
           {analyzing ? <Loader2 className="animate-spin" size={18} /> : <><ScanText size={18} strokeWidth={2.5} /> Quét tài liệu</>}
         </button>
@@ -78,7 +78,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             onClick={handleGenerate}
             data-testid="generate-button"
             disabled={loading}
-            className="w-full py-4 bg-slate-900 dark:bg-indigo-600 text-white font-black rounded-2xl hover:scale-[1.02] active:scale-95 shadow-xl transition-all flex items-center justify-center gap-3 uppercase tracking-widest"
+            className="w-full py-3.5 bg-slate-900 dark:bg-indigo-600 text-white font-black rounded-2xl hover:scale-[1.02] active:scale-95 shadow-xl transition-all flex items-center justify-center gap-3 uppercase tracking-widest"
           >
             {loading ? <Loader2 className="animate-spin" /> : <><Sparkles size={18} /> Trích xuất câu hỏi</>}
           </button>
@@ -106,7 +106,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
     )}
 
     {duplicates.length > 0 && (
-      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-orange-200 dark:border-orange-900/30 overflow-hidden relative group">
+      <div className="relative overflow-hidden rounded-2xl border border-orange-200 bg-white p-4 shadow-sm dark:border-orange-900/30 dark:bg-slate-900 group">
         <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
           <RotateCcw size={48} className="text-orange-600 rotate-12" />
         </div>

@@ -3,6 +3,7 @@ import {
   classifyBatchError,
   describeBatchError,
   getBackoffDelayMs,
+  getRetryDecision,
   getRetryProfile,
   shouldSplitForError,
   splitTextIntoNaturalParts,
@@ -13,7 +14,7 @@ describe('batch retry strategy', () => {
     expect(classifyBatchError(new Error('AI_FORMAT_ERROR_TRUNCATED'))).toBe('format');
     expect(classifyBatchError(new Error('Không tìm thấy câu hỏi trắc nghiệm'))).toBe('empty');
     expect(shouldSplitForError('format')).toBe(true);
-    expect(shouldSplitForError('empty')).toBe(true);
+    expect(shouldSplitForError('empty')).toBe(false);
   });
 
   it('classifies rate/server errors for short rescue retry', () => {
@@ -23,6 +24,44 @@ describe('batch retry strategy', () => {
     expect(classifyBatchError(new Error('Gemini overloaded 503'))).toBe('serverBusy');
     expect(getRetryProfile('rescue').minAttempts).toBeLessThan(getRetryProfile('normal').minAttempts);
     expect(getRetryProfile('rescue').backoffCapMs).toBeLessThan(getRetryProfile('normal').backoffCapMs);
+  });
+
+  it('separates hard quota from soft throttling decisions', () => {
+    const hardQuota = getRetryDecision(new Error('429 RESOURCE_EXHAUSTED: exceeded your current quota, check billing'), getRetryProfile('normal'), 1);
+    const softThrottle = getRetryDecision({ statusCode: 429, message: 'too many requests', retryAfterMs: 12000 }, getRetryProfile('normal'), 1);
+
+    expect(hardQuota.kind).toBe('rateLimit');
+    expect(hardQuota.cause).toBe('hardQuota');
+    expect(hardQuota.action).toBe('fail');
+    expect(softThrottle.cause).toBe('softRateLimit');
+    expect(softThrottle.action).toBe('retry');
+    expect(softThrottle.retryDelayMs).toBe(12000);
+  });
+
+  it('splits oversized requests immediately instead of retrying the same payload', () => {
+    const decision = getRetryDecision({ statusCode: 413, message: 'context length exceeded; request too large' }, getRetryProfile('normal'), 1);
+
+    expect(classifyBatchError({ statusCode: 413, message: 'request too large' })).toBe('format');
+    expect(decision.cause).toBe('requestTooLarge');
+    expect(decision.action).toBe('split');
+  });
+
+  it('retries transient server errors and only recommends fallback after repeated attempts', () => {
+    const first = getRetryDecision(new Error('503 UNAVAILABLE model overloaded'), getRetryProfile('normal'), 1);
+    const later = getRetryDecision(new Error('503 UNAVAILABLE model overloaded'), getRetryProfile('normal'), 7);
+
+    expect(first.kind).toBe('serverBusy');
+    expect(first.action).toBe('retry');
+    expect(first.shouldTryFallbackModel).toBe(false);
+    expect(later.shouldTryFallbackModel).toBe(true);
+  });
+
+  it('fails auth errors without retry or split', () => {
+    const decision = getRetryDecision(new Error('403 permission denied API key not valid'), getRetryProfile('normal'), 1);
+
+    expect(decision.kind).toBe('auth');
+    expect(decision.action).toBe('fail');
+    expect(shouldSplitForError(decision.kind)).toBe(false);
   });
 
   it('does not split auth failures', () => {

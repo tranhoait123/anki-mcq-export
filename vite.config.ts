@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => {
   const alias = mode === 'e2e'
     ? [
         { find: './core/brain', replacement: path.resolve(__dirname, 'src/e2e/mocks/brain.ts') },
+        { find: '../core/brain', replacement: path.resolve(__dirname, 'src/e2e/mocks/brain.ts') },
         { find: '@/core/brain', replacement: path.resolve(__dirname, 'src/e2e/mocks/brain.ts') },
         { find: '@', replacement: path.resolve(__dirname, '.') },
       ]

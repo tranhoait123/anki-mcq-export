@@ -9,6 +9,7 @@ describe('UserKeyRotator safety patch', () => {
     rotator.markKeyFailed('key-one-valid');
 
     expect(rotator.availableKeyCount).toBe(2);
+    expect(rotator.hardFailedKeyCount).toBe(1);
     expect(rotator.getKeyForBatch()).toBe('key-two-valid');
     expect(rotator.getKeyForBatch()).toBe('key-three-valid');
   });
@@ -26,6 +27,21 @@ describe('UserKeyRotator safety patch', () => {
     now += 3 * 60 * 1000 + 1;
     expect(rotator.availableKeyCount).toBe(2);
     expect([rotator.getKeyForBatch(), rotator.getKeyForBatch()]).toContain('key-one-valid');
+  });
+
+  it('keeps soft cooldown separate from hard-failed keys and caps provider retry-after', () => {
+    let now = 1_000;
+    const rotator = new UserKeyRotator(() => now);
+    rotator.init('key-one-valid,key-two-valid');
+
+    rotator.markKeyCooldown('key-one-valid', 'rateLimit', 10 * 60 * 1000);
+
+    expect(rotator.hardFailedKeyCount).toBe(0);
+    expect(rotator.availableKeyCount).toBe(1);
+    expect(rotator.getNextCooldownDelayMs()).toBeLessThanOrEqual(5 * 60 * 1000);
+
+    now += 5 * 60 * 1000 + 1;
+    expect(rotator.availableKeyCount).toBe(2);
   });
 
   it('returns no key when every non-failed key is cooling down', () => {

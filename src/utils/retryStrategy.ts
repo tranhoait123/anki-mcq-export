@@ -9,10 +9,33 @@ export interface RetryProfile {
   formatFastFailAttempt: number;
   backoffCapMs: number;
   singleKeyBackoffCapMs: number;
+  maxElapsedMs: number;
   splitThresholdChars: number;
   maxDepth: number;
   targetSplitParts: number;
   initialJitterMs: [number, number];
+}
+
+export type RetryDecisionCause =
+  | 'auth'
+  | 'hardQuota'
+  | 'softRateLimit'
+  | 'serverBusy'
+  | 'requestTooLarge'
+  | 'format'
+  | 'empty'
+  | 'fatal';
+
+export type RetryDecisionAction = 'retry' | 'split' | 'fail';
+
+export interface RetryDecision {
+  kind: BatchErrorKind;
+  cause: RetryDecisionCause;
+  action: RetryDecisionAction;
+  cooldownKind?: 'rateLimit' | 'serverBusy';
+  retryDelayMs?: number;
+  shouldTryFallbackModel: boolean;
+  message: string;
 }
 
 export const RETRY_PROFILES: Record<RetryProfileName, RetryProfile> = {
@@ -24,6 +47,7 @@ export const RETRY_PROFILES: Record<RetryProfileName, RetryProfile> = {
     formatFastFailAttempt: 2,
     backoffCapMs: 45000,
     singleKeyBackoffCapMs: 60000,
+    maxElapsedMs: 150000,
     splitThresholdChars: 500,
     maxDepth: 2,
     targetSplitParts: 4,
@@ -37,6 +61,7 @@ export const RETRY_PROFILES: Record<RetryProfileName, RetryProfile> = {
     formatFastFailAttempt: 1,
     backoffCapMs: 8000,
     singleKeyBackoffCapMs: 10000,
+    maxElapsedMs: 35000,
     splitThresholdChars: 350,
     maxDepth: 2,
     targetSplitParts: 4,
@@ -53,6 +78,7 @@ export const classifyBatchError = (error: any): BatchErrorKind => {
   if (statusCode === 401 || statusCode === 403 || msg.includes('401') || msg.includes('403') || msg.includes('permission denied') || msg.includes('forbidden')) return 'auth';
   if ((msg.includes('api key') || msg.includes('api_key') || msg.includes('api-key') || msg.includes('token') || msg.includes('invalid_grant')) && (msg.includes('invalid') || msg.includes('not found') || msg.includes('expired') || msg.includes('hết hạn'))) return 'auth';
   if (msg.includes('api_key_invalid') || msg.includes('key not valid')) return 'auth';
+  if (msg.includes('context length') || msg.includes('context_length') || msg.includes('context too long') || msg.includes('context too large') || msg.includes('token limit') || msg.includes('max tokens') || msg.includes('maximum tokens') || msg.includes('request too large') || msg.includes('payload too large') || statusCode === 413) return 'format';
   if (statusCode === 429 || msg.includes('429') || msg.includes('quota') || msg.includes('exhausted') || msg.includes('resource_exhausted') || msg.includes('too many requests') || msg.includes('rate limit')) return 'rateLimit';
   if (statusCode === 503 || statusCode === 504 || msg.includes('503') || msg.includes('504') || msg.includes('unavailable') || msg.includes('overloaded') || msg.includes('deadline') || msg.includes('timeout') || msg.includes('econnreset')) return 'serverBusy';
   if (msg.includes('không tìm thấy câu hỏi') || msg.includes('khong tim thay cau hoi') || msg.includes('questions.length') || msg.includes('empty')) return 'empty';
@@ -60,7 +86,132 @@ export const classifyBatchError = (error: any): BatchErrorKind => {
   return 'fatal';
 };
 
-export const shouldSplitForError = (kind: BatchErrorKind): boolean => kind === 'format' || kind === 'empty' || kind === 'rateLimit' || kind === 'serverBusy';
+const getRetryText = (error: any): string => (error?.message || String(error) || '').toLowerCase();
+
+export const getRetryDelayHintMs = (error: any): number | undefined => {
+  const hintedDelay = Number(error?.retryAfterMs || error?.providerRetryDelayMs || 0);
+  return Number.isFinite(hintedDelay) && hintedDelay > 0 ? hintedDelay : undefined;
+};
+
+export const isHardQuotaError = (error: any): boolean => {
+  const msg = getRetryText(error);
+  if (!msg) return false;
+  return (
+    msg.includes('daily') ||
+    msg.includes('per day') ||
+    msg.includes('per-day') ||
+    msg.includes('billing') ||
+    msg.includes('insufficient_quota') ||
+    msg.includes('insufficient quota') ||
+    msg.includes('quota exceeded for quota metric') ||
+    msg.includes('exceeded your current quota') ||
+    msg.includes('free tier') ||
+    msg.includes('credits')
+  );
+};
+
+export const isRequestTooLargeError = (error: any): boolean => {
+  const msg = getRetryText(error);
+  const statusCode = error?.status || error?.statusCode || 0;
+  return (
+    statusCode === 413 ||
+    msg.includes('context length') ||
+    msg.includes('context_length') ||
+    msg.includes('context too long') ||
+    msg.includes('context too large') ||
+    msg.includes('token limit') ||
+    msg.includes('max tokens') ||
+    msg.includes('maximum tokens') ||
+    msg.includes('request too large') ||
+    msg.includes('payload too large')
+  );
+};
+
+export const getRetryDecision = (
+  error: any,
+  profile: RetryProfile = getRetryProfile('normal'),
+  attempts = 1
+): RetryDecision => {
+  const kind = classifyBatchError(error);
+  const retryDelayMs = getRetryDelayHintMs(error);
+
+  if (kind === 'auth') {
+    return {
+      kind,
+      cause: 'auth',
+      action: 'fail',
+      shouldTryFallbackModel: false,
+      message: 'Auth/key errors should fail fast without burning retry quota.',
+    };
+  }
+
+  if (isRequestTooLargeError(error)) {
+    return {
+      kind: 'format',
+      cause: 'requestTooLarge',
+      action: 'split',
+      shouldTryFallbackModel: false,
+      message: 'Request is too large; split instead of retrying the same payload.',
+    };
+  }
+
+  if (kind === 'rateLimit') {
+    const hardQuota = isHardQuotaError(error) && !retryDelayMs;
+    return {
+      kind,
+      cause: hardQuota ? 'hardQuota' : 'softRateLimit',
+      action: hardQuota ? 'fail' : 'retry',
+      cooldownKind: 'rateLimit',
+      retryDelayMs,
+      shouldTryFallbackModel: false,
+      message: hardQuota
+        ? 'Hard quota/billing limit detected; try another key or stop this batch.'
+        : 'Transient throttle detected; honor retry delay/cooldown and rotate if possible.',
+    };
+  }
+
+  if (kind === 'serverBusy') {
+    return {
+      kind,
+      cause: 'serverBusy',
+      action: 'retry',
+      cooldownKind: 'serverBusy',
+      retryDelayMs,
+      shouldTryFallbackModel: attempts > profile.fallbackAfterAttempt,
+      message: 'Server/network pressure detected; use capped full-jitter backoff.',
+    };
+  }
+
+  if (kind === 'format') {
+    return {
+      kind,
+      cause: 'format',
+      action: attempts >= profile.formatFastFailAttempt ? 'split' : 'retry',
+      shouldTryFallbackModel: false,
+      message: 'Model output is malformed; repair once, then split.',
+    };
+  }
+
+  if (kind === 'empty') {
+    return {
+      kind,
+      cause: 'empty',
+      action: 'fail',
+      shouldTryFallbackModel: false,
+      message: 'Empty extraction is not useful to keep retrying unless caller has image-specific repair context.',
+    };
+  }
+
+  return {
+    kind: 'fatal',
+    cause: 'fatal',
+    action: 'fail',
+    shouldTryFallbackModel: false,
+    message: 'Non-transient failure.',
+  };
+};
+
+export const shouldSplitForError = (kind: BatchErrorKind): boolean => kind === 'format';
 
 export const getBatchErrorTitle = (kind: BatchErrorKind): string => {
   const titles: Record<BatchErrorKind, string> = {
@@ -79,7 +230,7 @@ export const getBatchErrorAdvice = (kind: BatchErrorKind, profileName: RetryProf
   const advice: Record<BatchErrorKind, string> = {
     format: `${rescuePrefix}Nên quét lại phần lỗi; hệ thống sẽ chia nhỏ hơn và ép JSON nghiêm ngặt hơn.`,
     empty: `${rescuePrefix}Kiểm tra phần tài liệu này có thật sự chứa MCQ không, hoặc thử OCR lại nếu là ảnh/PDF mờ.`,
-    rateLimit: `${rescuePrefix}Chờ 1-2 phút hoặc thêm/xoay API key; nếu dùng OpenRouter hãy thử model khác ít nghẽn hơn.`,
+    rateLimit: `${rescuePrefix}Chờ 1-2 phút hoặc thêm/xoay API key; nếu lỗi quota ngày/billing thì cần key/project khác.`,
     serverBusy: `${rescuePrefix}Chờ ngắn rồi quét lại phần lỗi; có thể đổi sang model ổn định hơn như Gemini Flash.`,
     auth: 'Vào Cài đặt kiểm tra API key/token, quyền truy cập model, project/location nếu dùng Vertex AI.',
     fatal: `${rescuePrefix}Thử chia nhỏ file hoặc đổi model; nếu lặp lại, xem console để lấy lỗi kỹ thuật.`,
@@ -163,8 +314,10 @@ export const getBackoffDelayMs = (
   }
 
   const baseDelay = isServerBusy ? 3500 : (isRateLimit ? 2500 : 2000);
-  const multiplier = (isServerBusy || isFormatError) ? 1.8 : 1.5;
-  const jitter = random() * 2000 + 1000;
-  const raw = baseDelay * Math.pow(multiplier, Math.max(0, cycles || attempts - 1)) + jitter;
-  return Math.min(profile.backoffCapMs, raw);
+  const multiplier = (isServerBusy || isFormatError) ? 2 : 1.7;
+  const maxDelay = Math.min(
+    profile.backoffCapMs,
+    baseDelay * Math.pow(multiplier, Math.max(0, cycles || attempts - 1))
+  );
+  return Math.max(250, random() * maxDelay);
 };

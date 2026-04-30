@@ -3,7 +3,7 @@ export type KeyCooldownKind = 'rateLimit' | 'serverBusy';
 export class UserKeyRotator {
   private keys: string[] = [];
   private currentIndex = 0;
-  private failedKeys: Set<string> = new Set();
+  private hardFailedKeys: Set<string> = new Set();
   private cooldownUntil: Map<string, number> = new Map();
   private batchKeyCounter = 0;
   private desiredConcurrency = 1;
@@ -23,7 +23,7 @@ export class UserKeyRotator {
     if (!apiKeyString || typeof apiKeyString !== 'string') {
       this.keys = [];
       this.currentIndex = 0;
-      this.failedKeys.clear();
+      this.hardFailedKeys.clear();
       this.cooldownUntil.clear();
       this.batchKeyCounter = 0;
       this.pressureStreak = 0;
@@ -36,7 +36,7 @@ export class UserKeyRotator {
     const parts = apiKeyString.split(/[,;\n\r]+/);
     this.keys = parts.map(k => k.trim()).filter(k => k.length > 5);
     this.currentIndex = 0;
-    this.failedKeys.clear();
+    this.hardFailedKeys.clear();
     this.cooldownUntil.clear();
     this.batchKeyCounter = 0;
     this.pressureStreak = 0;
@@ -105,14 +105,14 @@ export class UserKeyRotator {
 
   markKeyFailed(key: string): void {
     if (!key) return;
-    this.failedKeys.add(key);
+    this.hardFailedKeys.add(key);
     this.cooldownUntil.delete(key);
     this.recommendedConcurrency = Math.min(this.recommendedConcurrency, this.getMaxUsefulConcurrency());
     console.warn(`🚫 API Key #${this.getKeyNumber(key)} marked as FAILED (403/Invalid). ${this.availableKeyCount} keys remaining.`);
   }
 
   markKeyCooldown(key: string, kind: KeyCooldownKind, durationMs?: number): void {
-    if (!key || this.failedKeys.has(key)) return;
+    if (!key || this.hardFailedKeys.has(key)) return;
     const defaultDurationMs = kind === 'rateLimit' ? 3 * 60 * 1000 : 45 * 1000;
     const boundedDurationMs = Math.max(
       1000,
@@ -141,7 +141,7 @@ export class UserKeyRotator {
   }
 
   isKeyAvailable(key: string): boolean {
-    if (!key || this.failedKeys.has(key)) return false;
+    if (!key || this.hardFailedKeys.has(key)) return false;
     const now = this.now();
     const until = this.cooldownUntil.get(key) || 0;
     if (until <= now) {
@@ -155,7 +155,7 @@ export class UserKeyRotator {
     const now = this.now();
     const globalDelay = this.globalCooldownUntil > now ? this.globalCooldownUntil - now : 0;
     const waits = this.keys
-      .filter(key => !this.failedKeys.has(key))
+      .filter(key => !this.hardFailedKeys.has(key))
       .map(key => (this.cooldownUntil.get(key) || 0) - now)
       .filter(delay => delay > 0);
     if (globalDelay > 0) waits.push(globalDelay);
@@ -173,6 +173,10 @@ export class UserKeyRotator {
 
   get availableKeyCount(): number {
     return this.getAvailableKeys().length;
+  }
+
+  get hardFailedKeyCount(): number {
+    return this.hardFailedKeys.size;
   }
 
   getKeyIndex(): number {
@@ -206,6 +210,6 @@ export class UserKeyRotator {
   }
 
   private getHealthyKeyCount(): number {
-    return this.keys.filter(key => !this.failedKeys.has(key)).length;
+    return this.keys.filter(key => !this.hardFailedKeys.has(key)).length;
   }
 }

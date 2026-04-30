@@ -13,7 +13,7 @@ npm run build
 ## Skill-Guided Checks
 
 - Firebase Basics: use Firebase Hosting preview channels before production, keep the SPA rewrite to `/index.html`, and verify rollback access in the Firebase console.
-- Gemini API guidance: review structured JSON output, provider/model compatibility, quota handling, fallback models, and retry/split behavior before changing `src/core/brain.ts`, `src/utils/models.ts`, or `src/utils/retryStrategy.ts`.
+- Gemini API guidance: review structured JSON output, provider/model compatibility, quota handling, fallback models, and retry/split behavior before changing `src/core/brain/index.ts`, `src/core/brain/*`, `src/utils/models.ts`, or `src/utils/retryStrategy.ts`.
 - Google Cloud reliability/security guidance: check API key handling, local-only document processing assumptions, cache headers, and recovery paths for reload/pause/resume.
 - Cloud Run Basics is only relevant if a backend service is added later; the current production target is Firebase Hosting.
 - See `docs/google-cloud-skills-playbook.md` for the repo-specific skill map and `docs/security.md` for API key, secret, and privacy guidance.

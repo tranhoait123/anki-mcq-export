@@ -22,7 +22,6 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrol
   const [editForm, setEditForm] = useState<MCQ | null>(null);
   const [difficultyFilter, setDifficultyFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<MCQViewMode>('preview');
-  const [requestedScrollIndex, setRequestedScrollIndex] = useState<number | null>(null);
   const questionViewportRef = useRef<HTMLDivElement | null>(null);
 
   const deferredSearchTerm = useDeferredValue(searchTerm);
@@ -103,18 +102,6 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrol
     });
   };
 
-  const scrollToQuestionIndex = (index: number) => {
-    if (isLargeList) {
-      setRequestedScrollIndex(index);
-      return;
-    }
-    const cards = document.querySelectorAll<HTMLElement>('[data-mcq-index]');
-    const exactMatch = Array.from(cards).find(node => Number(node.dataset.mcqIndex) === index);
-    if (exactMatch) {
-      exactMatch.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  };
-
   const renderCard = (mcq: MCQ, idx: number) => (
     <div data-mcq-index={idx}>
       <MCQCard
@@ -144,9 +131,9 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrol
       editingId={editingId}
       editForm={editForm}
       items={filtered}
-      onScrollRequestHandled={() => setRequestedScrollIndex(null)}
+      onScrollRequestHandled={() => undefined}
       renderCard={renderCard}
-      requestedScrollIndex={requestedScrollIndex}
+      requestedScrollIndex={null}
       scrollContainerRef={questionScrollContainerRef}
       useWindowScroll={!constrainQuestionScroll && useWindowScroll}
       viewMode={viewMode}
@@ -168,7 +155,6 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrol
         filteredCount={filtered.length}
         mcqCount={mcqs.length}
         onDifficultyFilterChange={setDifficultyFilter}
-        onScrollToTop={() => scrollToQuestionIndex(0)}
         onSearchTermChange={setSearchTerm}
         onViewModeChange={setViewMode}
         searchTerm={searchTerm}

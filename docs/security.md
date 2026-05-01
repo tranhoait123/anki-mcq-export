@@ -4,10 +4,9 @@ MCQ AnkiGen Pro is designed as a browser-first app. User documents, extracted qu
 
 ## API Keys
 
-- Do not commit API keys, Vertex tokens, Firebase service account JSON, or provider credentials.
+- Do not commit API keys, Firebase service account JSON, or provider credentials.
 - Prefer restricted Google API keys: limit keys to the needed Gemini/AI APIs and rotate keys if they are exposed.
 - Use separate Google Cloud projects for experiments, production, and public demos when possible.
-- Vertex AI access tokens are temporary; do not store them in source control or documentation examples.
 - Gateway keys for OpenRouter and ShopAIKey should be treated as billing credentials.
 
 ## CI and Firebase

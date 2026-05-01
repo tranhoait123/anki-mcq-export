@@ -19,7 +19,6 @@ export {
   buildOpenAICompatibleProviderRequest,
   callOpenAICompatibleProvider,
   extractProviderMessageContent,
-  normalizeVertexOpenAIModel,
 } from './openAiProvider';
 
 export {

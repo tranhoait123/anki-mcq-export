@@ -106,7 +106,7 @@ export async function executeWithUserRotation<T>(
 
       if (decision.action === 'fail') {
         if (decision.cause === 'auth') {
-          if (msg.includes("vertex ai api error") || msg.includes("openrouter api error") || msg.includes("shopaikey api error")) {
+          if (msg.includes("openrouter api error") || msg.includes("shopaikey api error")) {
             throw error;
           }
           console.warn(`🚫 Auth/Invalid Key detected! Key #${userKeyRotator.getKeyNumber(currentKey)} is broken. Rotating IMMEDIATELY...`);

@@ -53,10 +53,6 @@ export const useRequestSettingsGuard = ({
       toast.error("🔑 Vui lòng nhập OpenRouter API Key trong phần Cài đặt (⚙️) để bắt đầu.");
       return false;
     }
-    if (requestSettings.provider === 'vertexai' && (!requestSettings.vertexProjectId?.trim() || !requestSettings.vertexLocation?.trim() || !requestSettings.vertexAccessToken?.trim())) {
-      toast.error("🔗 Vui lòng nhập đủ Project ID, Location và Token của Vertex AI trong (⚙️).");
-      return false;
-    }
     return true;
   };
 

@@ -187,10 +187,7 @@ export interface AppSettings {
   apiKey: string;
   shopAIKeyKey: string;
   openRouterKey?: string;
-  vertexProjectId?: string;
-  vertexLocation?: string;
-  vertexAccessToken?: string;
-  provider: 'google' | 'shopaikey' | 'openrouter' | 'vertexai';
+  provider: 'google' | 'shopaikey' | 'openrouter';
   model: string;
   customPrompt: string;
   skipAnalysis?: boolean;

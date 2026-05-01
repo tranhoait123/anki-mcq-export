@@ -3,7 +3,7 @@ import { getModelTokenProfile } from '../../utils/models';
 import { getFileTextContent } from './batching';
 import { createProviderApiError } from './providerErrors';
 
-export type OpenAICompatibleProvider = 'shopaikey' | 'openrouter' | 'vertexai';
+export type OpenAICompatibleProvider = 'shopaikey' | 'openrouter';
 
 export interface ProviderRequestConfig {
   url: string;
@@ -17,39 +17,23 @@ export interface ProviderRequestConfig {
 const JSON_MODE_FALLBACK_INSTRUCTION = 'QUAN TRỌNG: Endpoint hiện tại không hỗ trợ response_format. Bạn vẫn PHẢI trả về JSON hợp lệ duy nhất, không markdown, không giải thích ngoài JSON.';
 
 export const isOpenAICompatibleProvider = (provider: AppSettings['provider']): provider is OpenAICompatibleProvider =>
-  provider === 'shopaikey' || provider === 'openrouter' || provider === 'vertexai';
+  provider === 'shopaikey' || provider === 'openrouter';
 
 const getProviderName = (provider: OpenAICompatibleProvider): string => {
-  if (provider === 'vertexai') return 'Vertex AI';
   if (provider === 'shopaikey') return 'ShopAIKey';
   return 'OpenRouter';
 };
 
-const normalizeVertexLocation = (location?: string): string => (location || 'global').trim() || 'global';
-
-export const normalizeVertexOpenAIModel = (model: string): string => {
-  if (!model) return 'google/gemini-2.5-flash';
-  if (model.startsWith('google/')) return model;
-  return `google/${model}`;
-};
-
 const normalizeProviderModel = (provider: OpenAICompatibleProvider, model: string): string => {
-  if (provider === 'vertexai') return normalizeVertexOpenAIModel(model);
   return model;
 };
 
 const buildProviderUrl = (settings: AppSettings): string => {
-  if (settings.provider === 'vertexai') {
-    const location = normalizeVertexLocation(settings.vertexLocation);
-    const projectId = settings.vertexProjectId?.trim();
-    return `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/endpoints/openapi/chat/completions`;
-  }
   if (settings.provider === 'shopaikey') return 'https://api.shopaikey.com/v1/chat/completions';
   return 'https://openrouter.ai/api/v1/chat/completions';
 };
 
 const getProviderApiKey = (settings: AppSettings): string | undefined => {
-  if (settings.provider === 'vertexai') return settings.vertexAccessToken;
   if (settings.provider === 'shopaikey') return settings.shopAIKeyKey;
   return settings.openRouterKey;
 };
@@ -60,7 +44,7 @@ const buildProviderHeaders = (settings: AppSettings, apiKey: string): Record<str
     'Content-Type': 'application/json',
   };
 
-  if (settings.provider !== 'vertexai' && typeof window !== 'undefined') {
+  if (typeof window !== 'undefined') {
     headers['HTTP-Referer'] = window.location.origin;
     headers['X-Title'] = 'MCQ AnkiGen Pro';
     if (settings.provider === 'openrouter') headers['X-OpenRouter-Title'] = 'MCQ AnkiGen Pro';

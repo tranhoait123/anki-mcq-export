@@ -1,7 +1,6 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   buildGoogleBatchMessage,
-  buildOpenAICompatibleProviderRequest,
   callOpenAICompatibleProvider,
   extractProviderMessageContent,
   getAdaptiveQuestionBatchSize,
@@ -19,9 +18,6 @@ const baseSettings: AppSettings = {
   apiKey: '',
   shopAIKeyKey: 'shop-key',
   openRouterKey: 'openrouter-key',
-  vertexProjectId: 'demo-project',
-  vertexLocation: 'us-central1',
-  vertexAccessToken: 'vertex-token',
   provider: 'openrouter',
   model: 'google/gemini-2.5-flash',
   customPrompt: '',
@@ -45,17 +41,6 @@ describe('Core Logic', () => {
 
     expect(message).toContain('Model: openai/gpt-5.4');
     expect(message).toContain('response_format');
-  });
-
-  it('keeps Vertex auth guidance instead of falling through to generic Gemini key text', () => {
-    const message = translateErrorForUser(
-      new Error('Vertex AI API Error: 403 | model=google/gemini-2.5-flash | Permission denied'),
-      'Trích xuất'
-    );
-
-    expect(message).toContain('Lỗi Vertex AI');
-    expect(message).toContain('Token không đủ quyền');
-    expect(message).not.toContain('Key đã bật Gemini API');
   });
 
   it('explains provider/model mismatch instead of generic network failure', () => {
@@ -88,30 +73,6 @@ describe('Core Logic', () => {
       { inlineData: { mimeType: 'application/pdf', data: 'base64-data' } },
       { text: prompt },
     ]);
-  });
-
-  it('builds Vertex AI OpenAI-compatible requests with the documented endpoint and model prefix', () => {
-    const request = buildOpenAICompatibleProviderRequest(
-      { ...baseSettings, provider: 'vertexai', model: 'gemini-2.5-flash' },
-      'gemini-2.5-flash',
-      [{ role: 'user', content: 'hello' }]
-    );
-
-    expect(request.url).toBe('https://aiplatform.googleapis.com/v1/projects/demo-project/locations/us-central1/endpoints/openapi/chat/completions');
-    expect(request.model).toBe('google/gemini-2.5-flash');
-    expect(request.headers.Authorization).toBe('Bearer vertex-token');
-    expect(request.body.model).toBe('google/gemini-2.5-flash');
-    expect(request.body.max_tokens).toBe(49152);
-  });
-
-  it('uses global as the Vertex location fallback', () => {
-    const request = buildOpenAICompatibleProviderRequest(
-      { ...baseSettings, provider: 'vertexai', vertexLocation: '' },
-      'gemini-2.5-flash',
-      []
-    );
-
-    expect(request.url).toContain('/locations/global/endpoints/openapi/chat/completions');
   });
 
   it('retries provider calls without response_format when JSON mode is unsupported', async () => {

@@ -10,7 +10,7 @@ This repo uses selected skills from `google/skills` as implementation guidance. 
 | Firebase Basics | Hosting preview channels, production deploy, SPA rewrites, cache headers, rollback, service account scope. | Database/backend work unless Firebase products are added. |
 | WAF Reliability | Retry, key cooldown, rescue split, checkpoint resume, e2e smoke coverage, release rollback. | Promising zero defects. |
 | WAF Security | API key safety, local document handling, CI secrets, least-privilege service accounts, dependency hygiene. | Storing user documents or keys on a server. |
-| Auth Recipe | Human Firebase deploy auth, GitHub Actions service account auth, Vertex access token guidance. | Asking users to upload long-lived service account keys. |
+| Auth Recipe | Human Firebase deploy auth and GitHub Actions service account auth. | Asking users to upload long-lived service account keys. |
 | Cost Optimization | Gemini quota guidance, Firebase Hosting budget checks, avoiding unnecessary backend services. | Adding BigQuery billing export for this small static app unless costs grow. |
 
 ## Gemini/API Upgrade Checklist

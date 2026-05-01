@@ -22,16 +22,8 @@ describe('AI model registry', () => {
     expect(values).toContain('gemini-2.5-pro');
     expect(values).toContain('gemini-2.5-flash');
     expect(values).toContain('gemini-2.0-flash');
-    expect(values).toContain('gemini-3-flash-preview');
-    expect(values).toContain('gemini-2.5-flash-lite');
-  });
-
-  it('keeps existing Vertex models and adds newest Gemini models', () => {
-    const values = getModelValues('vertexai');
-
-    expect(values).toContain('gemini-2.0-pro-exp-0205');
-    expect(values).toContain('gemini-2.0-flash-001');
-    expect(values).toContain('gemini-2.0-flash-lite-preview-02-05');
+    expect(values).toContain('gemini-pro-latest');
+    expect(values).toContain('gemini-flash-latest');
     expect(values).toContain('gemini-3-flash-preview');
     expect(values).toContain('gemini-2.5-flash-lite');
   });
@@ -45,6 +37,16 @@ describe('AI model registry', () => {
     expect(values).toContain('deepseek/deepseek-r1');
     expect(values).toContain('openai/gpt-5.4-pro');
     expect(values).toContain('openai/gpt-5.4');
+    expect(values).toContain('openai/gpt-5.5');
+    expect(values).toContain('openai/gpt-5.5-pro');
+    expect(values).toContain('~openai/gpt-latest');
+    expect(values).toContain('~google/gemini-pro-latest');
+    expect(values).toContain('~google/gemini-flash-latest');
+    expect(values).toContain('~anthropic/claude-sonnet-latest');
+    expect(values).toContain('x-ai/grok-4.3');
+    expect(values).toContain('qwen/qwen3.6-flash');
+    expect(values).toContain('qwen/qwen3.5-plus-20260420');
+    expect(values).toContain('deepseek/deepseek-v4-pro');
     expect(values).toContain('anthropic/claude-opus-4.7');
     expect(values).toContain('anthropic/claude-sonnet-4.6');
     expect(values).toContain('anthropic/claude-haiku-4.5');
@@ -62,6 +64,17 @@ describe('AI model registry', () => {
     expect(values).toContain('o3-pro');
     expect(values).toContain('claude-sonnet-4-20250514');
     expect(values).toContain('deepseek-v3.2');
+    expect(values).toContain('gpt-5.5');
+    expect(values).toContain('gemini-3.1-pro-preview');
+    expect(values).toContain('gemini-3.1-flash-lite-preview');
+    expect(values).toContain('deepseek-v4-pro');
+    expect(values).toContain('deepseek-v4-flash');
+    expect(values).toContain('qwen3.6-plus');
+    expect(values).toContain('qwen3.6-27b');
+    expect(values).toContain('qwen3.6-35b-a3b');
+    expect(values).toContain('grok-4-20-reasoning');
+    expect(values).toContain('MiniMax-M2.7');
+    expect(values).toContain('mimo-v2.5-pro');
     expect(values).toContain('gpt-5.4-mini');
     expect(values).toContain('gpt-5.4-nano');
     expect(values).toContain('claude-sonnet-4-6');
@@ -74,12 +87,10 @@ describe('AI model registry', () => {
     expect(getModelGroups('google')[0].label).toBe('Mới nhất 2026');
     expect(getModelGroups('shopaikey')[0].label).toBe('Mới nhất 2026');
     expect(getModelGroups('openrouter')[0].label).toBe('Mới nhất 2026');
-    expect(getModelGroups('vertexai')[0].label).toBe('Mới nhất 2026');
   });
 
   it('uses provider-specific fallback models', () => {
     expect(getProviderFallbackModel('google')).toBe('gemini-3.1-flash-lite-preview');
-    expect(getProviderFallbackModel('vertexai')).toBe('gemini-3.1-flash-lite-preview');
     expect(getProviderFallbackModel('shopaikey')).toBe('gemini-3.1-flash-lite-preview');
     expect(getProviderFallbackModel('openrouter')).toBe('google/gemini-2.5-flash');
   });
@@ -89,12 +100,10 @@ describe('AI model registry', () => {
     expect(isModelAllowedForProvider('shopaikey', 'deepseek/deepseek-v3.2')).toBe(true);
     expect(isModelAllowedForProvider('openrouter', 'custom/vendor-model')).toBe(true);
     expect(isModelAllowedForProvider('google', 'deepseek/deepseek-chat')).toBe(false);
-    expect(isModelAllowedForProvider('vertexai', 'openai/gpt-5.4')).toBe(false);
   });
 
   it('coerces provider-incompatible models before runtime requests', () => {
     expect(coerceModelForProvider('google', 'deepseek/deepseek-v3.2')).toBe('gemini-3.1-flash-lite-preview');
-    expect(coerceModelForProvider('vertexai', 'openai/gpt-5.4')).toBe('gemini-3.1-flash-lite-preview');
     expect(coerceModelForProvider('openrouter', 'deepseek/deepseek-v3.2')).toBe('deepseek/deepseek-v3.2');
     expect(coerceModelForProvider('shopaikey', 'deepseek/deepseek-v3.2')).toBe('deepseek-v3.2');
   });
@@ -107,7 +116,6 @@ describe('AI model registry', () => {
     expect(isLegacyGeminiModel('gemini-3.1-flash-lite-preview')).toBe(false);
 
     expect(getModelLifecycleWarning('google', 'gemini-2.0-flash')).toContain('MODEL_LIFECYCLE_WARNING');
-    expect(getModelLifecycleWarning('vertexai', 'gemini-2.0-flash-001')).toContain('MODEL_LIFECYCLE_WARNING');
     expect(getModelLifecycleWarning('openrouter', 'google/gemini-2.0-flash')).toContain('MODEL_LIFECYCLE_WARNING');
     expect(getModelLifecycleWarning('google', 'gemini-3.1-flash-lite-preview')).toBeNull();
   });
@@ -119,6 +127,13 @@ describe('AI model registry', () => {
 
   it('coerces text-only gateway models to vision fallbacks for image or PDF input', () => {
     expect(isVisionCapableModel('openrouter', 'deepseek/deepseek-chat')).toBe(false);
+    expect(isVisionCapableModel('openrouter', 'deepseek/deepseek-v4-pro')).toBe(false);
+    expect(isVisionCapableModel('openrouter', 'x-ai/grok-4.3')).toBe(true);
+    expect(isVisionCapableModel('shopaikey', 'grok-4-20-reasoning')).toBe(false);
+    expect(isVisionCapableModel('openrouter', '~google/gemini-pro-latest')).toBe(true);
+    expect(isVisionCapableModel('openrouter', 'qwen/qwen3.6-flash')).toBe(true);
+    expect(isVisionCapableModel('shopaikey', 'gemini-3.1-pro-preview')).toBe(true);
+    expect(isVisionCapableModel('shopaikey', 'qwen3.6-27b')).toBe(true);
     expect(isVisionCapableModel('shopaikey', 'gpt-5.4-mini')).toBe(true);
     expect(coerceModelForProviderInput('openrouter', 'deepseek/deepseek-chat', true)).toBe('google/gemini-2.5-flash');
     expect(coerceModelForProviderInput('shopaikey', 'deepseek/deepseek-v3.2', true)).toBe('gemini-3.1-flash-lite-preview');
@@ -127,8 +142,12 @@ describe('AI model registry', () => {
 
   it('normalizes legacy OpenRouter-style ShopAIKey model ids to official ShopAIKey ids', () => {
     expect(normalizeModelForProvider('shopaikey', 'openai/gpt-5.4-mini')).toBe('gpt-5.4-mini');
+    expect(normalizeModelForProvider('shopaikey', 'openai/gpt-5.5')).toBe('gpt-5.5');
+    expect(normalizeModelForProvider('shopaikey', 'google/gemini-3.1-pro-preview')).toBe('gemini-3.1-pro-preview');
     expect(normalizeModelForProvider('shopaikey', 'anthropic/claude-opus-4.7')).toBe('claude-opus-4-7');
     expect(normalizeModelForProvider('shopaikey', 'deepseek/deepseek-reasoner')).toBe('deepseek-reasoner');
+    expect(normalizeModelForProvider('shopaikey', 'deepseek/deepseek-v4-pro')).toBe('deepseek-v4-pro');
+    expect(normalizeModelForProvider('shopaikey', 'qwen/qwen3.6-35b-a3b')).toBe('qwen3.6-35b-a3b');
     expect(normalizeModelForProvider('openrouter', 'openai/gpt-5.4-mini')).toBe('openai/gpt-5.4-mini');
   });
 
@@ -143,10 +162,34 @@ describe('AI model registry', () => {
       safeOutputBudget: 49152,
       maxQuestionsPerBatch: 35,
     });
+    expect(getModelTokenProfile('google', 'gemini-3.1-flash-lite-preview')).toMatchObject({
+      safeOutputBudget: 49152,
+      maxQuestionsPerBatch: 35,
+    });
+    expect(getModelTokenProfile('openrouter', '~google/gemini-pro-latest')).toMatchObject({
+      safeOutputBudget: 49152,
+      maxQuestionsPerBatch: 35,
+    });
     expect(getModelTokenProfile('openrouter', 'openai/gpt-5-mini')).toMatchObject({
       inputLimit: 400000,
       outputLimit: 128000,
       safeOutputBudget: 65536,
+    });
+    expect(getModelTokenProfile('openrouter', '~openai/gpt-latest')).toMatchObject({
+      safeOutputBudget: 65536,
+      maxQuestionsPerBatch: 35,
+    });
+    expect(getModelTokenProfile('openrouter', 'x-ai/grok-4.3')).toMatchObject({
+      safeOutputBudget: 49152,
+      maxQuestionsPerBatch: 35,
+    });
+    expect(getModelTokenProfile('shopaikey', 'deepseek-v4-pro')).toMatchObject({
+      safeOutputBudget: 49152,
+      maxQuestionsPerBatch: 35,
+    });
+    expect(getModelTokenProfile('shopaikey', 'MiniMax-M2.7')).toMatchObject({
+      safeOutputBudget: 49152,
+      maxQuestionsPerBatch: 35,
     });
     expect(getModelTokenProfile('openrouter', 'custom/vendor-model')).toMatchObject({
       safeOutputBudget: 24576,

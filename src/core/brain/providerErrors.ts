@@ -7,19 +7,6 @@ export const translateErrorForUser = (error: any, context?: string): string => {
   const providerDetail = msg.includes('|') ? msg.split('|').slice(2).join('|').trim() : '';
   const providerSuffix = `${providerModel ? ` Model: ${providerModel}.` : ''}${providerDetail ? ` Chi tiết: ${providerDetail}` : ''}`;
 
-  if (msgLow.includes("vertex ai api error")) {
-    const code = msg.match(/:\s*(\d+)/)?.[1] || "?";
-    const vxMsgs: Record<string, string> = {
-      "400": "Dữ liệu cấu hình Vertex không đúng (Project ID, Vùng, hoặc Token bị sai định dạng).",
-      "401": "Access Token của Google Cloud đã HẾT HẠN hoặc sai. Vui lòng lấy Token mới.",
-      "403": "Token không đủ quyền (Permission Denied) hoặc chưa bật Vertex AI API.",
-      "404": "Không tìm thấy Vertex OpenAI endpoint. Kiểm tra Project ID, Location và model.",
-      "429": "Vertex AI Quota Exceeded (Hết lượng truy cập cho phép).",
-      "500": "Lỗi nội bộ từ máy chủ Google Cloud Vertex AI.",
-    };
-    return `${prefix}🔷 Lỗi Vertex AI: ${vxMsgs[code] || `Máy chủ phản hồi mã ${code}.`}${providerSuffix}`;
-  }
-
   if (msgLow.includes("openrouter api error")) {
     const code = msg.match(/:\s*(\d+)/)?.[1] || "?";
     const orMsgs: Record<string, string> = {
@@ -83,7 +70,7 @@ export const translateErrorForUser = (error: any, context?: string): string => {
     return `${prefix}🌐 Lỗi kết nối CORS. Vui lòng thử tải lại trang (F5).`;
   }
   if (msgLow.includes("model_provider_mismatch")) {
-    return `${prefix}⚙️ Model đang không khớp provider. Nếu dùng DeepSeek/OpenAI/Claude hãy chọn OpenRouter hoặc ShopAIKey; nếu dùng Google/Vertex hãy chọn model dạng gemini-*.`;
+    return `${prefix}⚙️ Model đang không khớp provider. Nếu dùng DeepSeek/OpenAI/Claude hãy chọn OpenRouter hoặc ShopAIKey; nếu dùng Google hãy chọn model dạng gemini-*.`;
   }
 
   if (msgLow.includes("ai_format_error") || msgLow.includes("json") && msgLow.includes("định dạng")) {

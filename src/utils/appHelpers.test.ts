@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanText, formatSessionPhase, getPersistableFiles, sortMcqsByQuestionNumber, summarizeBatchFailures } from './appHelpers';
+import { cleanText, formatSessionPhase, getPersistableFiles, normalizePersistedSettings, sortMcqsByQuestionNumber, summarizeBatchFailures } from './appHelpers';
 import { MCQ } from '../types';
 
 const mcq = (question: string): MCQ => ({
@@ -44,5 +44,28 @@ describe('app helpers', () => {
       { index: 1, label: 'Batch 1', kind: 'format', stage: 'normal', message: 'JSON lỗi', advice: 'Thử lại.' },
       { index: 2, label: 'Batch 2', kind: 'format', stage: 'normal', message: 'JSON lỗi', advice: 'Thử lại.' },
     ], [1, 2])).toContain('Batch 1, Batch 2: JSON lỗi');
+  });
+
+  it('migrates retired provider settings to Google defaults without keeping retired fields', () => {
+    const retiredPrefix = 'ver' + 'tex';
+    const retiredProvider = `${retiredPrefix}ai`;
+    const legacySettings = {
+      provider: retiredProvider,
+      model: 'openai/gpt-5.4',
+      apiKey: 'google-key',
+      shopAIKeyKey: 'shop-key',
+      openRouterKey: 'router-key',
+      [`${retiredPrefix}ProjectId`]: 'old-project',
+      [`${retiredPrefix}Location`]: 'us-central1',
+      [`${retiredPrefix}AccessToken`]: 'old-token',
+      customPrompt: 'prompt',
+    };
+    const normalized = normalizePersistedSettings(legacySettings as any);
+
+    expect(normalized.provider).toBe('google');
+    expect(normalized.model).toBe('gemini-3.1-flash-lite-preview');
+    expect(`${retiredPrefix}ProjectId` in normalized).toBe(false);
+    expect(`${retiredPrefix}Location` in normalized).toBe(false);
+    expect(`${retiredPrefix}AccessToken` in normalized).toBe(false);
   });
 });

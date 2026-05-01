@@ -232,7 +232,7 @@ export const getBatchErrorAdvice = (kind: BatchErrorKind, profileName: RetryProf
     empty: `${rescuePrefix}Kiểm tra phần tài liệu này có thật sự chứa MCQ không, hoặc thử OCR lại nếu là ảnh/PDF mờ.`,
     rateLimit: `${rescuePrefix}Chờ 1-2 phút hoặc thêm/xoay API key; nếu lỗi quota ngày/billing thì cần key/project khác.`,
     serverBusy: `${rescuePrefix}Chờ ngắn rồi quét lại phần lỗi; có thể đổi sang model ổn định hơn như Gemini Flash.`,
-    auth: 'Vào Cài đặt kiểm tra API key/token, quyền truy cập model, project/location nếu dùng Vertex AI.',
+    auth: 'Vào Cài đặt kiểm tra API key/token và quyền truy cập model của provider đang dùng.',
     fatal: `${rescuePrefix}Thử chia nhỏ file hoặc đổi model; nếu lặp lại, xem console để lấy lỗi kỹ thuật.`,
   };
   return advice[kind];

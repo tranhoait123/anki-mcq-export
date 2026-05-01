@@ -90,7 +90,7 @@ The app is deployed online. You can use it **instantly** on any device (PC, Mac,
 
 | Area | Details |
 |:---|:---|
-| **Flexible AI Engine** | Supports Google Gemini, OpenRouter, Vertex AI, and ShopAIKey. The app coerces incompatible model choices before runtime. |
+| **Flexible AI Engine** | Supports Google Gemini, OpenRouter, and ShopAIKey. The app coerces incompatible model choices before runtime. |
 | **PDF/Image Handling** | PDFs are split into overlapping chunks; providers that do not accept raw PDFs can receive rasterized page images. |
 | **DOCX Native + Smart Fallback** | Real-text Word files are parsed from `word/document.xml`; yellow highlights are preserved as correct answers; scanned Word files are flagged for PDF/image Vision mode. |
 | **Fast Mode** | Skip the initial analysis step when you already know the file and want faster extraction. |
@@ -205,10 +205,9 @@ The system will **automatically rotate** — if a key runs out of quota (429 Err
 
 | Option | Guide |
 |:---|:---|
-| **AI Engine** | Choose Google Gemini, OpenRouter, Vertex AI, or ShopAIKey. New users should start with Google Gemini. |
+| **AI Engine** | Choose Google Gemini, OpenRouter, or ShopAIKey. New users should start with Google Gemini. |
 | **Google Gemini API Key** | Paste the API Key you generated. *Can input multiple keys separated by commas.* |
 | **OpenRouter / ShopAIKey API Key** | Use gateway providers when you want access to other model families. |
-| **Vertex AI** | Enterprise path requiring GCP Project ID, Location, and OAuth Access Token. |
 | **AI Model** | Choose an appropriate model. **Recommended: `Gemini 3.1 Flash-Lite`** — fastest and sharpest. |
 | **AI Persona** | Select the domain: **Medical**, **English**, **Law**, **IT** — or write a custom prompt. |
 

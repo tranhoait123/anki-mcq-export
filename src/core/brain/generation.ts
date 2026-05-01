@@ -450,7 +450,7 @@ export const generateQuestions = async (
           : '';
         const scanPrompt = `${repairInstruction ? `${repairInstruction}\n\n` : ''}${sourceInstruction}\n\n${nativePrompt ? `${nativePrompt}\n\n` : ''}${imagePrompt ? `${imagePrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
 
-        const rawNewQs = await (runtimeSettings.provider === 'shopaikey' || runtimeSettings.provider === 'openrouter' || runtimeSettings.provider === 'vertexai'
+        const rawNewQs = await (isOpenAICompatibleProvider(runtimeSettings.provider)
           ? executeWithUserRotation(
               extractionModel,
               async (dummyKey, activeModel) => {

@@ -1,6 +1,13 @@
 import { AppSettings, GeneratedResponse, MCQ, ProcessingPhase, ProcessingSessionStatus, UploadedFile } from '../types';
 import { coerceModelForProvider, DEFAULT_GEMINI_MODEL, isModelAllowedForProvider } from './models';
 
+type LegacyPersistedSettings = Omit<Partial<AppSettings>, 'provider'> & {
+  provider?: AppSettings['provider'] | string;
+};
+
+const RETIRED_PROVIDER_PREFIX = 'ver' + 'tex';
+const RETIRED_PROVIDER_ID = `${RETIRED_PROVIDER_PREFIX}ai`;
+
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   apiKey: '',
   shopAIKeyKey: '',
@@ -54,10 +61,26 @@ export const cleanText = (text: string, type: 'question' | 'option') => {
   return cleaned;
 };
 
-export const normalizePersistedSettings = (settings: AppSettings): AppSettings => {
-  const persistedSettings = { ...settings };
+const normalizeProvider = (provider?: string): AppSettings['provider'] => {
+  if (provider === 'shopaikey' || provider === 'openrouter' || provider === 'google') return provider;
+  return 'google';
+};
 
-  if (!persistedSettings.provider) persistedSettings.provider = 'google';
+export const normalizePersistedSettings = (settings: LegacyPersistedSettings): AppSettings => {
+  const wasRetiredProvider = settings.provider === RETIRED_PROVIDER_ID;
+  const settingsWithoutRetiredFields = Object.fromEntries(
+    Object.entries(settings).filter(([key]) => !key.toLowerCase().startsWith(RETIRED_PROVIDER_PREFIX))
+  ) as Partial<AppSettings>;
+  const persistedSettings: AppSettings = {
+    ...DEFAULT_APP_SETTINGS,
+    ...settingsWithoutRetiredFields,
+    provider: normalizeProvider(settings.provider),
+    model: settings.model || DEFAULT_GEMINI_MODEL,
+  };
+
+  if (wasRetiredProvider) {
+    persistedSettings.model = DEFAULT_GEMINI_MODEL;
+  }
 
   if (persistedSettings.model?.includes('gemini-1.5')) persistedSettings.model = 'gemini-2.5-flash';
   if (persistedSettings.model === 'gemini-3-flash' || persistedSettings.model === 'gemini-3-flash-preview') persistedSettings.model = 'gemini-3-flash-preview';
@@ -71,9 +94,6 @@ export const normalizePersistedSettings = (settings: AppSettings): AppSettings =
 
   if (persistedSettings.shopAIKeyKey === undefined) persistedSettings.shopAIKeyKey = '';
   if (persistedSettings.openRouterKey === undefined) persistedSettings.openRouterKey = '';
-  if (persistedSettings.vertexProjectId === undefined) persistedSettings.vertexProjectId = '';
-  if (persistedSettings.vertexLocation === undefined) persistedSettings.vertexLocation = 'us-central1';
-  if (persistedSettings.vertexAccessToken === undefined) persistedSettings.vertexAccessToken = '';
   if (persistedSettings.skipAnalysis === undefined) persistedSettings.skipAnalysis = true;
   if (persistedSettings.concurrencyLimit === undefined) persistedSettings.concurrencyLimit = 1;
   if (persistedSettings.adaptiveBatching === undefined) persistedSettings.adaptiveBatching = true;

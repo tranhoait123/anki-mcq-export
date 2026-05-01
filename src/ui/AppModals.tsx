@@ -19,6 +19,7 @@ interface AppModalsProps {
   restoreDuplicate: (dupId: string) => void;
   handleOpenProject: (project: StudyProject) => Promise<void>;
   handleRenameProject: (projectId: string, name: string) => Promise<void>;
+  handleSaveCurrentProject: () => Promise<void>;
   activeProjectId: string | null;
   loading: boolean;
   mcqs: MCQ[];
@@ -45,6 +46,7 @@ const AppModals: React.FC<AppModalsProps> = ({
   handleDeleteProject,
   handleOpenProject,
   handleRenameProject,
+  handleSaveCurrentProject,
   activeProjectId,
   loading,
   mcqs,
@@ -84,6 +86,7 @@ const AppModals: React.FC<AppModalsProps> = ({
       onDeleteProject={handleDeleteProject}
       onOpenProject={handleOpenProject}
       onRenameProject={handleRenameProject}
+      onSaveCurrentProject={handleSaveCurrentProject}
       projects={projects}
       show={showLibrary}
     />

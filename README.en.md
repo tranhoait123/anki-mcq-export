@@ -2,6 +2,8 @@
 
 > **Turn any medical document (blurry scans, quick photos, heavy PDFs) into high-quality Anki flipcards in minutes.**
 > *Developed by [PonZ](https://github.com/tranhoait123)*
+>
+> **Current version: v7**
 
 ---
 
@@ -93,8 +95,12 @@ The app is deployed online. You can use it **instantly** on any device (PC, Mac,
 | **DOCX Native + Smart Fallback** | Real-text Word files are parsed from `word/document.xml`; yellow highlights are preserved as correct answers; scanned Word files are flagged for PDF/image Vision mode. |
 | **Fast Mode** | Skip the initial analysis step when you already know the file and want faster extraction. |
 | **Rich Explanations** | Each card can include core answer, evidence, deep analysis, warning, source, difficulty, and reasoning key point. |
+| **Source/Page Trace V7** | Each extracted question can carry file, page/range, batch, and snippet metadata; click the source chip to open Split View for verification. |
+| **Project Library V7** | Completed extraction runs are auto-saved locally; rename, reopen, re-export CSV/DOCX, delete, and compare projects. |
 | **Duplicate Review** | Suspected duplicates are reviewed instead of silently deleted; keep both, skip, or replace. |
 | **Dual Export** | Export Anki CSV or a readable DOCX study document with tables and metadata. |
+| **Mobile/PWA Polish V7** | Smaller mobile header, bottom action bar, and a controlled PWA update banner. |
+| **Safe Confirm Modals** | Delete actions use in-app confirmation modals instead of browser popups. |
 | **Local Persistence** | MCQs, settings, and cache data are stored locally with IndexedDB/localStorage. |
 
 ---
@@ -286,6 +292,46 @@ Click the **📊 (Columns)** button in the Header to enable **Split View**:
 - **Left**: Original document
 - **Right**: Extracted questions
 
+#### 📍 Source/Page Trace V7
+
+After extraction, each question card can show a **Source** chip. Click it to:
+
+- Open Split View automatically.
+- Select the original file when it is still available in the workspace.
+- Jump to the first traced PDF page with `#page=...` when page metadata exists.
+- Use the stored snippet to quickly verify question text, options, and answer.
+
+Trace V7 is intentionally stable rather than pixel-perfect: it stores file, page/range, batch, and snippet metadata. It does not yet provide OCR bounding boxes. The legacy `Source` column remains unchanged for CSV/DOCX compatibility.
+
+#### 🗂️ Project Library V7
+
+The app auto-saves a local project snapshot after a successful extraction with valid questions.
+
+| Action | How to use |
+|:---|:---|
+| **Open Library** | Click the Library icon in the header; on mobile, use the bottom action bar. |
+| **Rename** | Select a project, edit the name field, then click the pencil button. |
+| **Reopen** | Click **Open** to load that snapshot into the current workspace. |
+| **Re-export** | Click **CSV** or **DOCX** directly inside the library. |
+| **Delete** | Click **Delete** and confirm in the in-app modal. |
+| **Compare** | Select a project to compare added, removed, changed-answer, and likely-duplicate questions against the currently open deck. |
+
+Important notes:
+
+- Projects are stored locally in browser IndexedDB, not in the cloud.
+- Clearing the current workspace does not delete saved projects.
+- Opening a project replaces the current workspace view with that saved snapshot.
+
+#### 📱 Mobile/PWA V7
+
+On small screens, the bottom action bar exposes the current primary action: Scan, Extract, Pause/Resume, Export CSV/DOCX, Library, Settings, and theme toggle.
+
+When the PWA service worker detects a new build, the app shows a controlled update banner. If a long extraction is running, pause or finish the current batch before refreshing.
+
+#### ✅ Safe Confirm Modals
+
+The app now uses in-app confirmation modals for question delete, workspace clear, AI cache clear, and project delete. Cache clearing only removes Context Cache/Markdown Cache; it does not remove current questions or saved projects.
+
 ---
 
 ### Step 5: Export Files
@@ -408,6 +454,11 @@ Runs on **http://localhost:8501**.
 | **Use PDF/Image shown for DOCX** | Word contains scanned images instead of real text | Export the Word file to PDF or clear images, then upload again for Vision. |
 | **PDF fails on a gateway provider** | Provider does not accept raw PDFs | The app rasterizes PDF pages for compatible Vision models. |
 | **Quota/rate limit** | API key reached provider limits | Add multiple Google keys separated by commas or switch model/provider. |
+| **Source chip does not jump to an exact page** | Non-PDF file, missing original file, or Vision batch only has a page range | Reopen the project from Library if needed; check the displayed source range for scanned PDFs. |
+| **Project is missing from Library** | Extraction did not finish with valid questions, or browser IndexedDB was cleared | Run extraction again and avoid clearing browser site data if you want to keep Library projects. |
+| **Opening an old project replaces the current deck** | Library snapshots load into the active workspace | Export or auto-save the current deck before opening another project. |
+| **PWA update banner keeps appearing** | A new service worker build is available | Click **Update** after pausing or completing the current extraction. |
+| **Cache clear did not remove questions** | This is expected in v7 | Cache clear only refreshes AI cache; use workspace clear to reset current files/questions. |
 
 ---
 
@@ -428,12 +479,28 @@ Only when the app shows **Use PDF/Image** or the DOCX is a scanned-image documen
 ### 🗨️ "What is the difference between CSV and DOCX export?"
 **CSV** is for importing into Anki. **DOCX** is for direct reading, printing, or sharing a review copy.
 
+### 🗨️ "Where is the Project Library stored?"
+Locally in browser IndexedDB. It is not synced to a server. Switching browsers/devices, using incognito, or clearing site data can remove saved projects.
+
+### 🗨️ "When does auto-save happen?"
+After extraction finishes with at least one valid question. The snapshot includes files, MCQs, duplicates, analysis metadata, settings summary, and stats.
+
+### 🗨️ "Does opening a project overwrite the current workspace?"
+Yes. It loads that snapshot into the current workspace. Saved library projects remain intact.
+
+### 🗨️ "Does Clear All delete the Library?"
+No. Clear All resets the current workspace, files, session, and cache. Delete saved projects from the Library modal.
+
+### 🗨️ "How accurate is Source Trace?"
+V7 trace points to the file and page/range/snippet, not an exact OCR bounding box. It is meant for fast verification against the original document.
+
 ---
 
 ## 📜 Changelog
 
 | Version | Date | Highlights |
 | :--- | :--- | :--- |
+| **v7.0 (Trace + Project Library + Mobile/PWA Polish)** | 05/01/2026 | Source/Page Trace, local Project Library with rename/reopen/re-export/compare, safe confirm modals, mobile bottom action bar, and PWA update banner |
 | **v5.5 (DOCX Native)** | 04/22/2026 | Native DOCX parser, yellow-highlight answer detection, 10-question batching, text fallback, and PDF/image warning for scanned Word files |
 | **v5.4 (Export Polish)** | 04/22/2026 | DOCX Study Export, stable left alignment after tables, expanded documentation |
 | **v5.0 (Atomic)** | 04/04/2026 | **Zustand Architecture, Sonner Toasts, Review-First UI, Enhanced Markdown Tables** |

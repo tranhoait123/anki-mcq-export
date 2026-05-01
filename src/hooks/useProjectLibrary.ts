@@ -20,6 +20,7 @@ interface UseProjectLibraryParams {
   confirm: (options: ConfirmDialogOptions) => Promise<boolean>;
   duplicates: DuplicateInfo[];
   files: UploadedFile[];
+  isLoaded: boolean;
   mcqs: MCQ[];
   settings: AppSettings;
   setAnalysis: React.Dispatch<React.SetStateAction<AnalysisResult | null>>;
@@ -37,6 +38,7 @@ export const useProjectLibrary = ({
   confirm,
   duplicates,
   files,
+  isLoaded,
   mcqs,
   settings,
   setAnalysis,
@@ -47,7 +49,7 @@ export const useProjectLibrary = ({
   setMcqs,
   setRetryFailedAttempted,
 }: UseProjectLibraryParams) => {
-  const [showLibrary, setShowLibrary] = React.useState(false);
+  const [showLibrary, setShowLibraryState] = React.useState(false);
   const [projects, setProjects] = React.useState<StudyProject[]>([]);
   const [activeProjectId, setActiveProjectId] = React.useState<string | null>(null);
 
@@ -73,7 +75,9 @@ export const useProjectLibrary = ({
     const persistableFiles = getPersistableFiles(files);
     const fingerprint = await hashFiles(persistableFiles);
     const existing = activeProjectId ? await db.getProject(activeProjectId) : null;
-    const reusableProject = existing?.filesFingerprint === fingerprint ? existing : null;
+    const existingProjects = existing?.filesFingerprint === fingerprint ? [] : await db.getAllProjects();
+    const matchingProject = existingProjects.find(project => project.filesFingerprint === fingerprint) || null;
+    const reusableProject = existing?.filesFingerprint === fingerprint ? existing : matchingProject;
 
     const project = await buildProjectSnapshot({
       existing: reusableProject,
@@ -89,6 +93,56 @@ export const useProjectLibrary = ({
     await refreshProjects();
     return project;
   }, [activeProjectId, analysis, duplicates, files, mcqs, refreshProjects, settings]);
+
+  const saveCurrentProject = React.useCallback(async () => {
+    const project = await autoSaveCurrentProject();
+    if (project) {
+      toast.success(`Đã lưu "${project.name}" vào thư viện.`);
+    } else {
+      toast.error('Chưa có đủ file và câu hỏi để lưu project.');
+    }
+  }, [autoSaveCurrentProject]);
+
+  const ensureCurrentProjectSaved = React.useCallback(async () => {
+    if (!isLoaded || activeProjectId || files.length === 0 || mcqs.length === 0) return;
+
+    try {
+      const persistableFiles = getPersistableFiles(files);
+      const fingerprint = await hashFiles(persistableFiles);
+      const existingProjects = await db.getAllProjects();
+      const existingProject = existingProjects.find(project => project.filesFingerprint === fingerprint);
+      if (existingProject) {
+        setActiveProjectId(existingProject.id);
+        setProjects(existingProjects);
+        return;
+      }
+
+      const project = await buildProjectSnapshot({
+        files: persistableFiles,
+        mcqs,
+        duplicates,
+        analysis,
+        settings,
+      });
+      await db.saveProject(project);
+      setActiveProjectId(project.id);
+      await refreshProjects();
+    } catch (error) {
+      console.warn('Project library backfill failed:', error);
+    }
+  }, [activeProjectId, analysis, duplicates, files, isLoaded, mcqs, refreshProjects, settings]);
+
+  const setShowLibrary = React.useCallback((show: boolean) => {
+    if (!show) {
+      setShowLibraryState(false);
+      return;
+    }
+
+    void (async () => {
+      await ensureCurrentProjectSaved();
+      setShowLibraryState(true);
+    })();
+  }, [ensureCurrentProjectSaved]);
 
   const openProject = React.useCallback(async (project: StudyProject) => {
     await clearResumeSession();
@@ -151,6 +205,7 @@ export const useProjectLibrary = ({
     projects,
     refreshProjects,
     renameProject,
+    saveCurrentProject,
     setShowLibrary,
     showLibrary,
   };

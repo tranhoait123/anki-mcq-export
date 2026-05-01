@@ -14,6 +14,7 @@ interface ProjectLibraryModalProps {
   onDeleteProject: (project: StudyProject) => Promise<void>;
   onOpenProject: (project: StudyProject) => Promise<void>;
   onRenameProject: (projectId: string, name: string) => Promise<void>;
+  onSaveCurrentProject: () => Promise<void>;
   projects: StudyProject[];
   show: boolean;
 }
@@ -64,6 +65,7 @@ const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
   onDeleteProject,
   onOpenProject,
   onRenameProject,
+  onSaveCurrentProject,
   projects,
   show,
 }) => {
@@ -148,6 +150,14 @@ const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
               </div>
               <h3 className="text-xl font-black text-slate-900 dark:text-white">Chưa có project nào</h3>
               <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Sau khi trích xuất xong, app sẽ tự lưu snapshot vào đây.</p>
+              {currentMcqs.length > 0 && (
+                <button
+                  onClick={onSaveCurrentProject}
+                  className="mt-6 rounded-2xl bg-indigo-600 px-5 py-3 text-sm font-black text-white shadow-lg transition hover:bg-indigo-500"
+                >
+                  Lưu bộ đề hiện tại
+                </button>
+              )}
             </div>
           </div>
         ) : (

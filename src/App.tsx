@@ -117,6 +117,7 @@ const App: React.FC = () => {
     openProject,
     projects,
     renameProject,
+    saveCurrentProject,
     setShowLibrary,
     showLibrary,
   } = useProjectLibrary({
@@ -125,6 +126,7 @@ const App: React.FC = () => {
     confirm,
     duplicates,
     files,
+    isLoaded,
     mcqs,
     settings,
     setAnalysis,
@@ -408,6 +410,7 @@ const App: React.FC = () => {
         handleKeepAllDuplicates={handleKeepAllDuplicates}
         handleOpenProject={openProject}
         handleRenameProject={renameProject}
+        handleSaveCurrentProject={saveCurrentProject}
         handleReplaceDuplicate={handleReplaceDuplicate}
         handleSkipDuplicate={handleSkipDuplicate}
         loading={loading}

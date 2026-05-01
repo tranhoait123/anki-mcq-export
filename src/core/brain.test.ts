@@ -8,6 +8,7 @@ import {
   getModelConfig,
   getRetryDelayMsFromError,
   applyTrustedSourceLabel,
+  applyTrustedSourceMetadata,
   parseQuestionsFromModelText,
   salvageCompleteQuestionsFromJson,
   translateErrorForUser,
@@ -238,6 +239,37 @@ describe('Core Logic', () => {
     applyTrustedSourceLabel(parsed, { sourceLabel: 'bar.docx | Nhóm 3' });
 
     expect(parsed.map((q) => q.source)).toEqual(['bar.docx | Nhóm 3', 'bar.docx | Nhóm 3']);
+  });
+
+  it('attaches source trace metadata while preserving the trusted source label', () => {
+    const questions = applyTrustedSourceMetadata([
+      {
+        question: 'Câu 1. Nội dung dài để làm snippet fallback',
+        source: 'AI tự bịa',
+      },
+    ], {
+      sourceLabel: 'demo.pdf | Trang 2-4',
+      trace: {
+        fileId: 'file-1',
+        fileName: 'demo.pdf',
+        sourceLabel: 'demo.pdf | Trang 2-4',
+        pageRange: { start: 2, end: 4 },
+        batchIndex: 1,
+        mode: 'pdfText',
+        snippet: 'Câu 1 từ text layer',
+      },
+    });
+
+    expect(questions[0].source).toBe('demo.pdf | Trang 2-4');
+    expect((questions[0] as any).trace).toEqual({
+      fileId: 'file-1',
+      fileName: 'demo.pdf',
+      sourceLabel: 'demo.pdf | Trang 2-4',
+      pageRange: { start: 2, end: 4 },
+      batchIndex: 1,
+      mode: 'pdfText',
+      snippet: 'Câu 1 từ text layer',
+    });
   });
 
   it('keeps empty optional responses as valid JSON payloads', () => {

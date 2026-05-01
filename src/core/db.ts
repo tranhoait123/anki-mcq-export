@@ -1,14 +1,15 @@
-import { MCQ, AppSettings, ProcessingSession, UploadedFile } from '../types';
+import { MCQ, AppSettings, ProcessingSession, StudyProject, UploadedFile } from '../types';
 
 const DB_NAME = 'AnkiGenProDB';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const STORES = {
     MCQS: 'mcqs',
     SETTINGS: 'settings',
     CACHES: 'caches',
     MARKDOWN: 'markdown',
     FILES: 'files',
-    SESSIONS: 'sessions'
+    SESSIONS: 'sessions',
+    PROJECTS: 'projects'
 };
 
 export interface CacheEntry {
@@ -50,6 +51,9 @@ export class AppDB {
                 }
                 if (!db.objectStoreNames.contains(STORES.SESSIONS)) {
                     db.createObjectStore(STORES.SESSIONS, { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains(STORES.PROJECTS)) {
+                    db.createObjectStore(STORES.PROJECTS, { keyPath: 'id' });
                 }
             };
 
@@ -201,6 +205,52 @@ export class AppDB {
         });
     }
 
+    async saveProject(project: StudyProject): Promise<void> {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db!.transaction([STORES.PROJECTS], 'readwrite');
+            const store = transaction.objectStore(STORES.PROJECTS);
+            store.put(project);
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = (e: any) => reject(e.target.error);
+        });
+    }
+
+    async getProject(id: string): Promise<StudyProject | null> {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db!.transaction([STORES.PROJECTS], 'readonly');
+            const store = transaction.objectStore(STORES.PROJECTS);
+            const request = store.get(id);
+            request.onsuccess = () => resolve(request.result || null);
+            request.onerror = (e: any) => reject(e.target.error);
+        });
+    }
+
+    async getAllProjects(): Promise<StudyProject[]> {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db!.transaction([STORES.PROJECTS], 'readonly');
+            const store = transaction.objectStore(STORES.PROJECTS);
+            const request = store.getAll();
+            request.onsuccess = () => {
+                const projects = (request.result || []) as StudyProject[];
+                resolve(projects.sort((a, b) => b.updatedAt - a.updatedAt));
+            };
+            request.onerror = (e: any) => reject(e.target.error);
+        });
+    }
+
+    async deleteProject(id: string): Promise<void> {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db!.transaction([STORES.PROJECTS], 'readwrite');
+            transaction.objectStore(STORES.PROJECTS).delete(id);
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = (e: any) => reject(e.target.error);
+        });
+    }
+
     async saveCache(entry: CacheEntry): Promise<void> {
         if (!this.db) await this.init();
         return new Promise((resolve, reject) => {
@@ -253,6 +303,17 @@ export class AppDB {
             const transaction = this.db!.transaction([STORES.CACHES], 'readwrite');
             const store = transaction.objectStore(STORES.CACHES);
             store.delete(id);
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = (e: any) => reject(e.target.error);
+        });
+    }
+
+    async clearCaches(): Promise<void> {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db!.transaction([STORES.CACHES, STORES.MARKDOWN], 'readwrite');
+            transaction.objectStore(STORES.CACHES).clear();
+            transaction.objectStore(STORES.MARKDOWN).clear();
             transaction.oncomplete = () => resolve();
             transaction.onerror = (e: any) => reject(e.target.error);
         });

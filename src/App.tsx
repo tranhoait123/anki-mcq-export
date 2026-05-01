@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { UploadedFile, MCQ, AnalysisResult, AuditResult, DuplicateInfo } from './types';
+import { UploadedFile, MCQ, AnalysisResult, AuditResult, DuplicateInfo, SourceTrace } from './types';
 import AppHeader from './ui/AppHeader';
 import AppModals from './ui/AppModals';
 import AppWorkspace from './ui/AppWorkspace';
+import MobileActionBar from './ui/MobileActionBar';
+import PwaUpdateBanner from './ui/PwaUpdateBanner';
 import { useExportActions } from './hooks/useExportActions';
 import { useProcessingSession } from './hooks/useProcessingSession';
 import { useProcessingControllerState } from './hooks/useProcessingControllerState';
@@ -20,6 +22,9 @@ import { useResumeWorkflow } from './hooks/useResumeWorkflow';
 import { useGenerateWorkflow } from './hooks/useGenerateWorkflow';
 import { useAppStateEffects } from './hooks/useAppStateEffects';
 import { useClearAllData } from './hooks/useClearAllData';
+import { useConfirmDialog } from './hooks/useConfirmDialog';
+import { useProjectLibrary } from './hooks/useProjectLibrary';
+import { usePwaUpdate } from './hooks/usePwaUpdate';
 
 const App: React.FC = () => {
   const [files, setFiles] = useState<UploadedFile[]>([]);
@@ -39,11 +44,25 @@ const App: React.FC = () => {
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [previewFileId, setPreviewFileId] = useState<string | null>(null);
+  const [previewTrace, setPreviewTrace] = useState<SourceTrace | null>(null);
   const resultsPanelRef = React.useRef<HTMLDivElement | null>(null);
   const filesRef = React.useRef<UploadedFile[]>([]);
   const mcqsRef = React.useRef<MCQ[]>([]);
   const duplicatesRef = React.useRef<DuplicateInfo[]>([]);
   const analysisRef = React.useRef<AnalysisResult | null>(null);
+  const {
+    confirm,
+    confirmState,
+    handleCancel: handleConfirmCancel,
+    handleConfirm: handleConfirmSubmit,
+  } = useConfirmDialog();
+  const {
+    dismissUpdate,
+    needRefresh,
+    offlineReady,
+    updateApp,
+  } = usePwaUpdate();
   const { exportAction, downloadCSV, downloadDOCX } = useExportActions(mcqs, files);
   const {
     darkMode,
@@ -53,7 +72,10 @@ const App: React.FC = () => {
     previewUrl,
     setDarkMode,
     setIsSplitView,
-  } = useUiPreferences(files);
+  } = useUiPreferences(files, previewFileId);
+  const previewFile = React.useMemo(() => (
+    files.find(file => file.id === previewFileId) || files[0] || null
+  ), [files, previewFileId]);
   const {
     resumeSession,
     setResumeSession,
@@ -84,9 +106,35 @@ const App: React.FC = () => {
     handleSkipDuplicate,
     handleUpdateMCQ,
     restoreDuplicate,
-  } = useQuestionReviewActions({ duplicates, setDuplicates, setMcqs, setShowDuplicates });
+  } = useQuestionReviewActions({ duplicates, setDuplicates, setMcqs, setShowDuplicates, confirm });
 
   const { settings, setSettings, loadPersistedSettings } = usePersistedSettings(isLoaded);
+  const {
+    activeProjectId,
+    autoSaveCurrentProject,
+    clearActiveProject,
+    deleteProject,
+    openProject,
+    projects,
+    renameProject,
+    setShowLibrary,
+    showLibrary,
+  } = useProjectLibrary({
+    analysis,
+    clearResumeSession,
+    confirm,
+    duplicates,
+    files,
+    mcqs,
+    settings,
+    setAnalysis,
+    setCurrentCount,
+    setDuplicates,
+    setFailedBatchIndices,
+    setFiles,
+    setMcqs,
+    setRetryFailedAttempted,
+  });
   const { prepareFiles } = useFilePreparation({ files, ocrMode, settings, setProgressStatus });
   const {
     currentFilesRequireVision,
@@ -200,6 +248,14 @@ const App: React.FC = () => {
     validateProviderCredentials,
     waitWithController,
     warnVisionRecommendedDocx,
+    onGenerationComplete: async ({ mcqs: completedMcqs, duplicates: completedDuplicates, analysis: completedAnalysis, settings: completedSettings }) => {
+      await autoSaveCurrentProject({
+        mcqs: completedMcqs,
+        duplicates: completedDuplicates,
+        analysis: completedAnalysis,
+        settings: completedSettings,
+      });
+    },
   });
   const { handleClearAllData } = useClearAllData({
     activeSessionRef,
@@ -212,6 +268,12 @@ const App: React.FC = () => {
     setMcqs,
     setRetryFailedAttempted,
     setResumeSession,
+    confirm,
+    onAfterClear: () => {
+      clearActiveProject();
+      setPreviewFileId(null);
+      setPreviewTrace(null);
+    },
   });
 
   useAppBootstrap({
@@ -249,8 +311,15 @@ const App: React.FC = () => {
       ? 'Đang chờ batch hiện tại hoàn tất để tạm dừng an toàn...'
       : progressStatus;
 
+  const handleSourceTraceClick = (trace: SourceTrace) => {
+    const targetFile = files.find(file => file.id === trace.fileId || file.name === trace.fileName) || files[0];
+    if (targetFile) setPreviewFileId(targetFile.id);
+    setPreviewTrace(trace);
+    setIsSplitView(true);
+  };
+
   return (
-    <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#020617] font-sans text-slate-800 dark:text-slate-100 transition-colors duration-300">
+    <div className="min-h-screen pb-20 bg-[#F8FAFC] dark:bg-[#020617] font-sans text-slate-800 dark:text-slate-100 transition-colors duration-300 sm:pb-0">
       <AppHeader
         darkMode={darkMode}
         deferredPrompt={deferredPrompt}
@@ -259,6 +328,7 @@ const App: React.FC = () => {
         isSplitView={isSplitView}
         setDarkMode={setDarkMode}
         setIsSplitView={setIsSplitView}
+        setShowLibrary={setShowLibrary}
         setShowSettings={setShowSettings}
       />
 
@@ -281,12 +351,15 @@ const App: React.FC = () => {
         handleGenerate={handleGenerate}
         handleResumeSession={handleResumeSession}
         handleRetryFailed={handleRetryFailed}
+        handleSourceTraceClick={handleSourceTraceClick}
         handleTogglePause={handleTogglePause}
         handleUpdateMCQ={handleUpdateMCQ}
         isSplitView={isSplitView}
         loading={loading}
         mcqs={mcqs}
         ocrMode={ocrMode}
+        previewFile={previewFile}
+        previewTrace={previewTrace}
         previewUrl={previewUrl}
         processingState={processingState}
         resultsPanelRef={resultsPanelRef}
@@ -298,17 +371,56 @@ const App: React.FC = () => {
         showAudit={showAudit}
       />
 
+      <MobileActionBar
+        analyzing={analyzing}
+        darkMode={darkMode}
+        downloadCSV={downloadCSV}
+        downloadDOCX={downloadDOCX}
+        exportAction={exportAction}
+        filesCount={files.length}
+        handleAnalyze={handleAnalyze}
+        handleGenerate={handleGenerate}
+        handleTogglePause={handleTogglePause}
+        hasAnalysis={Boolean(analysis)}
+        loading={loading}
+        mcqCount={mcqs.length}
+        processingState={processingState}
+        setDarkMode={setDarkMode}
+        setShowLibrary={setShowLibrary}
+        setShowSettings={setShowSettings}
+      />
+
+      <PwaUpdateBanner
+        dismissUpdate={dismissUpdate}
+        needRefresh={needRefresh}
+        offlineReady={offlineReady}
+        updateApp={updateApp}
+      />
+
       <AppModals
+        activeProjectId={activeProjectId}
+        confirm={confirm}
+        confirmState={confirmState}
         duplicates={duplicates}
+        handleConfirmCancel={handleConfirmCancel}
+        handleConfirmSubmit={handleConfirmSubmit}
+        handleDeleteProject={deleteProject}
         handleKeepAllDuplicates={handleKeepAllDuplicates}
+        handleOpenProject={openProject}
+        handleRenameProject={renameProject}
         handleReplaceDuplicate={handleReplaceDuplicate}
         handleSkipDuplicate={handleSkipDuplicate}
+        loading={loading}
+        mcqs={mcqs}
+        projects={projects}
         restoreDuplicate={restoreDuplicate}
         setSettings={setSettings}
         setShowDuplicates={setShowDuplicates}
+        setShowLibrary={setShowLibrary}
         setShowSettings={setShowSettings}
         settings={settings}
         showDuplicates={showDuplicates}
+        showLibrary={showLibrary}
         showSettings={showSettings}
       />
     </div>

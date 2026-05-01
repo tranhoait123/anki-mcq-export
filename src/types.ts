@@ -6,6 +6,19 @@ export interface Explanation {
   warning: string;   // Lưu ý
 }
 
+export interface SourceTrace {
+  fileId?: string;
+  fileName: string;
+  sourceLabel: string;
+  pageRange?: {
+    start: number;
+    end: number;
+  };
+  batchIndex?: number;
+  snippet?: string;
+  mode: 'pdfText' | 'pdfVision' | 'docxText' | 'docxImage' | 'image' | 'text' | 'unknown';
+}
+
 export interface MCQ {
   id: string;
   question: string;
@@ -13,6 +26,7 @@ export interface MCQ {
   correctAnswer: string;
   explanation: Explanation; // Chuyển từ string sang object cấu trúc
   source: string;
+  trace?: SourceTrace;
   difficulty: string;
   depthAnalysis: string;
 }
@@ -63,6 +77,7 @@ export interface DuplicateInfo {
     correctAnswer: string;
     explanation: Explanation;
     source: string;
+    trace?: SourceTrace;
     difficulty: string;
     depthAnalysis: string;
   };
@@ -182,4 +197,62 @@ export interface AppSettings {
   concurrencyLimit?: number;
   adaptiveBatching?: boolean;
   batchingMode?: 'safe';
+}
+
+export interface ProjectSettingsSummary {
+  provider: AppSettings['provider'];
+  model: string;
+  skipAnalysis?: boolean;
+  concurrencyLimit?: number;
+  adaptiveBatching?: boolean;
+  hasCustomPrompt: boolean;
+}
+
+export interface ProjectStats {
+  questionCount: number;
+  duplicateCount: number;
+  fileCount: number;
+  estimatedCount?: number;
+  difficultyCounts: Record<string, number>;
+}
+
+export interface StudyProject {
+  id: string;
+  name: string;
+  filesFingerprint: string;
+  createdAt: number;
+  updatedAt: number;
+  files: UploadedFile[];
+  mcqs: MCQ[];
+  duplicates: DuplicateInfo[];
+  analysis: AnalysisResult | null;
+  settingsSummary: ProjectSettingsSummary;
+  stats: ProjectStats;
+}
+
+export interface ProjectComparisonItem {
+  id: string;
+  question: string;
+  source?: string;
+}
+
+export interface ProjectChangedAnswerItem {
+  id: string;
+  question: string;
+  previousAnswer: string;
+  currentAnswer: string;
+}
+
+export interface ProjectLikelyDuplicateItem {
+  id: string;
+  question: string;
+  matchedWith: string;
+  score?: number;
+}
+
+export interface ProjectComparison {
+  added: ProjectComparisonItem[];
+  removed: ProjectComparisonItem[];
+  changedAnswers: ProjectChangedAnswerItem[];
+  likelyDuplicates: ProjectLikelyDuplicateItem[];
 }

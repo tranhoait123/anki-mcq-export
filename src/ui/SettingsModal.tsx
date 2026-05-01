@@ -4,15 +4,17 @@ import { AppSettings } from '../types';
 import { db } from '../core/db';
 import { toast } from 'sonner';
 import { AIProvider, coerceModelForProvider, getModelGroups } from '../utils/models';
+import { ConfirmDialogOptions } from '../hooks/useConfirmDialog';
 
 interface SettingsModalProps {
     show: boolean;
     onClose: () => void;
     settings: AppSettings;
     setSettings: (settings: AppSettings) => void;
+    confirm: (options: ConfirmDialogOptions) => Promise<boolean>;
 }
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, setSettings }) => {
+const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, setSettings, confirm }) => {
     const [showAdvanced, setShowAdvanced] = useState(false);
     const modelGroups = getModelGroups(settings.provider);
     
@@ -27,15 +29,23 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
     };
 
     const handleClearCaches = async () => {
-        if (confirm("Bạn có chắc chắn muốn xóa toàn bộ bộ nhớ đệm (Context Caches)? Việc này giúp làm mới dữ liệu nhưng sẽ làm AI xử lý chậm hơn và tốn phí hơn ở lần chạy tiếp theo.")) {
-            await db.clearAll(); // Clears MCQs and Caches
+        const ok = await confirm({
+            title: 'Xóa bộ nhớ đệm AI?',
+            body: 'Việc này chỉ xóa Context Cache và markdown cache. Câu hỏi, file hiện tại và thư viện bộ đề sẽ được giữ nguyên.',
+            confirmLabel: 'Xóa cache',
+            variant: 'danger',
+            onConfirm: async () => {
+                await db.clearCaches();
+            },
+        });
+        if (ok) {
             toast.success("Đã xóa sạch bộ nhớ đệm.");
         }
     };
 
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden animate-in zoom-in-95 duration-200 border dark:border-slate-800 flex flex-col max-h-[90vh]">
+            <div className="bg-white dark:bg-slate-900 rounded-none sm:rounded-2xl shadow-2xl w-full max-w-lg sm:mx-4 overflow-hidden animate-in zoom-in-95 duration-200 border dark:border-slate-800 flex flex-col h-[100dvh] sm:h-auto sm:max-h-[90vh]">
                 {/* Header */}
                 <div className="p-6 border-b dark:border-slate-800 flex justify-between items-center bg-gray-50 dark:bg-slate-800/50 flex-shrink-0">
                     <h3 className="text-xl font-bold flex items-center gap-2 text-slate-800 dark:text-white">

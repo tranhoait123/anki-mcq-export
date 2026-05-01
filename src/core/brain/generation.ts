@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { UploadedFile, ProgressCallback, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo } from "../../types";
+import { UploadedFile, ProgressCallback, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, SourceTrace } from "../../types";
 import { findDuplicate } from '../../utils/dedupe';
 import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage } from '../../utils/models';
 import { analyzePdfTextLayer, convertPdfToImages } from '../../utils/pdfProcessor';
@@ -13,7 +13,8 @@ import {
 } from '../../utils/retryStrategy';
 import { splitNativeMcqTextIntoBatches } from '../docxNative';
 import {
-  applyTrustedSourceLabel,
+  applyTrustedSourceMetadata,
+  buildSourceSnippet,
   estimateTextTokens,
   formatPageRangeLabel,
   getAdaptiveQuestionBatchSize,
@@ -102,6 +103,21 @@ export const generateQuestions = async (
     if (onProgress) onProgress("Đang tính toán số lượng Batch và chuẩn bị quét dữ liệu...", 0);
 
     // [Step 1: Splitting Logic]
+    const buildTrace = (
+      file: UploadedFile,
+      sourceLabel: string,
+      mode: SourceTrace['mode'],
+      extras: Partial<SourceTrace> = {},
+      textForSnippet = ''
+    ): SourceTrace => ({
+      fileId: file.id,
+      fileName: file.name,
+      sourceLabel,
+      mode,
+      ...extras,
+      snippet: extras.snippet || buildSourceSnippet(textForSnippet),
+    });
+
     for (const file of files) {
       await controller?.waitIfPaused();
 
@@ -113,12 +129,15 @@ export const generateQuestions = async (
           const pdfTextAnalysis = await analyzePdfTextLayer(pdfDataUrl, visionPagesPerChunk, 1, adaptiveQuestionCap);
           if (pdfTextAnalysis.textBatches.length > 0) {
             pdfTextAnalysis.textBatches.forEach((batch, batchIndex) => {
+              const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(batch.pageRange), `Nhóm ${batchIndex + 1}`);
+              const text = `[TÀI LIỆU PDF TEXT STRUCTURED: "${file.name}" (Trang ${batch.pageRange.start}-${batch.pageRange.end}, Nhóm ${batchIndex + 1}/${pdfTextAnalysis.textBatches.length})]\n\n${batch.text}`;
               allParts.push({
-                text: `[TÀI LIỆU PDF TEXT STRUCTURED: "${file.name}" (Trang ${batch.pageRange.start}-${batch.pageRange.end}, Nhóm ${batchIndex + 1}/${pdfTextAnalysis.textBatches.length})]\n\n${batch.text}`,
+                text,
                 nativeMcqBatch: true,
                 structuredMcqBatch: true,
                 sourceMode: 'pdfText',
-                sourceLabel: joinSourceLabel(file.name, formatPageRangeLabel(batch.pageRange), `Nhóm ${batchIndex + 1}`),
+                sourceLabel,
+                trace: buildTrace(file, sourceLabel, 'pdfText', { pageRange: batch.pageRange, batchIndex: batchIndex + 1 }, text),
                 expectedQuestions: batch.expectedQuestions,
               });
             });
@@ -130,11 +149,15 @@ export const generateQuestions = async (
             if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
               for (const range of visionRanges) {
                 const images = await convertPdfToImages(pdfDataUrl, range);
-                images.forEach((imageBase64) => {
+                images.forEach((imageBase64, imageIndex) => {
+                  const pageNumber = range.start + imageIndex;
+                  const pageRange = { start: pageNumber, end: pageNumber };
+                  const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(pageRange));
                   allParts.push({
                     inlineData: { mimeType: 'image/jpeg', data: imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64 },
                     sourceMode: 'pdfVision',
-                    sourceLabel: joinSourceLabel(file.name, formatPageRangeLabel(range)),
+                    sourceLabel,
+                    trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange }),
                   });
                 });
               }
@@ -142,10 +165,12 @@ export const generateQuestions = async (
               const pdfChunks = await splitPdfByRanges(rawBase64, visionRanges);
               pdfChunks.forEach((chunkBase64, chunkIndex) => {
                 const range = visionRanges[chunkIndex];
+                const sourceLabel = joinSourceLabel(file.name, range ? formatPageRangeLabel(range) : '');
                 allParts.push({
                   inlineData: { mimeType: 'application/pdf', data: chunkBase64 },
                   sourceMode: 'pdfVision',
-                  sourceLabel: joinSourceLabel(file.name, range ? formatPageRangeLabel(range) : ''),
+                  sourceLabel,
+                  trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range }),
                 });
               });
             }
@@ -157,47 +182,58 @@ export const generateQuestions = async (
           if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
             const images = await convertPdfToImages(pdfDataUrl);
             images.forEach((imageBase64, imageIndex) => {
+              const pageRange = { start: imageIndex + 1, end: imageIndex + 1 };
+              const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(pageRange));
               allParts.push({
                 inlineData: { mimeType: 'image/jpeg', data: imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64 },
                 sourceMode: 'pdfVision',
-                sourceLabel: joinSourceLabel(file.name, `Trang ${imageIndex + 1}`),
+                sourceLabel,
+                trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange }),
               });
             });
           } else {
             pdfChunks.forEach((chunkBase64, chunkIndex) => {
               const range = legacyRanges[chunkIndex];
+              const sourceLabel = joinSourceLabel(file.name, range ? formatPageRangeLabel(range) : '');
               allParts.push({
                 inlineData: { mimeType: 'application/pdf', data: chunkBase64 },
                 sourceMode: 'pdfVision',
-                sourceLabel: joinSourceLabel(file.name, range ? formatPageRangeLabel(range) : ''),
+                sourceLabel,
+                trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range }),
               });
             });
           }
         }
       } else if (file.type.startsWith('image/')) {
+        const sourceLabel = file.name;
         allParts.push({
           inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content },
-          sourceLabel: file.name,
+          sourceLabel,
+          trace: buildTrace(file, sourceLabel, 'image'),
         });
       } else if (file.docxImageParts?.length) {
         const docxMcqText = file.nativeText?.trim() || file.structuredText?.trim() || '';
         const docxBatches = splitNativeMcqTextIntoBatches(docxMcqText, adaptiveQuestionCap);
         if (docxBatches.length > 0) {
           docxBatches.forEach((text, batchIndex) => {
+            const sourceLabel = joinSourceLabel(file.name, `Nhóm ${batchIndex + 1}`);
             allParts.push({
               text: `[TÀI LIỆU DOCX ${file.nativeText?.trim() ? 'NATIVE' : 'STRUCTURED'}: "${file.name}" (Nhóm ${batchIndex + 1}/${docxBatches.length})]\n\n${text}`,
               nativeMcqBatch: true,
-              sourceLabel: joinSourceLabel(file.name, `Nhóm ${batchIndex + 1}`),
+              sourceLabel,
+              trace: buildTrace(file, sourceLabel, 'docxText', { batchIndex: batchIndex + 1 }, text),
               expectedQuestions: getNativeBatchExpectedCount(text),
             });
           });
         }
         file.docxImageParts.forEach((image) => {
+          const sourceLabel = joinSourceLabel(file.name, `Ảnh ${image.index}`);
           allParts.push({
             inlineData: { mimeType: image.mimeType, data: image.content.includes(',') ? image.content.split(',')[1] : image.content },
             sourceMode: 'docxImage',
             docxImageLabel: `[DOCX IMAGE: "${file.name}" - Ảnh ${image.index} (${image.name})]`,
-            sourceLabel: joinSourceLabel(file.name, `Ảnh ${image.index}`),
+            sourceLabel,
+            trace: buildTrace(file, sourceLabel, 'docxImage', { batchIndex: image.index }),
           });
         });
       } else if (file.nativeText?.trim() || file.structuredText?.trim()) {
@@ -205,17 +241,21 @@ export const generateQuestions = async (
         const docxBatches = splitNativeMcqTextIntoBatches(docxMcqText, adaptiveQuestionCap);
         if (docxBatches.length > 0) {
           docxBatches.forEach((text, batchIndex) => {
+            const sourceLabel = joinSourceLabel(file.name, `Nhóm ${batchIndex + 1}`);
             allParts.push({
               text: `[TÀI LIỆU DOCX ${file.nativeText?.trim() ? 'NATIVE' : 'STRUCTURED'}: "${file.name}" (Nhóm ${batchIndex + 1}/${docxBatches.length})]\n\n${text}`,
               nativeMcqBatch: true,
-              sourceLabel: joinSourceLabel(file.name, `Nhóm ${batchIndex + 1}`),
+              sourceLabel,
+              trace: buildTrace(file, sourceLabel, 'docxText', { batchIndex: batchIndex + 1 }, text),
               expectedQuestions: getNativeBatchExpectedCount(text),
             });
           });
         } else {
+          const sourceLabel = file.name;
           allParts.push({
             text: `[TÀI LIỆU: "${file.name}" (DOCX structured fallback)]\n\n${docxMcqText}`,
-            sourceLabel: file.name,
+            sourceLabel,
+            trace: buildTrace(file, sourceLabel, 'docxText', undefined, docxMcqText),
           });
         }
       } else {
@@ -226,16 +266,22 @@ export const generateQuestions = async (
         const textContent = getFileTextContent(file);
         while (offset < textContent.length) {
           const currentPart = partIdx++;
+          const sourceLabel = textContent.length <= MAX_CHARS ? file.name : joinSourceLabel(file.name, `Phần ${currentPart}`);
+          const text = `[TÀI LIỆU: "${file.name}" (Phần ${currentPart})]\n\n` + textContent.substring(offset, offset + MAX_CHARS);
           allParts.push({
-            text: `[TÀI LIỆU: "${file.name}" (Phần ${currentPart})]\n\n` + textContent.substring(offset, offset + MAX_CHARS),
-            sourceLabel: textContent.length <= MAX_CHARS ? file.name : joinSourceLabel(file.name, `Phần ${currentPart}`),
+            text,
+            sourceLabel,
+            trace: buildTrace(file, sourceLabel, 'text', { batchIndex: currentPart }, text),
           });
           offset += (MAX_CHARS - OVERLAP);
           if (offset >= textContent.length - OVERLAP) {
             if (offset < textContent.length) {
+              const sourceLabel = joinSourceLabel(file.name, 'Phần cuối');
+              const text = `[TÀI LIỆU: "${file.name}" (Phần cuối)]\n\n` + textContent.substring(offset, textContent.length);
               allParts.push({
-                text: `[TÀI LIỆU: "${file.name}" (Phần cuối)]\n\n` + textContent.substring(offset, textContent.length),
-                sourceLabel: joinSourceLabel(file.name, 'Phần cuối'),
+                text,
+                sourceLabel,
+                trace: buildTrace(file, sourceLabel, 'text', { batchIndex: currentPart + 1 }, text),
               });
             }
             break;
@@ -455,7 +501,7 @@ export const generateQuestions = async (
         if (rawNewQs && rawNewQs.length > 0) {
           const salvagedPartial = Boolean((rawNewQs as any).__salvagedPartial);
           const missingCount = Number((rawNewQs as any).__missingCount || 0);
-          applyTrustedSourceLabel(rawNewQs, part);
+          applyTrustedSourceMetadata(rawNewQs, part);
           const newQs = [];
           const batchNewDuplicates: DuplicateInfo[] = [];
           let batchNewAutoSkipped = 0;

@@ -1,24 +1,34 @@
 import { FileText } from 'lucide-react';
-import { UploadedFile } from '../types';
+import { SourceTrace, UploadedFile } from '../types';
 import { isDocxFile } from '../utils/appHelpers';
 
 interface SourcePreviewPanelProps {
   file: UploadedFile;
+  previewTrace: SourceTrace | null;
   previewUrl: string | null;
 }
 
-const SourcePreviewPanel: React.FC<SourcePreviewPanelProps> = ({ file, previewUrl }) => (
+const SourcePreviewPanel: React.FC<SourcePreviewPanelProps> = ({ file, previewTrace, previewUrl }) => {
+  const pdfPage = previewTrace?.fileName === file.name ? previewTrace.pageRange?.start : undefined;
+  const iframeSrc = previewUrl && file.type === 'application/pdf' && pdfPage
+    ? `${previewUrl}#page=${pdfPage}`
+    : previewUrl;
+
+  return (
   <div className="col-span-6 flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-900">
     <div className="p-3 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center shadow-sm">
       <span className="font-bold text-slate-700 dark:text-slate-200 text-sm flex items-center gap-2">
         <FileText size={16} className="text-indigo-600" /> Tài liệu gốc
       </span>
-      <span className="text-xs text-slate-500 truncate max-w-[200px]">{file.name}</span>
+      <span className="text-xs text-slate-500 truncate max-w-[240px]">
+        {previewTrace?.sourceLabel && previewTrace.fileName === file.name ? previewTrace.sourceLabel : file.name}
+      </span>
     </div>
     <div className={`min-h-0 flex-1 overflow-auto bg-slate-500/10 p-3 ${isDocxFile(file) ? '' : 'flex items-center justify-center'}`}>
       {previewUrl && file.type === 'application/pdf' ? (
         <iframe
-          src={previewUrl}
+          key={iframeSrc || previewUrl}
+          src={iframeSrc || previewUrl}
           className="w-full h-full rounded shadow-sm bg-white"
           title="PDF Preview"
         />
@@ -41,6 +51,7 @@ const SourcePreviewPanel: React.FC<SourcePreviewPanelProps> = ({ file, previewUr
       )}
     </div>
   </div>
-);
+  );
+};
 
 export default SourcePreviewPanel;

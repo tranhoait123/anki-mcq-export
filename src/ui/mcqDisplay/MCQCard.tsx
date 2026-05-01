@@ -1,6 +1,6 @@
 import React from 'react';
-import { CheckCircle2, FileText, Filter, PenLine, Trash2 } from 'lucide-react';
-import { Explanation, MCQ } from '../../types';
+import { CheckCircle2, ExternalLink, FileText, Filter, PenLine, Trash2 } from 'lucide-react';
+import { Explanation, MCQ, SourceTrace } from '../../types';
 import { buildAnkiHtml } from '../../core/anki';
 import { isOptionCorrect } from '../../utils/text';
 import RichExplanation from './RichExplanation';
@@ -19,6 +19,7 @@ interface MCQCardProps {
   onEditStart: (mcq: MCQ) => void;
   onExplanationChange: (field: keyof Explanation, value: string) => void;
   onOptionChange: (idx: number, value: string) => void;
+  onSourceTraceClick?: (trace: SourceTrace) => void;
   viewMode: MCQViewMode;
 }
 
@@ -35,6 +36,7 @@ const MCQCard = React.memo(({
   onOptionChange,
   onExplanationChange,
   onDelete,
+  onSourceTraceClick,
   compact = false
 }: MCQCardProps) => {
   const data = isEditing && editForm ? editForm : mcq;
@@ -55,6 +57,27 @@ const MCQCard = React.memo(({
           <div className={`${questionTextClass} font-bold text-slate-900 dark:text-white leading-relaxed pt-1`}>
             {data.question}
           </div>
+        </div>
+
+        <div className={`${compact ? 'mb-4 ml-12' : 'mb-5 ml-14'} flex min-w-0`}>
+          {data.trace && onSourceTraceClick ? (
+            <button
+              onClick={() => onSourceTraceClick(data.trace!)}
+              className="flex max-w-full items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-left transition hover:border-indigo-300 hover:bg-indigo-100 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:hover:bg-indigo-950/50"
+              title={data.trace.snippet || data.source}
+            >
+              <FileText size={10} className="shrink-0 text-indigo-500" />
+              <span className="truncate text-[9px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                Nguồn: {data.trace.sourceLabel || data.source}
+              </span>
+              <ExternalLink size={10} className="shrink-0 text-indigo-400" />
+            </button>
+          ) : (
+            <div className="flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-1.5 dark:border-slate-700 dark:bg-slate-800">
+              <FileText size={10} className="shrink-0 text-slate-400" />
+              <span className="truncate text-[9px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Nguồn: {data.source}</span>
+            </div>
+          )}
         </div>
 
         <div className={`${compact ? 'space-y-2 mb-5 ml-12' : 'space-y-3 mb-8 ml-14'}`}>
@@ -116,7 +139,7 @@ const MCQCard = React.memo(({
             </button>
             {onDelete && (
               <button
-                onClick={() => onDelete(mcq.id)}
+                onClick={() => void onDelete(mcq.id)}
                 className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 hover:bg-rose-600 hover:text-white transition-all shadow-sm"
                 title="Xóa câu hỏi"
               >
@@ -189,10 +212,24 @@ const MCQCard = React.memo(({
                 <Filter size={10} className="text-slate-400" />
                 <span className="text-[9px] font-black text-slate-500 dark:text-slate-400 tracking-wider uppercase">Độ khó: {mcq.difficulty}</span>
               </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700">
-                <FileText size={10} className="text-slate-400" />
-                <span className="text-[9px] font-black text-slate-500 dark:text-slate-400 tracking-wider uppercase">Nguồn: {mcq.source}</span>
-              </div>
+              {mcq.trace && onSourceTraceClick ? (
+                <button
+                  onClick={() => onSourceTraceClick(mcq.trace!)}
+                  className="flex max-w-full items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-left transition hover:border-indigo-300 hover:bg-indigo-100 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:hover:bg-indigo-950/50"
+                  title={mcq.trace.snippet || mcq.source}
+                >
+                  <FileText size={10} className="shrink-0 text-indigo-500" />
+                  <span className="truncate text-[9px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                    Nguồn: {mcq.trace.sourceLabel || mcq.source}
+                  </span>
+                  <ExternalLink size={10} className="shrink-0 text-indigo-400" />
+                </button>
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700">
+                  <FileText size={10} className="text-slate-400" />
+                  <span className="text-[9px] font-black text-slate-500 dark:text-slate-400 tracking-wider uppercase">Nguồn: {mcq.source}</span>
+                </div>
+              )}
             </div>
           </>
         )}

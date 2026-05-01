@@ -5,6 +5,7 @@ import {
   MCQ,
   ProcessingSession,
   ProcessingState,
+  SourceTrace,
 } from '../types';
 import MCQDisplay from './MCQDisplay';
 import EmptyResultsState from './results/EmptyResultsState';
@@ -25,6 +26,7 @@ interface ResultsPanelProps {
   handleDeleteMCQ: (id: string) => void;
   handleDiscardResumeSession: () => void;
   handleResumeSession: () => void;
+  handleSourceTraceClick: (trace: SourceTrace) => void;
   handleTogglePause: (isProcessing: boolean) => void;
   handleUpdateMCQ: (updatedMCQ: MCQ) => void;
   isSplitView: boolean;
@@ -48,6 +50,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
   handleDeleteMCQ,
   handleDiscardResumeSession,
   handleResumeSession,
+  handleSourceTraceClick,
   handleTogglePause,
   handleUpdateMCQ,
   isSplitView,
@@ -105,6 +108,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
         mcqs={mcqs}
         onUpdate={handleUpdateMCQ}
         onDelete={handleDeleteMCQ}
+        onSourceTraceClick={handleSourceTraceClick}
         scrollContainerRef={resultsPanelRef}
         useWindowScroll={!isSplitView}
       />

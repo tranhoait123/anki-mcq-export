@@ -15,7 +15,7 @@ const ResultsToolbar: React.FC<ResultsToolbarProps> = ({
   handleClearAllData,
   mcqCount,
 }) => (
-  <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/60 sm:p-5">
+  <div className="sticky top-16 z-20 rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/80 sm:p-5">
     <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between xl:flex-1 xl:justify-start">
         <div className="space-y-3">

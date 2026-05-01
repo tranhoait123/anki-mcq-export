@@ -6,6 +6,7 @@ import {
   MCQ,
   ProcessingSession,
   ProcessingState,
+  SourceTrace,
   UploadedFile,
 } from '../types';
 import ControlPanel from './ControlPanel';
@@ -31,12 +32,15 @@ interface AppWorkspaceProps {
   handleGenerate: () => void;
   handleResumeSession: () => void;
   handleRetryFailed: () => void;
+  handleSourceTraceClick: (trace: SourceTrace) => void;
   handleTogglePause: (isProcessing: boolean) => void;
   handleUpdateMCQ: (updatedMCQ: MCQ) => void;
   isSplitView: boolean;
   loading: boolean;
   mcqs: MCQ[];
   ocrMode: 'gemini' | 'tesseract';
+  previewFile: UploadedFile | null;
+  previewTrace: SourceTrace | null;
   previewUrl: string | null;
   processingState: ProcessingState;
   resultsPanelRef: React.RefObject<HTMLDivElement | null>;
@@ -67,12 +71,15 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   handleGenerate,
   handleResumeSession,
   handleRetryFailed,
+  handleSourceTraceClick,
   handleTogglePause,
   handleUpdateMCQ,
   isSplitView,
   loading,
   mcqs,
   ocrMode,
+  previewFile,
+  previewTrace,
   previewUrl,
   processingState,
   resultsPanelRef,
@@ -84,8 +91,8 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   showAudit,
 }) => (
   <main className={`mx-auto w-full transition-all duration-300 ${isSplitView ? 'grid h-[calc(100dvh-72px)] min-h-0 max-w-none grid-cols-12 gap-5 overflow-hidden p-4 xl:gap-6 xl:p-5' : 'grid max-w-[1920px] grid-cols-1 gap-5 px-4 py-5 sm:px-5 lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)] lg:items-start xl:gap-7 xl:px-6 2xl:px-8'}`}>
-    {isSplitView && files.length > 0 && (
-      <SourcePreviewPanel file={files[0]} previewUrl={previewUrl} />
+    {isSplitView && previewFile && (
+      <SourcePreviewPanel file={previewFile} previewTrace={previewTrace} previewUrl={previewUrl} />
     )}
 
     <ControlPanel
@@ -121,6 +128,7 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       handleDeleteMCQ={handleDeleteMCQ}
       handleDiscardResumeSession={handleDiscardResumeSession}
       handleResumeSession={handleResumeSession}
+      handleSourceTraceClick={handleSourceTraceClick}
       handleTogglePause={handleTogglePause}
       handleUpdateMCQ={handleUpdateMCQ}
       isSplitView={isSplitView}

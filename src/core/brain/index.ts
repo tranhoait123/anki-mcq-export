@@ -1,5 +1,7 @@
 export {
   applyTrustedSourceLabel,
+  applyTrustedSourceMetadata,
+  buildSourceSnippet,
   estimateOutputTokensForQuestions,
   estimateTextTokens,
   getAdaptiveQuestionBatchSize,

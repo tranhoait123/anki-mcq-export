@@ -1,4 +1,4 @@
-import { UploadedFile, MCQ } from '../../types';
+import { UploadedFile, MCQ, SourceTrace } from '../../types';
 import { PdfPageRange } from '../../utils/pdfProcessor';
 import { ModelTokenProfile } from '../../utils/models';
 import { buildNativeMcqBatchText, getNativeMcqBlocks } from '../docxNative';
@@ -14,6 +14,15 @@ export const formatPageRangeLabel = (range: PdfPageRange): string =>
 export const getTrustedSourceLabel = (part: { sourceLabel?: string } = {}): string => {
   const sourceLabel = typeof part.sourceLabel === 'string' ? part.sourceLabel.trim() : '';
   return sourceLabel || 'Nguồn không xác định';
+};
+
+export const buildSourceSnippet = (text: string = '', fallback: string = ''): string => {
+  const cleaned = String(text || fallback || '')
+    .replace(/\[[^\]\n]{0,180}\]\s*/g, ' ')
+    .replace(/<<<MCQ\s+\d+>>>/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned.length > 220 ? `${cleaned.slice(0, 220).trim()}...` : cleaned;
 };
 
 const normalizeSourceLabel = (value: string = ''): string =>
@@ -52,6 +61,25 @@ export const applyTrustedSourceLabel = <T extends { source?: string }>(questions
   const sourceLabel = getTrustedSourceLabel(part);
   questions.forEach((question) => {
     if (question && typeof question === 'object') question.source = sourceLabel;
+  });
+  return questions;
+};
+
+export const applyTrustedSourceMetadata = <T extends { source?: string; trace?: SourceTrace; question?: string }>(
+  questions: T[],
+  part: { sourceLabel?: string; trace?: SourceTrace } = {}
+): T[] => {
+  const sourceLabel = getTrustedSourceLabel(part);
+  questions.forEach((question) => {
+    if (!question || typeof question !== 'object') return;
+    question.source = sourceLabel;
+    if (part.trace) {
+      question.trace = {
+        ...part.trace,
+        sourceLabel,
+        snippet: part.trace.snippet || buildSourceSnippet('', question.question || ''),
+      };
+    }
   });
   return questions;
 };

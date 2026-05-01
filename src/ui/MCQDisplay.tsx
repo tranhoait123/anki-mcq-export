@@ -1,5 +1,5 @@
 import React, { useDeferredValue, useMemo, useRef, useState } from 'react';
-import { Explanation, MCQ } from '../types';
+import { Explanation, MCQ, SourceTrace } from '../types';
 import MCQCard from './mcqDisplay/MCQCard';
 import MCQToolbar from './mcqDisplay/MCQToolbar';
 import { MCQViewMode } from './mcqDisplay/types';
@@ -8,6 +8,7 @@ import VirtualizedMCQList from './mcqDisplay/VirtualizedMCQList';
 interface MCQDisplayProps {
   mcqs: MCQ[];
   onDelete?: (id: string) => void;
+  onSourceTraceClick?: (trace: SourceTrace) => void;
   onUpdate?: (updatedMCQ: MCQ) => void;
   scrollContainerRef?: React.RefObject<HTMLElement | null>;
   useWindowScroll?: boolean;
@@ -16,7 +17,7 @@ interface MCQDisplayProps {
 const LIST_VIRTUALIZATION_THRESHOLD = 80;
 const DIFFICULTY_ORDER = ['Easy', 'Medium', 'Hard'] as const;
 
-const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrollContainerRef, useWindowScroll = false }) => {
+const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, onSourceTraceClick, scrollContainerRef, useWindowScroll = false }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<MCQ | null>(null);
@@ -117,6 +118,7 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, scrol
         onEditStart={handleEditStart}
         onExplanationChange={handleExplanationChange}
         onOptionChange={handleOptionChange}
+        onSourceTraceClick={onSourceTraceClick}
         viewMode={viewMode}
       />
     </div>

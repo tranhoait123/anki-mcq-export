@@ -12,6 +12,13 @@ const mockQuestion: MCQ = {
     warning: '',
   },
   source: 'e2e-smoke.txt',
+  trace: {
+    fileId: 'e2e-file',
+    fileName: 'e2e-smoke.txt',
+    sourceLabel: 'e2e-smoke.txt',
+    mode: 'text',
+    snippet: 'Câu 1. Đâu là đáp án đúng?',
+  },
   difficulty: 'Easy',
   depthAnalysis: 'Nhận biết',
 };

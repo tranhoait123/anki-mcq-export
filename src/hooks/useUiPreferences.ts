@@ -7,7 +7,7 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' | string }>;
 };
 
-export const useUiPreferences = (files: UploadedFile[]) => {
+export const useUiPreferences = (files: UploadedFile[], previewFileId?: string | null) => {
   const [isSplitView, setIsSplitView] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [darkMode, setDarkMode] = useState(() => {
@@ -35,13 +35,6 @@ export const useUiPreferences = (files: UploadedFile[]) => {
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
-    if ((window as any).DEBUG_SHOW_INSTALL) {
-      setDeferredPrompt({
-        prompt: () => alert('PWA Install prompt would show here!'),
-        userChoice: Promise.resolve({ outcome: 'accepted' }),
-      } as BeforeInstallPromptEvent);
-    }
-
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, []);
 
@@ -57,7 +50,7 @@ export const useUiPreferences = (files: UploadedFile[]) => {
 
   const previewUrl = useMemo(() => {
     if (!isSplitView || files.length === 0) return null;
-    const file = files[0];
+    const file = files.find(item => item.id === previewFileId) || files[0];
     if (isDocxFile(file) || (!file.type.startsWith('image/') && file.type !== 'application/pdf')) return null;
     try {
       const base64Data = file.content.includes(',') ? file.content.split(',')[1] : file.content;
@@ -73,7 +66,7 @@ export const useUiPreferences = (files: UploadedFile[]) => {
       console.error('Failed to generate preview URL', error);
       return null;
     }
-  }, [files, isSplitView]);
+  }, [files, isSplitView, previewFileId]);
 
   useEffect(() => {
     return () => {

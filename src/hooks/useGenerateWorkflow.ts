@@ -49,6 +49,13 @@ interface UseGenerateWorkflowParams {
   validateProviderCredentials: (requestSettings: AppSettings) => boolean;
   waitWithController: (ms: number, controller?: ProcessingController) => Promise<void>;
   warnVisionRecommendedDocx: () => boolean;
+  onGenerationComplete?: (payload: {
+    files: UploadedFile[];
+    mcqs: MCQ[];
+    duplicates: DuplicateInfo[];
+    analysis: AnalysisResult | null;
+    settings: AppSettings;
+  }) => Promise<void>;
 }
 
 export const useGenerateWorkflow = ({
@@ -81,6 +88,7 @@ export const useGenerateWorkflow = ({
   validateProviderCredentials,
   waitWithController,
   warnVisionRecommendedDocx,
+  onGenerationComplete,
 }: UseGenerateWorkflowParams) => {
   const handleGenerate = async () => {
     if (files.length === 0) return;
@@ -227,6 +235,20 @@ export const useGenerateWorkflow = ({
         ...q, id: q.id || `q - ${Date.now()} -${i} `
       }));
       await setVisibleMcqs(formatted);
+      if (formatted.length > 0) {
+        try {
+          await onGenerationComplete?.({
+            files,
+            mcqs: formatted,
+            duplicates: res.duplicates || [],
+            analysis,
+            settings: settingsSnapshot,
+          });
+        } catch (projectError) {
+          console.error('Project auto-save failed:', projectError);
+          toast.warning('Đã trích xuất xong nhưng chưa lưu được snapshot vào thư viện.');
+        }
+      }
 
       // 3. Thông báo lỗi cho các Batch thất bại (nếu có)
       if (res.failedBatches && res.failedBatches.length > 0) {

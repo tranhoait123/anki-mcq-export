@@ -110,8 +110,8 @@ const DuplicatesReviewModal: React.FC<DuplicatesReviewModalProps> = ({
 
   if (total === 0) {
     return (
-      <div className="fixed inset-0 z-[100] bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
-        <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-10 text-center shadow-2xl border dark:border-slate-800">
+      <div className="fixed inset-0 z-[100] bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm flex items-end justify-center p-0 sm:items-center sm:p-6">
+        <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-3xl p-10 text-center shadow-2xl border dark:border-slate-800">
           <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-6">
             <CheckCircle2 size={40} />
           </div>
@@ -137,10 +137,10 @@ const DuplicatesReviewModal: React.FC<DuplicatesReviewModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-slate-900/60 dark:bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-[#F8FAFC] dark:bg-slate-950 w-full max-w-5xl h-[90vh] rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden border border-white/20 dark:border-slate-800">
-        <div className="px-8 py-6 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center shrink-0">
-          <div className="flex items-center gap-5">
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 dark:bg-black/70 backdrop-blur-md flex items-end justify-center p-0 sm:items-center sm:p-4">
+      <div className="bg-[#F8FAFC] dark:bg-slate-950 w-full max-w-5xl h-[100dvh] sm:h-[90vh] rounded-none sm:rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden border border-white/20 dark:border-slate-800">
+        <div className="px-5 py-4 sm:px-8 sm:py-6 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center shrink-0">
+          <div className="flex items-center gap-3 sm:gap-5">
             <div className="bg-orange-100 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner">
               <Info size={24} />
             </div>
@@ -151,10 +151,10 @@ const DuplicatesReviewModal: React.FC<DuplicatesReviewModalProps> = ({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <button
               onClick={onKeepAll}
-              className="px-5 py-2.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black text-[10px] uppercase tracking-widest rounded-xl hover:bg-indigo-600 hover:text-white transition-all border border-indigo-100 dark:border-indigo-800"
+              className="hidden sm:block px-5 py-2.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black text-[10px] uppercase tracking-widest rounded-xl hover:bg-indigo-600 hover:text-white transition-all border border-indigo-100 dark:border-indigo-800"
             >
               Khôi phục tất cả
             </button>
@@ -167,8 +167,8 @@ const DuplicatesReviewModal: React.FC<DuplicatesReviewModalProps> = ({
           </div>
         </div>
 
-        <div className="flex-1 flex overflow-hidden">
-          <div className="w-80 border-r border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 shrink-0 flex flex-col">
+        <div className="flex-1 flex flex-col overflow-hidden lg:flex-row">
+          <div className="h-48 lg:h-auto lg:w-80 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 shrink-0 flex flex-col">
             <div className="p-4 space-y-3 border-b border-slate-200/70 dark:border-slate-800">
               <div className="flex items-center gap-3 rounded-2xl bg-slate-100/80 px-3 py-2 dark:bg-slate-800/60">
                 <Search size={15} className="text-slate-400" />
@@ -240,7 +240,7 @@ const DuplicatesReviewModal: React.FC<DuplicatesReviewModalProps> = ({
             </div>
           </div>
 
-          <div className="flex-1 flex flex-col p-8 overflow-y-auto bg-slate-50/50 dark:bg-slate-950">
+          <div className="flex-1 flex flex-col p-4 sm:p-8 overflow-y-auto bg-slate-50/50 dark:bg-slate-950">
             {visibleCurrentDup ? (
               <>
                 <div className="bg-orange-50 dark:bg-orange-950/20 border border-orange-100 dark:border-orange-900/30 rounded-2xl p-4 flex items-center justify-between mb-8 shadow-sm">
@@ -265,7 +265,7 @@ const DuplicatesReviewModal: React.FC<DuplicatesReviewModalProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-8 items-start relative">
+                <div className="grid grid-cols-1 gap-5 items-start relative xl:grid-cols-2 xl:gap-8">
                   <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 bg-white dark:bg-slate-800 rounded-full flex items-center justify-center shadow-xl border border-slate-100 dark:border-slate-700 z-10 text-slate-300 dark:text-slate-600">
                     <ArrowRight size={24} strokeWidth={3} />
                   </div>
@@ -296,7 +296,7 @@ const DuplicatesReviewModal: React.FC<DuplicatesReviewModalProps> = ({
           </div>
         </div>
 
-        <div className="px-8 py-6 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center shrink-0">
+        <div className="px-4 py-4 sm:px-8 sm:py-6 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center shrink-0">
           <button
             onClick={() => {
               if (!visibleCurrentDup) return;
@@ -309,7 +309,7 @@ const DuplicatesReviewModal: React.FC<DuplicatesReviewModalProps> = ({
             <Trash2 size={16} /> Bỏ qua (Xóa)
           </button>
 
-          <div className="flex gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
             <button
               onClick={() => {
                 if (!visibleCurrentDup) return;

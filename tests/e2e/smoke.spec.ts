@@ -32,9 +32,27 @@ test('uploads text, extracts with mocked AI, renders result, and exports CSV', a
   await page.getByTestId('generate-button').click();
   await expect(page.getByTestId('result-count')).toHaveText('1');
   await expect(page.getByText('Đâu là đáp án đúng trong smoke test?')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Nguồn: e2e-smoke.txt/i })).toBeVisible();
 
   const downloadPromise = page.waitForEvent('download');
   await page.getByTestId('export-csv-button').click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^\[ANKI\]_e2e_smoke_\d{4}-\d{2}-\d{2}\.csv$/);
+
+  await page.getByRole('button', { name: /Xóa toàn bộ dữ liệu/i }).click();
+  await expect(page.getByText('Xóa dữ liệu hiện tại?')).toBeVisible();
+  await page.getByRole('button', { name: 'Hủy' }).click();
+  await expect(page.getByText('Đâu là đáp án đúng trong smoke test?')).toBeVisible();
+
+  await page.getByTitle('Thư viện bộ đề').click();
+  await expect(page.getByRole('heading', { name: 'Thư viện bộ đề' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /e2e-smoke -/i })).toBeVisible();
+  await page.getByRole('button', { name: 'Đóng' }).click();
+
+  await page.getByRole('button', { name: /Nguồn: e2e-smoke.txt/i }).click();
+  await expect(page.getByText('Tài liệu gốc')).toBeVisible();
+
+  await page.reload();
+  await page.getByTitle('Thư viện bộ đề').click();
+  await expect(page.getByRole('button', { name: /e2e-smoke -/i })).toBeVisible();
 });

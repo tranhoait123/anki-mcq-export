@@ -1,12 +1,14 @@
 import React from 'react';
 import { toast } from 'sonner';
 import { DuplicateInfo, MCQ } from '../types';
+import { ConfirmDialogOptions } from './useConfirmDialog';
 
 interface UseQuestionReviewActionsParams {
   duplicates: DuplicateInfo[];
   setDuplicates: React.Dispatch<React.SetStateAction<DuplicateInfo[]>>;
   setMcqs: React.Dispatch<React.SetStateAction<MCQ[]>>;
   setShowDuplicates: React.Dispatch<React.SetStateAction<boolean>>;
+  confirm: (options: ConfirmDialogOptions) => Promise<boolean>;
 }
 
 export const useQuestionReviewActions = ({
@@ -14,6 +16,7 @@ export const useQuestionReviewActions = ({
   setDuplicates,
   setMcqs,
   setShowDuplicates,
+  confirm,
 }: UseQuestionReviewActionsParams) => {
   const restoreDuplicate = (dupId: string) => {
     const dup = duplicates.find(d => d.id === dupId);
@@ -55,11 +58,16 @@ export const useQuestionReviewActions = ({
     setMcqs(prev => prev.map(m => m.id === updatedMCQ.id ? updatedMCQ : m));
   };
 
-  const handleDeleteMCQ = (id: string) => {
-    if (confirm('Bạn có chắc muốn xóa câu hỏi này không?')) {
-      setMcqs(prev => prev.filter(m => m.id !== id));
-      toast.success("Đã xóa câu hỏi");
-    }
+  const handleDeleteMCQ = async (id: string) => {
+    const ok = await confirm({
+      title: 'Xóa câu hỏi này?',
+      body: 'Câu hỏi sẽ bị xóa khỏi danh sách hiện tại. Thao tác này không xóa các project đã lưu trong thư viện.',
+      confirmLabel: 'Xóa câu hỏi',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    setMcqs(prev => prev.filter(m => m.id !== id));
+    toast.success("Đã xóa câu hỏi");
   };
 
   return {

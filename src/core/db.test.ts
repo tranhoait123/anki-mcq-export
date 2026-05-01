@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppDB } from './db';
-import { AppSettings, MCQ, ProcessingSession, UploadedFile } from '../types';
+import { AppSettings, MCQ, ProcessingSession, StudyProject, UploadedFile } from '../types';
 
 type StoreRecord = {
   keyPath?: string;
@@ -221,6 +221,32 @@ const baseSession: ProcessingSession = {
   phaseComparisonFailedBatchDetails: [],
 };
 
+const baseProject: StudyProject = {
+  id: 'project-1',
+  name: 'Demo Project',
+  filesFingerprint: 'abc',
+  createdAt: 1,
+  updatedAt: 2,
+  files: [baseFile],
+  mcqs: [baseQuestion],
+  duplicates: [],
+  analysis: null,
+  settingsSummary: {
+    provider: 'google',
+    model: 'gemini-3.1-flash-lite-preview',
+    skipAnalysis: true,
+    concurrencyLimit: 1,
+    adaptiveBatching: true,
+    hasCustomPrompt: false,
+  },
+  stats: {
+    questionCount: 1,
+    duplicateCount: 0,
+    fileCount: 1,
+    difficultyCounts: { Medium: 1 },
+  },
+};
+
 const openLegacyDb = async () => {
   const idb = (globalThis as any).indexedDB;
   await new Promise<void>((resolve, reject) => {
@@ -276,6 +302,24 @@ describe('AppDB session persistence', () => {
 
     await appDb.saveSession(baseSession);
     expect(await appDb.getSession()).toEqual(baseSession);
+
+    await appDb.saveProject(baseProject);
+    expect(await appDb.getProject(baseProject.id)).toEqual(baseProject);
+  });
+
+  it('saves, lists, and deletes study projects without touching current data', async () => {
+    const appDb = new AppDB();
+    await appDb.init();
+
+    await appDb.saveMCQs([baseQuestion]);
+    await appDb.saveProject(baseProject);
+    await appDb.saveProject({ ...baseProject, id: 'project-2', name: 'Newer', updatedAt: 5 });
+
+    expect((await appDb.getAllProjects()).map(project => project.id)).toEqual(['project-2', 'project-1']);
+
+    await appDb.deleteProject('project-2');
+    expect((await appDb.getAllProjects()).map(project => project.id)).toEqual(['project-1']);
+    expect(await appDb.getAllMCQs()).toEqual([baseQuestion]);
   });
 
   it('clears files and sessions together during full reset', async () => {
@@ -285,11 +329,13 @@ describe('AppDB session persistence', () => {
     await appDb.saveMCQs([baseQuestion]);
     await appDb.saveFiles([baseFile]);
     await appDb.saveSession(baseSession);
+    await appDb.saveProject(baseProject);
 
     await appDb.clearAll();
 
     expect(await appDb.getAllMCQs()).toEqual([]);
     expect(await appDb.getFiles()).toEqual([]);
     expect(await appDb.getSession()).toBeNull();
+    expect(await appDb.getProject(baseProject.id)).toEqual(baseProject);
   });
 });

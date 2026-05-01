@@ -1,6 +1,9 @@
 import React from 'react';
-import { AppSettings, DuplicateInfo, MCQ } from '../types';
+import { AppSettings, DuplicateInfo, MCQ, StudyProject } from '../types';
+import { ConfirmDialogOptions, ConfirmDialogState } from '../hooks/useConfirmDialog';
+import ConfirmModal from './ConfirmModal';
 import DuplicatesReviewModal from './DuplicatesReviewModal';
+import ProjectLibraryModal from './ProjectLibraryModal';
 import SettingsModal from './SettingsModal';
 
 interface AppModalsProps {
@@ -8,12 +11,25 @@ interface AppModalsProps {
   handleKeepAllDuplicates: () => void;
   handleReplaceDuplicate: (originalId: string, newMcq: MCQ, dupId: string) => void;
   handleSkipDuplicate: (dupId: string) => void;
+  confirm: (options: ConfirmDialogOptions) => Promise<boolean>;
+  confirmState: ConfirmDialogState;
+  handleConfirmCancel: () => void;
+  handleConfirmSubmit: () => void;
+  handleDeleteProject: (project: StudyProject) => Promise<void>;
   restoreDuplicate: (dupId: string) => void;
+  handleOpenProject: (project: StudyProject) => Promise<void>;
+  handleRenameProject: (projectId: string, name: string) => Promise<void>;
+  activeProjectId: string | null;
+  loading: boolean;
+  mcqs: MCQ[];
+  projects: StudyProject[];
   setSettings: React.Dispatch<React.SetStateAction<AppSettings>>;
   setShowDuplicates: (show: boolean) => void;
+  setShowLibrary: (show: boolean) => void;
   setShowSettings: (show: boolean) => void;
   settings: AppSettings;
   showDuplicates: boolean;
+  showLibrary: boolean;
   showSettings: boolean;
 }
 
@@ -22,12 +38,25 @@ const AppModals: React.FC<AppModalsProps> = ({
   handleKeepAllDuplicates,
   handleReplaceDuplicate,
   handleSkipDuplicate,
+  confirm,
+  confirmState,
+  handleConfirmCancel,
+  handleConfirmSubmit,
+  handleDeleteProject,
+  handleOpenProject,
+  handleRenameProject,
+  activeProjectId,
+  loading,
+  mcqs,
+  projects,
   restoreDuplicate,
   setSettings,
   setShowDuplicates,
+  setShowLibrary,
   setShowSettings,
   settings,
   showDuplicates,
+  showLibrary,
   showSettings,
 }) => (
   <>
@@ -36,6 +65,7 @@ const AppModals: React.FC<AppModalsProps> = ({
       onClose={() => setShowSettings(false)}
       settings={settings}
       setSettings={setSettings}
+      confirm={confirm}
     />
     <DuplicatesReviewModal
       show={showDuplicates}
@@ -45,6 +75,22 @@ const AppModals: React.FC<AppModalsProps> = ({
       onSkip={handleSkipDuplicate}
       onReplace={handleReplaceDuplicate}
       onKeepAll={handleKeepAllDuplicates}
+    />
+    <ProjectLibraryModal
+      activeProjectId={activeProjectId}
+      currentMcqs={mcqs}
+      loading={loading}
+      onClose={() => setShowLibrary(false)}
+      onDeleteProject={handleDeleteProject}
+      onOpenProject={handleOpenProject}
+      onRenameProject={handleRenameProject}
+      projects={projects}
+      show={showLibrary}
+    />
+    <ConfirmModal
+      state={confirmState}
+      onCancel={handleConfirmCancel}
+      onConfirm={handleConfirmSubmit}
     />
   </>
 );

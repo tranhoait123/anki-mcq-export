@@ -112,8 +112,17 @@ export const useProjectLibrary = ({
       const existingProjects = await db.getAllProjects();
       const existingProject = existingProjects.find(project => project.filesFingerprint === fingerprint);
       if (existingProject) {
-        setActiveProjectId(existingProject.id);
-        setProjects(existingProjects);
+        const refreshedProject = await buildProjectSnapshot({
+          existing: existingProject,
+          files: persistableFiles,
+          mcqs,
+          duplicates,
+          analysis,
+          settings,
+        });
+        await db.saveProject(refreshedProject);
+        setActiveProjectId(refreshedProject.id);
+        await refreshProjects();
         return;
       }
 

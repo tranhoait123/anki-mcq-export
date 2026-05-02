@@ -119,6 +119,90 @@ describe('MCQ dedupe utilities', () => {
     expect(findDuplicate(negated, [original]).isDup).toBe(false);
   });
 
+  it('auto-skips exact negative or exception questions when Q+A-E are identical', () => {
+    const original = makeMCQ({
+      question: 'Câu 4a. Tất cả dấu hiệu sau gợi ý viêm màng não, NGOẠI TRỪ?',
+      options: ['A. Sốt', 'B. Cứng gáy', 'C. Dấu Kernig', 'D. Ban xuất huyết', 'E. Chảy nước mũi trong'],
+      correctAnswer: 'E',
+    });
+    const exact = makeMCQ({
+      question: 'Tất cả dấu hiệu sau gợi ý viêm màng não, NGOẠI TRỪ?',
+      options: ['A. Sốt', 'B. Cứng gáy', 'C. Dấu Kernig', 'D. Ban xuất huyết', 'E. Chảy nước mũi trong'],
+      correctAnswer: 'E',
+    });
+
+    const result = findDuplicate(exact, [original]);
+    expect(result.action).toBe('autoSkip');
+    expect(result.score).toBe(1);
+  });
+
+  it('reviews equivalent false-choice wording instead of auto-skipping blindly', () => {
+    const exceptQuestion = makeMCQ({
+      question: 'Tất cả phát biểu sau về viêm phổi trẻ em đều đúng, NGOẠI TRỪ?',
+      options: ['A. Có thể sốt', 'B. Có thể ho', 'C. Có thể thở nhanh', 'D. Có thể rút lõm ngực', 'E. Luôn không cần kháng sinh'],
+      correctAnswer: 'E',
+    });
+    const notTrueQuestion = makeMCQ({
+      question: 'Phát biểu nào KHÔNG đúng về viêm phổi trẻ em?',
+      options: ['A. Có thể sốt', 'B. Có thể ho', 'C. Có thể thở nhanh', 'D. Có thể rút lõm ngực', 'E. Luôn không cần kháng sinh'],
+      correctAnswer: 'E',
+    });
+
+    const result = findDuplicate(notTrueQuestion, [exceptQuestion]);
+    expect(result.action).toBe('review');
+    expect(result.isAutoSkip).toBe(false);
+    expect(result.reason).toContain('phủ định/ngoại trừ');
+  });
+
+  it('keeps positive treatment and contraindication questions separate', () => {
+    const indicated = makeMCQ({
+      question: 'Thuốc nào nên dùng trong xử trí ban đầu cơn hen cấp?',
+      options: ['A. Salbutamol khí dung', 'B. Morphin', 'C. Propranolol', 'D. Codein', 'E. Diazepam'],
+      correctAnswer: 'A',
+    });
+    const notIndicated = makeMCQ({
+      question: 'Thuốc nào KHÔNG nên dùng trong xử trí ban đầu cơn hen cấp?',
+      options: ['A. Salbutamol khí dung', 'B. Morphin', 'C. Propranolol', 'D. Codein', 'E. Diazepam'],
+      correctAnswer: 'C',
+    });
+
+    expect(findDuplicate(notIndicated, [indicated]).action).toBe('unique');
+  });
+
+  it('handles English NOT true versus EXCEPT as risky review', () => {
+    const exceptQuestion = makeMCQ({
+      question: 'All of the following are signs of meningitis EXCEPT?',
+      options: ['A. Fever', 'B. Neck stiffness', 'C. Kernig sign', 'D. Photophobia', 'E. Normal CSF glucose always'],
+      correctAnswer: 'E',
+    });
+    const notTrueQuestion = makeMCQ({
+      question: 'Which statement is NOT true about signs of meningitis?',
+      options: ['A. Fever', 'B. Neck stiffness', 'C. Kernig sign', 'D. Photophobia', 'E. Normal CSF glucose always'],
+      correctAnswer: 'E',
+    });
+
+    const result = findDuplicate(notTrueQuestion, [exceptQuestion]);
+    expect(result.action).toBe('review');
+    expect(result.reason).toContain('phủ định/ngoại trừ');
+  });
+
+  it('uses partial matching for near-duplicate questions with short OCR insertions', () => {
+    const original = makeMCQ({
+      question: 'Bệnh nhân sốt cao co giật, cổ cứng, chẩn đoán phù hợp nhất là gì?',
+      options: ['A. Viêm màng não', 'B. Viêm dạ dày ruột', 'C. Sốt siêu vi', 'D. Động kinh', 'E. Hạ đường huyết'],
+      correctAnswer: 'A',
+    });
+    const ocrInserted = makeMCQ({
+      question: 'Bệnh nhân sốt cao co giật tại nhà, sau đó cổ cứng, chẩn đoán phù hợp nhất là gì?',
+      options: ['A. Viêm màng não', 'B. Viêm dạ dày ruột', 'C. Sốt siêu vi', 'D. Động kinh', 'E. Hạ đường huyết'],
+      correctAnswer: 'A',
+    });
+
+    const result = findDuplicate(ocrInserted, [original]);
+    expect(result.isDup).toBe(true);
+    expect(result.fieldScores?.questionPartial).toBeGreaterThan(0.9);
+  });
+
   it('does not merge different questions that share a long clinical case stem', () => {
     const stem = 'Bệnh nhân nam 65 tuổi đau ngực dữ dội sau xương ức, vã mồ hôi, điện tâm đồ có ST chênh lên ở DII DIII aVF, tiền sử tăng huyết áp và hút thuốc lá lâu năm.';
     const diagnosis = makeMCQ({

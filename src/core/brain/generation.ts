@@ -17,12 +17,12 @@ import {
   buildSourceSnippet,
   estimateTextTokens,
   formatPageRangeLabel,
-  getAdaptiveQuestionBatchSize,
   getAdaptiveTextCharBudget,
   getAdaptiveVisionPagesPerChunk,
   getFileTextContent,
   getNativeBatchExpectedCount,
   getNativePartBatches,
+  getStructuredQuestionBatchSize,
   getTrustedSourceLabel,
   inferCompletedBatchIndicesFromExistingQuestions,
   joinSourceLabel,
@@ -87,7 +87,7 @@ export const generateQuestions = async (
     userKeyRotator.init(runtimeSettings.apiKey, requestedConcurrency);
     const adaptiveBatching = runtimeSettings.adaptiveBatching !== false;
     const tokenProfile = getModelTokenProfile(runtimeSettings.provider, runtimeSettings.model);
-    let adaptiveQuestionCap = getAdaptiveQuestionBatchSize(tokenProfile, adaptiveBatching);
+    let adaptiveQuestionCap = getStructuredQuestionBatchSize(tokenProfile, adaptiveBatching);
     let adaptiveLargeBatchFailures = 0;
     const visionPagesPerChunk = getAdaptiveVisionPagesPerChunk(tokenProfile, adaptiveBatching);
     const textCharBudget = getAdaptiveTextCharBudget(tokenProfile, adaptiveBatching);

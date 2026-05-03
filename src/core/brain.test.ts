@@ -4,8 +4,10 @@ import {
   callOpenAICompatibleProvider,
   extractProviderMessageContent,
   getAdaptiveQuestionBatchSize,
+  getStructuredQuestionBatchSize,
   getModelConfig,
   getRetryDelayMsFromError,
+  STRUCTURED_QUESTION_BATCH_CAP,
   applyTrustedSourceLabel,
   applyTrustedSourceMetadata,
   parseQuestionsFromModelText,
@@ -136,6 +138,32 @@ describe('Core Logic', () => {
       maxQuestionsPerBatch: 20,
       visionPagesPerBatch: 3,
     })).toBe(19);
+  });
+
+  it('caps structured DOCX/PDF text batches at the quality-safe limit in generate flow', () => {
+    expect(getStructuredQuestionBatchSize({
+      inputLimit: 1048576,
+      outputLimit: 65536,
+      safeOutputBudget: 49152,
+      maxQuestionsPerBatch: 35,
+      visionPagesPerBatch: 4,
+    })).toBe(STRUCTURED_QUESTION_BATCH_CAP);
+
+    expect(getStructuredQuestionBatchSize({
+      inputLimit: 400000,
+      outputLimit: 128000,
+      safeOutputBudget: 65536,
+      maxQuestionsPerBatch: 35,
+      visionPagesPerBatch: 3,
+    })).toBe(STRUCTURED_QUESTION_BATCH_CAP);
+
+    expect(getStructuredQuestionBatchSize({
+      inputLimit: 128000,
+      outputLimit: 32768,
+      safeOutputBudget: 24576,
+      maxQuestionsPerBatch: 20,
+      visionPagesPerBatch: 3,
+    })).toBe(10);
   });
 
   it('adds Google maxOutputTokens without dropping schema or cached content', () => {

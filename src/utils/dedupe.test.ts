@@ -203,6 +203,36 @@ describe('MCQ dedupe utilities', () => {
     expect(result.fieldScores?.questionPartial).toBeGreaterThan(0.9);
   });
 
+  it('keeps same-option near-duplicates in the candidate pool when the new stem is much longer', () => {
+    const original = makeMCQ({
+      id: 'target',
+      question: 'Bệnh nhân sốt cao co giật, cổ cứng, chẩn đoán phù hợp nhất là gì?',
+      options: ['A. Viêm màng não', 'B. Viêm dạ dày ruột', 'C. Sốt siêu vi', 'D. Động kinh', 'E. Hạ đường huyết'],
+      correctAnswer: 'A',
+    });
+    const longerVariant = makeMCQ({
+      question: 'Bệnh nhân sốt cao co giật tại nhà nhiều lần trước nhập viện, đã được người nhà xoa dầu, cạo gió và cho uống thuốc dân gian, sau đó xuất hiện cổ cứng, chẩn đoán phù hợp nhất là gì?',
+      options: ['A. Viêm màng não', 'B. Viêm dạ dày ruột', 'C. Sốt siêu vi', 'D. Động kinh', 'E. Hạ đường huyết'],
+      correctAnswer: 'A',
+    });
+    const distractors = Array.from({ length: 95 }, (_, index) => makeMCQ({
+      id: `distractor-${index}`,
+      question: `Tình huống lâm sàng nền dài tương đương số ${index} trong bệnh cảnh hô hấp nhi khoa cần xử trí bước ${index % 7} như thế nào cho phù hợp nhất hiện tại?`,
+      options: [
+        `A. Phương án alpha ${index}`,
+        `B. Phương án beta ${index}`,
+        `C. Phương án gamma ${index}`,
+        `D. Phương án delta ${index}`,
+        `E. Phương án epsilon ${index}`,
+      ],
+      correctAnswer: 'A',
+    }));
+
+    const result = findDuplicate(longerVariant, [original, ...distractors]);
+    expect(result.action).toBe('autoSkip');
+    expect(result.matchedData?.id).toBe('target');
+  });
+
   it('does not merge different questions that share a long clinical case stem', () => {
     const stem = 'Bệnh nhân nam 65 tuổi đau ngực dữ dội sau xương ức, vã mồ hôi, điện tâm đồ có ST chênh lên ở DII DIII aVF, tiền sử tăng huyết áp và hút thuốc lá lâu năm.';
     const diagnosis = makeMCQ({

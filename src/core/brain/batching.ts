@@ -3,6 +3,8 @@ import { PdfPageRange } from '../../utils/pdfProcessor';
 import { ModelTokenProfile } from '../../utils/models';
 import { buildNativeMcqBatchText, getNativeMcqBlocks } from '../docxNative';
 
+export const STRUCTURED_QUESTION_BATCH_CAP = 10;
+
 export const getFileTextContent = (file: UploadedFile): string =>
   file.nativeText?.trim() || file.structuredText?.trim() || file.plainText?.trim() || file.content || '';
 
@@ -128,6 +130,12 @@ export const getAdaptiveQuestionBatchSize = (
   const budgetLimitedCount = Math.max(1, Math.floor(profile.safeOutputBudget / estimateOutputTokensForQuestions(1)));
   return Math.max(1, Math.min(runtimeCap || profile.maxQuestionsPerBatch, profile.maxQuestionsPerBatch, budgetLimitedCount));
 };
+
+export const getStructuredQuestionBatchSize = (
+  profile: ModelTokenProfile,
+  adaptiveBatching = true
+): number =>
+  Math.min(getAdaptiveQuestionBatchSize(profile, adaptiveBatching), STRUCTURED_QUESTION_BATCH_CAP);
 
 export const getAdaptiveTextCharBudget = (profile: ModelTokenProfile, adaptiveBatching = true): number => {
   if (!adaptiveBatching) return 15000;

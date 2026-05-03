@@ -94,6 +94,9 @@ export const buildMCQFingerprint = (mcq: MCQLike): string => {
   return fields.map(normalizeMCQField).join('|');
 };
 
+const buildOptionsFingerprint = (mcq: MCQLike): string =>
+  getOptions(mcq).map(normalizeMCQField).join('|');
+
 const tokenize = (text: string): string[] =>
   normalizeMCQField(text)
     .split(' ')
@@ -371,12 +374,14 @@ const selectCandidatePool = <T extends MCQLike>(candidate: MCQLike, existingQues
   if (existingQuestions.length < GROUPING_MIN_CANDIDATES) return existingQuestions;
 
   const candidateQuestion = normalizeMCQField(candidate.question || '');
+  const candidateOptionsFingerprint = buildOptionsFingerprint(candidate);
   const candidateBucket = Math.floor(candidateQuestion.length / LENGTH_BUCKET_SIZE);
   const selected: T[] = [];
   const seen = new Set<T>();
 
   for (const existing of existingQuestions) {
     const existingQuestion = normalizeMCQField(existing.question || '');
+    const sameOptions = buildOptionsFingerprint(existing) === candidateOptionsFingerprint;
     const existingBucket = Math.floor(existingQuestion.length / LENGTH_BUCKET_SIZE);
     const sameLengthBand = Math.abs(existingBucket - candidateBucket) <= GROUPING_NEIGHBOR_RADIUS;
     const containmentMatch =
@@ -384,7 +389,7 @@ const selectCandidatePool = <T extends MCQLike>(candidate: MCQLike, existingQues
       existingQuestion.length > 20 &&
       (candidateQuestion.includes(existingQuestion) || existingQuestion.includes(candidateQuestion));
 
-    if ((sameLengthBand || containmentMatch) && !seen.has(existing)) {
+    if ((sameLengthBand || containmentMatch || sameOptions) && !seen.has(existing)) {
       seen.add(existing);
       selected.push(existing);
     }

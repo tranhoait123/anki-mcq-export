@@ -5,9 +5,11 @@ export {
   estimateOutputTokensForQuestions,
   estimateTextTokens,
   getAdaptiveQuestionBatchSize,
+  getStructuredQuestionBatchSize,
   getTrustedSourceLabel,
   hashFiles,
   inferCompletedBatchIndicesFromExistingQuestions,
+  STRUCTURED_QUESTION_BATCH_CAP,
 } from './batching';
 
 export {

@@ -455,7 +455,10 @@ export const generateQuestions = async (
         const imagePrompt = part.sourceMode === 'docxImage'
           ? `${part.docxImageLabel || '[DOCX IMAGE]'}\nẢnh này được nhúng trong file Word và CÓ THỂ chứa câu hỏi trắc nghiệm. Hãy phóng to/đọc kỹ toàn bộ chữ trong ảnh. Nếu ảnh chứa MCQ, hãy trích xuất đầy đủ mọi câu hỏi, lựa chọn và đáp án nếu nhìn thấy. ${forceJsonRepair ? 'Lần trước ảnh này trả rỗng hoặc lỗi; chỉ trả {"questions":[]} nếu bạn chắc chắn ảnh hoàn toàn không có câu hỏi trắc nghiệm.' : 'Nếu ảnh chỉ là minh họa và KHÔNG chứa câu hỏi trắc nghiệm, hãy trả về chính xác {"questions":[]}.'}`
           : '';
-        const scanPrompt = `${repairInstruction ? `${repairInstruction}\n\n` : ''}${sourceInstruction}\n\n${nativePrompt ? `${nativePrompt}\n\n` : ''}${imagePrompt ? `${imagePrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
+        const visionPrompt = (part.sourceMode === 'pdfVision' || part.inlineData)
+          ? `[CHỈ THỊ QUAN TRỌNG CHO PHẦN ẢNH/VISION]: Tài liệu hiện tại đang được xử lý ở chế độ quét Vision (ảnh chụp/PDF scan). Hãy đọc cực kỳ chậm và tỉ mỉ từng dòng, từng góc của trang ảnh này. Hãy đếm thầm xem có chính xác bao nhiêu câu hỏi trắc nghiệm (MCQ) xuất hiện trên trang. Bạn phải trích xuất ĐẦY ĐỦ TRĂM PHẦN TRĂM câu hỏi, không được bỏ sót bất kỳ câu nào dù là câu ngắn, câu tình huống hay câu ở cuối trang.`
+          : '';
+        const scanPrompt = `${repairInstruction ? `${repairInstruction}\n\n` : ''}${sourceInstruction}\n\n${nativePrompt ? `${nativePrompt}\n\n` : ''}${imagePrompt ? `${imagePrompt}\n\n` : ''}${visionPrompt ? `${visionPrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
 
         const rawNewQs = await (isOpenAICompatibleProvider(runtimeSettings.provider)
           ? executeWithUserRotation(
@@ -506,7 +509,7 @@ export const generateQuestions = async (
                       fullText += chunk.text;
                       
                       if (options.onPartialQuestions) {
-                          const partialQs = salvageCompleteQuestionsFromJson(fullText);
+                          const partialQs = salvageCompleteQuestionsFromJson(fullText, false);
                           if (partialQs.length > reportedCount) {
                               const newPartialQs = partialQs.slice(reportedCount);
                               reportedCount = partialQs.length;
@@ -602,7 +605,16 @@ export const generateQuestions = async (
           incrementBatchAutoSkipped(topLevelIndex + 1, batchNewAutoSkipped);
 
           if (salvagedPartial && missingCount > 0) {
-            throw new Error(`AI_FORMAT_ERROR_PARTIAL_SALVAGE: Đã cứu ${rawNewQs.length} câu hợp lệ nhưng còn thiếu khoảng ${missingCount} câu.`);
+            const missingRatio = expectedQuestions > 0 ? missingCount / expectedQuestions : 0;
+            if (missingRatio > 0.4) {
+              throw new Error(`AI_FORMAT_ERROR_PARTIAL_SALVAGE: Đã cứu ${rawNewQs.length} câu hợp lệ nhưng còn thiếu khoảng ${missingCount} câu (>${Math.round(missingRatio * 100)}%).`);
+            } else {
+              // Giữ câu đã có nhưng ghi partial failure để rescue mode retry lấy nốt câu thiếu
+              console.warn(`⚠️ Batch ${batchLabel}: Salvage lấy được ${rawNewQs.length}/${expectedQuestions} câu (thiếu ${missingCount}). Giữ kết quả + đánh dấu để quét lại.`);
+              if (depth === 0) {
+                recordBatchFailure(index, batchLabel, new Error(`Thiếu ${missingCount}/${expectedQuestions} câu`), 'normal');
+              }
+            }
           }
         }
       } catch (e: any) {

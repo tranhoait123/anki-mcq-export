@@ -109,18 +109,101 @@ const isCompleteQuestionObject = (value: any): boolean =>
     typeof value.question === 'string' &&
     Array.isArray(value.options) &&
     value.options.length >= 2 &&
-    typeof value.correctAnswer === 'string' &&
-    value.explanation &&
-    typeof value.explanation.core === 'string' &&
-    typeof value.explanation.evidence === 'string' &&
-    typeof value.explanation.analysis === 'string' &&
-    typeof value.explanation.warning === 'string' &&
-    typeof value.source === 'string' &&
-    typeof value.difficulty === 'string' &&
-    typeof value.depthAnalysis === 'string'
+    typeof value.correctAnswer === 'string'
   );
 
-export const salvageCompleteQuestionsFromJson = (text: string): any[] => {
+const fillMissingQuestionFields = (q: any): any => {
+  if (!q || typeof q !== 'object') return q;
+  if (!q.explanation || typeof q.explanation !== 'object') {
+    q.explanation = { core: '', evidence: '', analysis: '', warning: '' };
+  } else {
+    if (typeof q.explanation.core !== 'string') q.explanation.core = '';
+    if (typeof q.explanation.evidence !== 'string') q.explanation.evidence = '';
+    if (typeof q.explanation.analysis !== 'string') q.explanation.analysis = '';
+    if (typeof q.explanation.warning !== 'string') q.explanation.warning = '';
+  }
+  if (typeof q.source !== 'string') q.source = '';
+  if (typeof q.difficulty !== 'string') q.difficulty = 'Medium';
+  if (typeof q.depthAnalysis !== 'string') q.depthAnalysis = '';
+  return q;
+};
+
+const tryForceCloseObject = (subText: string): any | null => {
+  let depth = 0;
+  let bracketDepth = 0;
+  let inString = false;
+  let escaped = false;
+  const cleanText = subText;
+
+  for (let i = 0; i < cleanText.length; i++) {
+    const char = cleanText[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+
+    if (char === '{') depth++;
+    else if (char === '}') depth--;
+    else if (char === '[') bracketDepth++;
+    else if (char === ']') bracketDepth--;
+  }
+
+  let fixed = cleanText;
+  if (inString) {
+    fixed += '"';
+  }
+  let tempDepth = depth;
+  while (tempDepth > 0) {
+    fixed += '}';
+    tempDepth--;
+  }
+  try {
+    const parsed = JSON.parse(fixed);
+    return parsed;
+  } catch {
+    for (let len = cleanText.length - 1; len >= Math.max(0, cleanText.length - 200); len--) {
+      let candidate = cleanText.substring(0, len);
+      candidate = candidate.trim().replace(/,\s*$/, '');
+      
+      let d = 0;
+      let bd = 0;
+      let isStr = false;
+      let esc = false;
+      for (let i = 0; i < candidate.length; i++) {
+        const char = candidate[i];
+        if (esc) { esc = false; continue; }
+        if (char === '\\') { esc = true; continue; }
+        if (char === '"') { isStr = !isStr; continue; }
+        if (isStr) continue;
+        if (char === '{') d++;
+        else if (char === '}') d--;
+        else if (char === '[') bd++;
+        else if (char === ']') bd--;
+      }
+      let f = candidate;
+      if (isStr) f += '"';
+      while (d > 0) { f += '}'; d--; }
+      try {
+        const parsed = JSON.parse(f);
+        return parsed;
+      } catch {
+        // continue stripping
+      }
+    }
+  }
+  return null;
+};
+
+export const salvageCompleteQuestionsFromJson = (text: string, allowTruncatedSalvage = true): any[] => {
   let jsonText = text || '';
   const codeBlockMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (codeBlockMatch) jsonText = codeBlockMatch[1];
@@ -136,11 +219,20 @@ export const salvageCompleteQuestionsFromJson = (text: string): any[] => {
     const objectStart = jsonText.indexOf('{', cursor);
     if (objectStart < 0) break;
     const objectEnd = findBalancedObjectEnd(jsonText, objectStart);
-    if (objectEnd < 0) break;
+    if (objectEnd < 0) {
+      if (allowTruncatedSalvage) {
+        const rawSub = jsonText.substring(objectStart);
+        const parsed = tryForceCloseObject(rawSub);
+        if (parsed && isCompleteQuestionObject(parsed)) {
+          questions.push(fillMissingQuestionFields(parsed));
+        }
+      }
+      break;
+    }
 
     try {
       const parsed = JSON.parse(jsonText.substring(objectStart, objectEnd + 1));
-      if (isCompleteQuestionObject(parsed)) questions.push(parsed);
+      if (isCompleteQuestionObject(parsed)) questions.push(fillMissingQuestionFields(parsed));
     } catch {
       // Keep scanning; one malformed object should not discard previous complete MCQs.
     }
@@ -169,6 +261,7 @@ export const parseQuestionsFromModelText = (
 
     const parsed = JSON.parse(jsonStr);
     const questions = Array.isArray(parsed) ? parsed : (parsed?.questions || []);
+    questions.forEach(fillMissingQuestionFields);
     if (questions.length === 0) {
       if (!allowEmpty || expectedQuestions > 0) {
         throw new Error("📄 AI đã xử lý nhưng không tìm thấy câu hỏi trắc nghiệm nào trong phần này. Batch sẽ được chia nhỏ để quét kỹ hơn.");

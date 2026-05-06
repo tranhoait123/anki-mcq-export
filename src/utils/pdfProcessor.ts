@@ -182,9 +182,8 @@ const parseMcqBlocksFromText = (text: string): string[] => {
 
     const flush = () => {
         if (current && current.question.length > 0 && current.options.length >= 4) {
-            const letters = current.options.slice(0, 4).map((option) => option.letter).join('');
             const uniqueLetters = new Set(current.options.map((option) => option.letter));
-            if (letters === 'ABCD' && uniqueLetters.size === current.options.length) blocks.push(current);
+            if (uniqueLetters.size >= 4) blocks.push(current);
         }
         current = null;
     };
@@ -265,7 +264,8 @@ export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChun
         const allGood = rangePages.length > 0 && rangePages.every((page) => page.quality === 'goodText');
         if (allGood) {
             const joinedText = rangePages.map((page) => page.text).join('\n\n');
-            const blocks = parseMcqBlocksFromText(joinedText).filter((block) => {
+            const allBlocksOnRange = parseMcqBlocksFromText(joinedText);
+            const blocks = allBlocksOnRange.filter((block) => {
                 const fingerprint = normalizeBlockFingerprint(block);
                 if (!fingerprint) return false;
                 if (seenBlockFingerprints.has(fingerprint)) return false;
@@ -274,6 +274,16 @@ export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChun
             });
             const sparseBlockRisk = joinedText.length > 2500 && blocks.length < 2;
             if (blocks.length > 0 && !sparseBlockRisk) {
+                const rawQuestionCount = countMatches(joinedText, QUESTION_MARKER_PATTERN);
+                if (rawQuestionCount > allBlocksOnRange.length) {
+                    textBatches.push({
+                        text: `[PDF_TEXT_BATCH_COUNT: ${rawQuestionCount}]\n\n${joinedText}`,
+                        expectedQuestions: rawQuestionCount,
+                        pageRange: range,
+                    });
+                    continue;
+                }
+
                 chunkBlocks(blocks, structuredBatchSize).forEach((chunk) => {
                     textBatches.push({
                         text: buildStructuredPdfText(chunk),
@@ -287,9 +297,28 @@ export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChun
         visionPageRanges.push(range);
     }
 
+    // Merge adjacent/overlapping vision ranges to avoid duplicate extraction
+    const mergedVisionRanges: PdfPageRange[] = [];
+    for (const range of visionPageRanges) {
+        const last = mergedVisionRanges[mergedVisionRanges.length - 1];
+        if (last && range.start <= last.end + 1) {
+            last.end = Math.max(last.end, range.end);
+        } else {
+            mergedVisionRanges.push({ ...range });
+        }
+    }
+
+    // Re-chunk merged vision ranges into pagesPerChunk-sized chunks with NO overlap
+    const finalVisionRanges: PdfPageRange[] = [];
+    for (const merged of mergedVisionRanges) {
+        for (let start = merged.start; start <= merged.end; start += pagesPerChunk) {
+            finalVisionRanges.push({ start, end: Math.min(merged.end, start + pagesPerChunk - 1) });
+        }
+    }
+
     const detectedMcqCount = textBatches.reduce((total, batch) => total + batch.expectedQuestions, 0);
-    const mode = textBatches.length === 0 ? 'vision' : (visionPageRanges.length === 0 ? 'textOnlyCandidate' : 'safeHybrid');
-    return { pageCount, pages, textBatches, visionPageRanges, detectedMcqCount, mode };
+    const mode = textBatches.length === 0 ? 'vision' : (finalVisionRanges.length === 0 ? 'textOnlyCandidate' : 'safeHybrid');
+    return { pageCount, pages, textBatches, visionPageRanges: finalVisionRanges, detectedMcqCount, mode };
 };
 
 const loadPdfJs = async () => {

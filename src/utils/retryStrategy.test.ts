@@ -14,7 +14,7 @@ describe('batch retry strategy', () => {
     expect(classifyBatchError(new Error('AI_FORMAT_ERROR_TRUNCATED'))).toBe('format');
     expect(classifyBatchError(new Error('Không tìm thấy câu hỏi trắc nghiệm'))).toBe('empty');
     expect(shouldSplitForError('format')).toBe(true);
-    expect(shouldSplitForError('empty')).toBe(false);
+    expect(shouldSplitForError('empty')).toBe(true);
   });
 
   it('classifies rate/server errors for short rescue retry', () => {

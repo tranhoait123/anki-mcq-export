@@ -271,7 +271,7 @@ const GEMINI_FLASH_PROFILE: ModelTokenProfile = {
   outputLimit: 65_536,
   safeOutputBudget: 49_152,
   maxQuestionsPerBatch: 35,
-  visionPagesPerBatch: 4,
+  visionPagesPerBatch: 3,
 };
 
 const GPT5_PROFILE: ModelTokenProfile = {

@@ -196,9 +196,9 @@ export const getRetryDecision = (
     return {
       kind,
       cause: 'empty',
-      action: 'fail',
+      action: attempts >= 2 ? 'split' : 'retry',
       shouldTryFallbackModel: false,
-      message: 'Empty extraction is not useful to keep retrying unless caller has image-specific repair context.',
+      message: 'Empty extraction; retry once then split if still empty.',
     };
   }
 
@@ -211,7 +211,7 @@ export const getRetryDecision = (
   };
 };
 
-export const shouldSplitForError = (kind: BatchErrorKind): boolean => kind === 'format';
+export const shouldSplitForError = (kind: BatchErrorKind): boolean => kind === 'format' || kind === 'empty';
 
 export const getBatchErrorTitle = (kind: BatchErrorKind): string => {
   const titles: Record<BatchErrorKind, string> = {

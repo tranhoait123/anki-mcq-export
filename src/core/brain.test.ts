@@ -130,7 +130,7 @@ describe('Core Logic', () => {
       outputLimit: 65536,
       safeOutputBudget: 49152,
       maxQuestionsPerBatch: 35,
-      visionPagesPerBatch: 4,
+      visionPagesPerBatch: 3,
     })).toBe(35);
 
     expect(getAdaptiveQuestionBatchSize({
@@ -148,7 +148,7 @@ describe('Core Logic', () => {
       outputLimit: 65536,
       safeOutputBudget: 49152,
       maxQuestionsPerBatch: 35,
-      visionPagesPerBatch: 4,
+      visionPagesPerBatch: 3,
     })).toBe(STRUCTURED_QUESTION_BATCH_CAP);
 
     expect(getStructuredQuestionBatchSize({
@@ -279,6 +279,30 @@ Câu 12: Xử trí tiếp theo là gì?
       .toContain('Tình huống cho câu 11-12-13-14');
     expect(applySharedCaseContextToQuestion('Câu 13: Lâm sàng hướng đến sảy thai trọn.', contexts))
       .toContain('beta 1300');
+  });
+
+  it('salvages complete questions from malformed/truncated JSON even if truncated at the end', () => {
+    const truncated = `{"questions":[
+      {
+        "question": "Câu 1: Câu hỏi hoàn chỉnh",
+        "options": ["A. Một", "B. Hai"],
+        "correctAnswer": "A",
+        "explanation": {
+          "core": "Giải thích"
+        }
+      },
+      {
+        "question": "Câu 2: Câu hỏi bị cắt",
+        "options": ["A. Ba", "B. Bốn"],
+        "correctAnswer": "B",
+        "explanation": {
+          "co
+    ]}`;
+    const questions = salvageCompleteQuestionsFromJson(truncated);
+    expect(questions).toHaveLength(2);
+    expect(questions[0].question).toBe("Câu 1: Câu hỏi hoàn chỉnh");
+    expect(questions[1].question).toBe("Câu 2: Câu hỏi bị cắt");
+    expect(questions[1].explanation.core).toBe("");
   });
 
   it('keeps empty optional responses as valid JSON payloads', () => {

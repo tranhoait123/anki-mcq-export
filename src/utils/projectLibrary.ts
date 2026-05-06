@@ -138,7 +138,7 @@ export const compareProjectToCurrent = (
     items.push({
       id: current.id,
       question: current.question,
-      matchedWith: match.matchedWith,
+      matchedWith: match.matchedWith || match.matchedData.question.substring(0, 60) || 'Câu hỏi đã có',
       score: match.score,
     });
     return items;

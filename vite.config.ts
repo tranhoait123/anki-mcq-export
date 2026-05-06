@@ -1,10 +1,9 @@
 import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, '.', '');
   const alias = mode === 'e2e'
     ? [
         { find: './core/brain', replacement: path.resolve(__dirname, 'src/e2e/mocks/brain.ts') },
@@ -23,7 +22,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
-      VitePWA({
+      ...VitePWA({
         registerType: 'autoUpdate',
         workbox: {
           globIgnores: ['**/pdf.worker.min-*.mjs']
@@ -33,41 +32,45 @@ export default defineConfig(({ mode }) => {
           short_name: 'AnkiGen',
           description: 'Tạo thẻ Anki & Trắc nghiệm từ tài liệu bằng AI',
           lang: 'vi',
+          start_url: '/',
+          scope: '/',
+          display: 'standalone',
           theme_color: '#ffffff',
+          background_color: '#ffffff',
           icons: [
             {
               src: 'pwa-192.png',
               sizes: '192x192',
-              type: 'image/png'
+              type: 'image/png',
+              purpose: 'any maskable'
             },
             {
               src: 'pwa-512.png',
               sizes: '512x512',
-              type: 'image/png'
+              type: 'image/png',
+              purpose: 'any maskable'
             }
           ]
         }
       })
     ],
-    define: {
-      'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
-    },
     resolve: {
       alias,
     },
     build: {
-      rollupOptions: {
+      rolldownOptions: {
         output: {
-          manualChunks: {
-            vendor: ['react', 'react-dom'],
-            ui: ['lucide-react'],
-            docx: ['docx', 'mammoth', 'jszip'],
-            pdf: ['pdf-lib', 'pdfjs-dist'],
-            ocr: ['tesseract.js'],
-            genai: ['@google/genai']
-          }
-        }
+          manualChunks: (id) => {
+            if (!id.includes('node_modules')) return undefined;
+            if (id.includes('/react/') || id.includes('/react-dom/')) return 'vendor';
+            if (id.includes('/lucide-react/')) return 'ui';
+            if (id.includes('/@google/genai/')) return 'genai';
+            if (id.includes('/pdfjs-dist/') || id.includes('/pdf-lib/')) return 'pdf';
+            if (id.includes('/docx/') || id.includes('/mammoth/') || id.includes('/jszip/')) return 'docx';
+            if (id.includes('/tesseract.js/')) return 'ocr';
+            return undefined;
+          },
+        },
       },
       chunkSizeWarningLimit: 1000,
     },

@@ -175,8 +175,39 @@ D. Không suy tim
     const analysis = buildPdfTextAnalysisFromPages([page], 3, 1, 10);
     const combinedText = analysis.textBatches.map((batch) => batch.text).join('\n');
 
-    expect(combinedText).toContain('Question: Tình huống lâm sàng sau dùng cho câu 93-98');
+    expect(combinedText).toContain('Question: [TÌNH HUỐNG]');
+    expect(combinedText).toContain('Tình huống lâm sàng sau dùng cho câu 93-98');
     expect(combinedText).toContain('Bệnh nhân nữ 30 tuổi, nhập viện vì khó thở');
     expect(combinedText).toContain('Câu 95. Đặc điểm suy tim của bệnh nhân này là?');
+  });
+
+  it('detects plain Vietnamese shared case headers with repeated question numbers', () => {
+    const sharedCase = 'Tình huống cho câu 11-12-13-14: Bệnh nhân nữ có siêu âm tử cung trống beta 1300. Siêu âm có 1 khối echo hỗn hợp cạnh buồng trứng.';
+    const page = scorePdfTextPage(`
+${sharedCase}
+Câu 11: Chẩn đoán:
+A. Thai chưa xác định vị trí.
+B. Thai ngoài tử cung.
+C. Xảy thai trọn.
+D. Thai nghén thất bại sớm.
+Câu 12: Xử trí tiếp theo là gì?
+A. 1 bộ đôi Beta + siêu âm 48H.
+B. 1 loạt bộ đôi mỗi 48h.
+C. Điều trị thai ngoài tử cung.
+D. Không có chỉ định điều trị nội khoa.
+Câu 13: Lâm sàng hướng đến sảy thai trọn. cần làm gì thêm.
+A. Không làm gì thêm.
+B. Theo dõi beta.
+C. Siêu âm kiểm tra.
+D. Điều trị nội khoa.
+`, 1);
+
+    const analysis = buildPdfTextAnalysisFromPages([page], 3, 1, 10);
+    const combinedText = analysis.textBatches.map((batch) => batch.text).join('\n');
+
+    expect(combinedText).toContain('Question: [TÌNH HUỐNG]');
+    expect(combinedText).toContain('Tình huống cho câu 11-12-13-14');
+    expect(combinedText).toContain('Bệnh nhân nữ có siêu âm tử cung trống beta 1300');
+    expect(combinedText).toContain('Câu 13: Lâm sàng hướng đến sảy thai trọn');
   });
 });

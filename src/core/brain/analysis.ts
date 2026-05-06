@@ -25,6 +25,11 @@ const normalizeAnalysisResult = (raw: any): AnalysisResult => {
   };
 };
 
+const requireModelText = (text: string | undefined, context: string): string => {
+  if (typeof text === 'string' && text.trim()) return text;
+  throw new Error(`AI_FORMAT_ERROR_EMPTY_RESPONSE: ${context} không trả về nội dung.`);
+};
+
 const toGoogleContentFromFile = (file: UploadedFile): any => {
   if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
     return { inlineData: { mimeType: file.type, data: file.content.includes(',') ? file.content.split(',')[1] : file.content } };
@@ -82,7 +87,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
 
     const chat = ai.chats.create(getModelConfig(apiKey, finalPrompt, schema, activeModel));
     const result = await chat.sendMessage({ message: parts });
-    return normalizeAnalysisResult(parseJsonFromModelText(result.text));
+    return normalizeAnalysisResult(parseJsonFromModelText(requireModelText(result.text, 'Phân tích tài liệu')));
   }, undefined, getProviderFallbackModel(runtimeSettings.provider));
 };
 
@@ -135,6 +140,6 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
         { text: `Quá trình trích xuất chỉ lấy được ${count} câu hỏi. Hãy phân tích lý do.` }
       ]
     });
-    return parseJsonFromModelText<AuditResult>(res.text);
+    return parseJsonFromModelText<AuditResult>(requireModelText(res.text, 'Audit câu hỏi thiếu'));
   }, undefined, getProviderFallbackModel(runtimeSettings.provider));
 };

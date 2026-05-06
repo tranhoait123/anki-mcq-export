@@ -1,6 +1,12 @@
 import { GoogleGenAI } from "@google/genai";
 import { UploadedFile, ProgressCallback, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, SourceTrace } from "../../types";
 import { findDuplicate } from '../../utils/dedupe';
+import {
+  applySharedCaseContextToQuestion,
+  extractSharedCaseContexts,
+  getSharedCaseContextForQuestion,
+  hasSharedCaseStem,
+} from '../../utils/sharedCaseContext';
 import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage } from '../../utils/models';
 import { analyzePdfTextLayer, convertPdfToImages } from '../../utils/pdfProcessor';
 import {
@@ -313,7 +319,7 @@ export const generateQuestions = async (
     let autoSkippedCount = options.existingAutoSkippedCount || 0;
     let rescueCompleted = 0;
     const rescueTotal = retryIndices?.length || 0;
-    const inferredCompletedBatchIndices = options.resumeMode
+    const inferredCompletedBatchIndices = options.resumeMode && !options.skipInferredCompletedBatches
       ? inferCompletedBatchIndicesFromExistingQuestions(allParts, options.existingQuestions || [])
       : [];
     const skippedBatchSet = new Set([
@@ -505,7 +511,7 @@ export const generateQuestions = async (
                               const newPartialQs = partialQs.slice(reportedCount);
                               reportedCount = partialQs.length;
                               applyTrustedSourceMetadata(newPartialQs, part);
-                              newPartialQs.forEach((q, i) => {
+                              newPartialQs.forEach((q, _i) => {
                                  if (!q.id) q.id = `mcq-stream-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
                               });
                               // Báo cáo các câu hỏi vừa bóc tách được từ luồng dữ liệu (chưa lọc trùng ở bước này để UI có thể hiển thị nhanh nhất)
@@ -527,6 +533,30 @@ export const generateQuestions = async (
           const salvagedPartial = Boolean((rawNewQs as any).__salvagedPartial);
           const missingCount = Number((rawNewQs as any).__missingCount || 0);
           applyTrustedSourceMetadata(rawNewQs, part);
+          const sharedCaseContexts = part.text ? extractSharedCaseContexts(part.text) : [];
+          if (sharedCaseContexts.length > 0) {
+            rawNewQs.forEach((q) => {
+              if (!q || typeof q.question !== 'string') return;
+              const context = getSharedCaseContextForQuestion(q.question, sharedCaseContexts);
+              if (!context) return;
+              const hadStem = hasSharedCaseStem(q.question, context.stem);
+              q.question = applySharedCaseContextToQuestion(q.question, sharedCaseContexts);
+              const hasStemAfter = hasSharedCaseStem(q.question, context.stem);
+              if (!hadStem && hasStemAfter) {
+                q.sharedCase = {
+                  applied: true,
+                  confidence: context.confidence,
+                  stem: context.stem,
+                  startQuestion: context.startQuestion,
+                  endQuestion: context.endQuestion,
+                  sourceLabel: part.sourceLabel,
+                  pageRange: part.trace?.pageRange,
+                };
+              } else if (!hasStemAfter && q.explanation && typeof q.explanation.warning === 'string') {
+                q.explanation.warning = `${q.explanation.warning ? `${q.explanation.warning}\n\n` : ''}⚠️ Câu này nằm trong nhóm có tình huống chung (${context.startQuestion}-${context.endQuestion}) nhưng app chưa ghép được stem chắc chắn. Cần kiểm tra lại nguồn.`.trim();
+              }
+            });
+          }
           const newQs = [];
           const batchNewDuplicates: DuplicateInfo[] = [];
           let batchNewAutoSkipped = 0;
@@ -541,11 +571,11 @@ export const generateQuestions = async (
               // Chỉ thêm vào danh sách Review nếu độ trùng lặp < 98% (không phải auto-skip)
               if (!result.isAutoSkip) {
                 if (sameTopLevelBatchDuplicate) continue;
-                const duplicateInfo = {
+                const duplicateInfo: DuplicateInfo = {
                   id: `dup-${Date.now()}-${duplicateCounter}`,
                   question: q.question.substring(0, 50),
                   reason: result.reason || 'Duplicate found',
-                  matchedWith: result.matchedWith,
+                  matchedWith: result.matchedWith || result.matchedData?.question?.substring(0, 60) || 'Câu hỏi đã có',
                   fullData: q,
                   matchedData: result.matchedData,
                   score: result.score,

@@ -29,6 +29,13 @@ export {
 } from './parsing';
 
 export {
+  applySharedCaseContextToQuestion,
+  extractSharedCaseContexts,
+  getSharedCaseContextForQuestion,
+  hasSharedCaseStem,
+} from '../../utils/sharedCaseContext';
+
+export {
   getRetryDelayMsFromError,
   translateErrorForUser,
 } from './providerErrors';

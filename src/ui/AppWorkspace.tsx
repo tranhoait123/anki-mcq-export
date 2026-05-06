@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { type Dispatch, type SetStateAction } from 'react';
 import {
   AnalysisResult,
   AuditResult,
@@ -46,7 +46,7 @@ interface AppWorkspaceProps {
   resultsPanelRef: React.RefObject<HTMLDivElement | null>;
   retryFailedAttempted: boolean;
   resumeSession: ProcessingSession | null;
-  setFiles: (files: UploadedFile[]) => void;
+  setFiles: Dispatch<SetStateAction<UploadedFile[]>>;
   setShowAudit: (show: boolean) => void;
   setShowDuplicates: (show: boolean) => void;
   showAudit: boolean;

@@ -10,6 +10,8 @@ import {
   STRUCTURED_QUESTION_BATCH_CAP,
   applyTrustedSourceLabel,
   applyTrustedSourceMetadata,
+  applySharedCaseContextToQuestion,
+  extractSharedCaseContexts,
   parseQuestionsFromModelText,
   salvageCompleteQuestionsFromJson,
   translateErrorForUser,
@@ -259,6 +261,24 @@ describe('Core Logic', () => {
       mode: 'pdfText',
       snippet: 'Câu 1 từ text layer',
     });
+  });
+
+  it('can restore plain shared case context to parsed model questions', () => {
+    const sourceText = `
+Tình huống cho câu 11-12-13-14: Bệnh nhân nữ có siêu âm tử cung trống beta 1300. Siêu âm có 1 khối echo hỗn hợp cạnh buồng trứng.
+Câu 11: Chẩn đoán:
+A. Thai chưa xác định vị trí.
+B. Thai ngoài tử cung.
+C. Xảy thai trọn.
+D. Thai nghén thất bại sớm.
+Câu 12: Xử trí tiếp theo là gì?
+`;
+    const contexts = extractSharedCaseContexts(sourceText);
+
+    expect(applySharedCaseContextToQuestion('Câu 11: Chẩn đoán:', contexts))
+      .toContain('Tình huống cho câu 11-12-13-14');
+    expect(applySharedCaseContextToQuestion('Câu 13: Lâm sàng hướng đến sảy thai trọn.', contexts))
+      .toContain('beta 1300');
   });
 
   it('keeps empty optional responses as valid JSON payloads', () => {

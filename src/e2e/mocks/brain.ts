@@ -1,26 +1,88 @@
-import { AnalysisResult, AppSettings, AuditResult, GeneratedResponse, MCQ, UploadedFile } from '../../types';
+import { AnalysisResult, AppSettings, AuditResult, GeneratedResponse, MCQ, SourceTrace, UploadedFile } from '../../types';
 
-const mockQuestion: MCQ = {
-  id: 'e2e-q1',
-  question: 'Câu 1: Đâu là đáp án đúng trong smoke test?',
-  options: ['A. Sai', 'B. Đúng', 'C. Gần đúng', 'D. Không đủ dữ kiện'],
-  correctAnswer: 'B',
-  explanation: {
-    core: 'Đáp án đúng là B.',
-    evidence: 'Mock e2e không gọi API thật.',
-    analysis: 'Câu hỏi này xác nhận luồng upload, extract và export hoạt động.',
-    warning: '',
-  },
-  source: 'e2e-smoke.txt',
-  trace: {
-    fileId: 'e2e-file',
-    fileName: 'e2e-smoke.txt',
-    sourceLabel: 'e2e-smoke.txt',
-    mode: 'text',
-    snippet: 'Câu 1. Đâu là đáp án đúng?',
-  },
-  difficulty: 'Easy',
-  depthAnalysis: 'Nhận biết',
+const getTraceMode = (file: UploadedFile): SourceTrace['mode'] => {
+  if (file.type === 'application/pdf') return 'pdfVision';
+  if (file.type.startsWith('image/')) return 'image';
+  if (file.name.toLowerCase().endsWith('.docx')) return 'docxText';
+  return 'text';
+};
+
+const makeMockQuestion = (files: UploadedFile[], id = 1): MCQ => {
+  const file = files[0] || {
+    id: 'e2e-file',
+    name: 'e2e-smoke.txt',
+    type: 'text/plain',
+    content: '',
+  };
+
+  return {
+    id: `e2e-q${id}`,
+    question: `Câu ${id}: Đâu là đáp án đúng trong smoke test?`,
+    options: ['A. Sai', 'B. Đúng', 'C. Gần đúng', 'D. Không đủ dữ kiện'],
+    correctAnswer: 'B',
+    explanation: {
+      core: 'Đáp án đúng là B.',
+      evidence: 'Mock e2e không gọi API thật.',
+      analysis: 'Câu hỏi này xác nhận luồng upload, extract và export hoạt động.',
+      warning: '',
+    },
+    source: file.name,
+    trace: {
+      fileId: file.id,
+      fileName: file.name,
+      sourceLabel: file.name,
+      mode: getTraceMode(file),
+      snippet: `Câu ${id}. Đâu là đáp án đúng?`,
+    },
+    difficulty: 'Easy',
+    depthAnalysis: 'Nhận biết',
+  };
+};
+
+const makeSharedCaseQuestion = (files: UploadedFile[]): MCQ => {
+  const file = files[0] || {
+    id: 'e2e-shared-case',
+    name: 'e2e-shared-case.txt',
+    type: 'text/plain',
+    content: '',
+  };
+  const stem = 'Tình huống cho câu 11-12-13-14: Bệnh nhân nữ có siêu âm tử cung trống beta 1300. Siêu âm có 1 khối echo hỗn hợp cạnh buồng trứng.';
+
+  return {
+    id: 'e2e-shared-case-q11',
+    question: `[TÌNH HUỐNG]\n${stem}\n\n[CÂU HỎI]\nCâu 11: Chẩn đoán:`,
+    options: [
+      'A. Thai chưa xác định vị trí.',
+      'B. Thai ngoài tử cung.',
+      'C. Xảy thai trọn.',
+      'D. Thai nghén thất bại sớm.',
+    ],
+    correctAnswer: 'A',
+    explanation: {
+      core: 'Thai chưa xác định vị trí là đáp án phù hợp nhất trong mock e2e.',
+      evidence: 'Mock e2e kiểm tra tình huống chung được giữ trong từng thẻ.',
+      analysis: 'Câu hỏi riêng lẻ sẽ mất nghĩa nếu thiếu beta-hCG và siêu âm.',
+      warning: '',
+    },
+    source: file.name,
+    trace: {
+      fileId: file.id,
+      fileName: file.name,
+      sourceLabel: file.name,
+      mode: getTraceMode(file),
+      snippet: stem,
+    },
+    sharedCase: {
+      applied: true,
+      confidence: 'explicit',
+      stem,
+      startQuestion: 11,
+      endQuestion: 14,
+      sourceLabel: file.name,
+    },
+    difficulty: 'Medium',
+    depthAnalysis: 'Giữ clinical vignette trong từng thẻ Anki.',
+  };
 };
 
 export const hashFiles = async (files: UploadedFile[]) =>
@@ -45,13 +107,84 @@ export const auditMissingQuestions = async (_files: UploadedFile[], _count: numb
 });
 
 export const generateQuestions = async (
-  _files: UploadedFile[],
+  files: UploadedFile[],
   _settings: AppSettings,
   _startIndex: number,
   onProgress?: (status: string, count: number) => void,
   _expectedQuestionCount?: number,
-  onBatch?: (newQuestions: MCQ[]) => void
+  onBatch?: (newQuestions: MCQ[]) => void,
+  retryIndices?: number[],
+  _isAdvancedMode?: boolean,
+  options: { autoRescue?: boolean; existingQuestions?: MCQ[] } = {}
 ): Promise<GeneratedResponse> => {
+  if (files[0]?.name === 'e2e-retry.txt') {
+    if (retryIndices?.length) {
+      if (options.autoRescue) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+        return {
+          questions: options.existingQuestions || [],
+          duplicates: [],
+          failedBatches: [1],
+          failedBatchDetails: [{
+            index: 1,
+            label: '1',
+            kind: 'format',
+            stage: 'rescue',
+            message: 'Mock auto-rescue still failed',
+            advice: 'Quét lại thủ công.',
+          }],
+          autoSkippedCount: 0,
+        };
+      }
+
+      const retryQuestion = makeMockQuestion(files, 3);
+      onProgress?.('Mock e2e đang quét lại batch lỗi...', (options.existingQuestions || []).length + 1);
+      onBatch?.([retryQuestion]);
+      await new Promise(resolve => setTimeout(resolve, 10));
+      return {
+        questions: [...(options.existingQuestions || []), retryQuestion],
+        duplicates: [],
+        failedBatches: [],
+        failedBatchDetails: [],
+        autoSkippedCount: 0,
+      };
+    }
+
+    const firstPass = [makeMockQuestion(files, 1), makeMockQuestion(files, 2)];
+    onProgress?.('Mock e2e đang trích xuất một phần...', firstPass.length);
+    onBatch?.(firstPass);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    return {
+      questions: firstPass,
+      duplicates: [],
+      failedBatches: [1],
+      failedBatchDetails: [{
+        index: 1,
+        label: '1',
+        kind: 'format',
+        stage: 'normal',
+        message: 'Mock malformed JSON',
+        advice: 'Quét lại batch lỗi.',
+      }],
+      autoSkippedCount: 0,
+    };
+  }
+
+  if (files[0]?.name === 'e2e-shared-case.txt') {
+    const mockQuestion = makeSharedCaseQuestion(files);
+    onProgress?.('Mock e2e đang ghép tình huống chung...', 1);
+    onBatch?.([mockQuestion]);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    return {
+      questions: [mockQuestion],
+      duplicates: [],
+      failedBatches: [],
+      failedBatchDetails: [],
+      autoSkippedCount: 0,
+    };
+  }
+
+  const mockQuestion = makeMockQuestion(files);
   onProgress?.('Mock e2e đang trích xuất...', 1);
   onBatch?.([mockQuestion]);
   await new Promise(resolve => setTimeout(resolve, 10));

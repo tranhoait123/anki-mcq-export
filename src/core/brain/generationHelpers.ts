@@ -12,6 +12,7 @@ export interface GenerateQuestionsOptions {
   autoRescue?: boolean;
   controller?: ProcessingController;
   resumeMode?: boolean;
+  skipInferredCompletedBatches?: boolean;
   completedBatchIndices?: number[];
   existingQuestions?: MCQ[];
   existingDuplicates?: DuplicateInfo[];

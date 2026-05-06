@@ -47,6 +47,7 @@ const ResultsToolbar: React.FC<ResultsToolbarProps> = ({
         </button>
         <button
           onClick={downloadDOCX}
+          data-testid="export-docx-button"
           disabled={exportAction !== null}
           className="inline-flex items-center gap-2 rounded-2xl border border-sky-200/80 bg-sky-50 px-5 py-3 text-sm font-bold text-sky-700 shadow-[0_14px_32px_-22px_rgba(14,165,233,0.65)] transition-all hover:-translate-y-0.5 hover:border-sky-300 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 dark:border-sky-900/50 dark:bg-sky-950/20 dark:text-sky-300 dark:hover:bg-sky-950/35"
           title="Xuất file Word để học trực tiếp"

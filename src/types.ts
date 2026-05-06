@@ -19,6 +19,19 @@ export interface SourceTrace {
   mode: 'pdfText' | 'pdfVision' | 'docxText' | 'docxImage' | 'image' | 'text' | 'unknown';
 }
 
+export interface SharedCaseMetadata {
+  applied: boolean;
+  confidence: 'explicit';
+  stem: string;
+  startQuestion: number;
+  endQuestion: number;
+  sourceLabel?: string;
+  pageRange?: {
+    start: number;
+    end: number;
+  };
+}
+
 export interface MCQ {
   id: string;
   question: string;
@@ -27,6 +40,7 @@ export interface MCQ {
   explanation: Explanation; // Chuyển từ string sang object cấu trúc
   source: string;
   trace?: SourceTrace;
+  sharedCase?: SharedCaseMetadata;
   difficulty: string;
   depthAnalysis: string;
 }
@@ -38,6 +52,7 @@ export interface GeneratedResponse {
     correctAnswer: string;
     explanation: Explanation;
     source: string;
+    sharedCase?: SharedCaseMetadata;
     difficulty: string;
     depthAnalysis: string;
   }[];
@@ -78,6 +93,7 @@ export interface DuplicateInfo {
     explanation: Explanation;
     source: string;
     trace?: SourceTrace;
+    sharedCase?: SharedCaseMetadata;
     difficulty: string;
     depthAnalysis: string;
   };

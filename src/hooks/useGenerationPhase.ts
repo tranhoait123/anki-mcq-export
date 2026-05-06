@@ -32,6 +32,7 @@ export interface RunGenerationPhaseParams {
   comparisonFailedBatchIndices?: number[];
   comparisonFailedBatchDetails?: GeneratedResponse['failedBatchDetails'];
   existingCompletedBatchIndices?: number[];
+  skipInferredCompletedBatches?: boolean;
   forcedOcrMode?: 'gemini' | 'tesseract';
 }
 
@@ -90,6 +91,7 @@ export const useGenerationPhase = ({
     comparisonFailedBatchIndices = [],
     comparisonFailedBatchDetails = [],
     existingCompletedBatchIndices = [],
+    skipInferredCompletedBatches = false,
     forcedOcrMode,
   }: RunGenerationPhaseParams): Promise<RunGenerationPhaseResult> => {
     let phaseQuestions = sortMcqsByQuestionNumber(seedQuestions);
@@ -141,6 +143,7 @@ export const useGenerationPhase = ({
         retryProfile,
         autoRescue,
         resumeMode: existingCompletedBatchIndices.length > 0 || seedQuestions.length > 0,
+        skipInferredCompletedBatches,
         completedBatchIndices: existingCompletedBatchIndices,
         existingQuestions: phaseQuestions,
         existingDuplicates: phaseDuplicates,
@@ -163,7 +166,7 @@ export const useGenerationPhase = ({
           });
           void persistMcqs(checkpoint.questionsSnapshot);
         },
-        onPartialQuestions: (partialQs, batchIndex) => {
+        onPartialQuestions: (partialQs, _batchIndex) => {
           if (liveAppendToVisible && partialQs.length > 0) {
             void appendVisibleMcqs(partialQs);
           }

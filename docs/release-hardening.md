@@ -42,3 +42,17 @@ npm run build
 | API | 429/quota/server busy | Key rotation, cooldown, and retry/rescue behavior engage. |
 | Session | Pause/resume/reload | Checkpoint restores completed batches and avoids duplicate appends. |
 | Duplicate | Conflicting answers | User review path keeps the conflict visible. |
+
+## Bundle Baseline
+
+Production build baseline after the Vite 8 upgrade and safe chunking pass:
+
+| Asset group | Minified size | Note |
+|:---|---:|:---|
+| `pdf.worker` | ~1.2 MB | Required by `pdfjs-dist`; excluded from PWA precache by Workbox config. |
+| `docx` | ~850 KB | Loaded through DOCX upload/export workflows. |
+| `pdf` | ~832 KB | Loaded through PDF text/raster workflows. |
+| `index` | ~284 KB | Main app shell after separating vendor, UI, GenAI, PDF, DOCX, and OCR chunks. |
+| `genai` | ~267 KB | Google AI SDK chunk. |
+
+Keep PDF/DOCX/OCR imports lazy unless a workflow needs them at startup.

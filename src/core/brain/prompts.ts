@@ -52,13 +52,15 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
    - **Điền khuyết (Fill-in)**: Chuyển thành "Chọn từ phù hợp điền vào chỗ trống...".
    - **Tình huống lâm sàng (Case Study / Clinical Vignette)**:
       + Đây là quy tắc **QUAN TRỌNG NHẤT**: Khi một tình huống lâm sàng dùng chung cho nhiều câu hỏi (VD: "Dữ kiện sau cho câu 10, 11, 12"):
+      + Audit bắt buộc các marker item-set/shared-vignette: "Tình huống cho câu 11-12-13-14", "Tình huống lâm sàng sau dùng cho...", "Dữ kiện sau áp dụng cho...", "Bệnh cảnh sau...", "Case for questions 11, 12, 13, and 14", "Vignette for questions...", "Item set...".
       + **BẮT BUỘC (MANDATORY)**: Chép lại NGUYÊN VĂN (Word-by-word) đoạn dẫn tình huống vào trường "question" của **TỪNG** câu hỏi thành phần.
       + **TUYỆT ĐỐI CẤM**: Không được dùng tham chiếu ngắn gọn như "Như trên...", "Câu hỏi tiếp theo...". Mỗi thẻ Anki phải đứng độc lập.
+      + Nếu tình huống nằm cuối trang trước và câu hỏi nằm đầu trang sau, vẫn phải ghép nguyên văn đoạn tình huống đó vào từng câu trong range.
       + **CẤU TRÚC BẮT BUỘC**:
-        [TÌNH HUỐNG LÂM SÀNG]
+        [TÌNH HUỐNG]
         {Nội dung tình huống nguyên văn}
 
-        [CÂU HỎI THEO TÌNH HUỐNG]
+        [CÂU HỎI]
         {Câu hỏi riêng lẻ}
 
 🩺 **BIỆN LUẬN MCQ (FORMAT BẮT BUỘC, ƯU TIÊN NGẮN GỌN)**:

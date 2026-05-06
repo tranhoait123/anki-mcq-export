@@ -60,24 +60,35 @@ const MCQCard = React.memo(({
         </div>
 
         <div className={`${compact ? 'mb-4 ml-12' : 'mb-5 ml-14'} flex min-w-0`}>
-          {data.trace && onSourceTraceClick ? (
-            <button
-              onClick={() => onSourceTraceClick(data.trace!)}
-              className="flex max-w-full items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-left transition hover:border-indigo-300 hover:bg-indigo-100 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:hover:bg-indigo-950/50"
-              title={data.trace.snippet || data.source}
-            >
-              <FileText size={10} className="shrink-0 text-indigo-500" />
-              <span className="truncate text-[9px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
-                Nguồn: {data.trace.sourceLabel || data.source}
-              </span>
-              <ExternalLink size={10} className="shrink-0 text-indigo-400" />
-            </button>
-          ) : (
-            <div className="flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-1.5 dark:border-slate-700 dark:bg-slate-800">
-              <FileText size={10} className="shrink-0 text-slate-400" />
-              <span className="truncate text-[9px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Nguồn: {data.source}</span>
-            </div>
-          )}
+          <div className="flex min-w-0 flex-wrap gap-2">
+            {data.trace && onSourceTraceClick ? (
+              <button
+                onClick={() => onSourceTraceClick(data.trace!)}
+                className="flex max-w-full items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-left transition hover:border-indigo-300 hover:bg-indigo-100 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:hover:bg-indigo-950/50"
+                title={data.trace.snippet || data.source}
+              >
+                <FileText size={10} className="shrink-0 text-indigo-500" />
+                <span className="truncate text-[9px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                  Nguồn: {data.trace.sourceLabel || data.source}
+                </span>
+                <ExternalLink size={10} className="shrink-0 text-indigo-400" />
+              </button>
+            ) : (
+              <div className="flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-1.5 dark:border-slate-700 dark:bg-slate-800">
+                <FileText size={10} className="shrink-0 text-slate-400" />
+                <span className="truncate text-[9px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Nguồn: {data.source}</span>
+              </div>
+            )}
+            {data.sharedCase?.applied && (
+              <div
+                className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 dark:border-emerald-900/50 dark:bg-emerald-950/30"
+                title={`Đã ghép tình huống chung cho câu ${data.sharedCase.startQuestion}-${data.sharedCase.endQuestion}`}
+              >
+                <CheckCircle2 size={10} className="shrink-0 text-emerald-500" />
+                <span className="truncate text-[9px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-300">Đã ghép tình huống chung</span>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className={`${compact ? 'space-y-2 mb-5 ml-12' : 'space-y-3 mb-8 ml-14'}`}>
@@ -228,6 +239,15 @@ const MCQCard = React.memo(({
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700">
                   <FileText size={10} className="text-slate-400" />
                   <span className="text-[9px] font-black text-slate-500 dark:text-slate-400 tracking-wider uppercase">Nguồn: {mcq.source}</span>
+                </div>
+              )}
+              {mcq.sharedCase?.applied && (
+                <div
+                  className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/30 rounded-full border border-emerald-200 dark:border-emerald-900/50"
+                  title={`Đã ghép tình huống chung cho câu ${mcq.sharedCase.startQuestion}-${mcq.sharedCase.endQuestion}`}
+                >
+                  <CheckCircle2 size={10} className="text-emerald-500" />
+                  <span className="text-[9px] font-black text-emerald-700 dark:text-emerald-300 tracking-wider uppercase">Đã ghép tình huống chung</span>
                 </div>
               )}
             </div>

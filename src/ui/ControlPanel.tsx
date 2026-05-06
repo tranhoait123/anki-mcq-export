@@ -1,4 +1,5 @@
 import { AlertTriangle, CheckCircle2, Info, Loader2, RotateCcw, ScanText, Sparkles } from 'lucide-react';
+import type { Dispatch, SetStateAction } from 'react';
 import { AnalysisResult, AuditResult, DuplicateInfo, UploadedFile } from '../types';
 import AuditPanel from './AuditPanel';
 import FileUploader from './FileUploader';
@@ -17,7 +18,7 @@ interface ControlPanelProps {
   loading: boolean;
   ocrMode: 'gemini' | 'tesseract';
   retryFailedAttempted: boolean;
-  setFiles: (files: UploadedFile[]) => void;
+  setFiles: Dispatch<SetStateAction<UploadedFile[]>>;
   setShowAudit: (show: boolean) => void;
   setShowDuplicates: (show: boolean) => void;
   showAudit: boolean;

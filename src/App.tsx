@@ -184,7 +184,9 @@ const App: React.FC = () => {
     failedBatchIndices,
     files,
     getRequestSettings,
+    mcqsRef,
     ocrMode,
+    persistMcqs,
     prepareFiles,
     retryFailedAttempted,
     runGenerationPhase,
@@ -194,6 +196,7 @@ const App: React.FC = () => {
     setLoading,
     setProgressStatus,
     setRetryFailedAttempted,
+    setVisibleMcqs,
     startProcessingController,
     warnVisionRecommendedDocx,
   });

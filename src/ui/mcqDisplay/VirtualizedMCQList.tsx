@@ -246,7 +246,7 @@ const VirtualizedMCQList: React.FC<VirtualizedMCQListProps> = ({
             <div
               key={mcq.id}
               ref={(node) => measureItem(mcq.id, node)}
-              className="absolute left-0 right-0"
+              className={`absolute left-0 right-0 ${mcq.id.startsWith('mcq-stream-') ? 'animate-stream-in' : ''}`}
               style={{ top: measurements.positions[idx], paddingBottom: CARD_GAP }}
             >
               {renderCard(mcq, idx)}

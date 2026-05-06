@@ -68,6 +68,8 @@ const VirtualizedMCQList: React.FC<VirtualizedMCQListProps> = ({
   const [itemHeights, setItemHeights] = useState<Record<string, number>>({});
   const [viewportRange, setViewportRange] = useState({ start: 0, end: Math.min(items.length, 20) });
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const measuredNodesRef = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const measurements = useMemo(() => {
     const positions: number[] = [];
@@ -85,15 +87,67 @@ const VirtualizedMCQList: React.FC<VirtualizedMCQListProps> = ({
     return { positions, heights, totalHeight };
   }, [editingId, itemHeights, items, viewMode]);
 
-  const measureItem = (id: string, node: HTMLDivElement | null) => {
-    if (!node) return;
-    const nextHeight = Math.ceil(node.getBoundingClientRect().height);
-    setItemHeights(prev => {
-      const current = prev[id];
-      if (current && Math.abs(current - nextHeight) < 4) return prev;
-      return { ...prev, [id]: nextHeight };
+  useEffect(() => {
+    observerRef.current = new ResizeObserver((entries) => {
+      let changed = false;
+      const nextHeights: Record<string, number> = {};
+      
+      for (const entry of entries) {
+        const target = entry.target as HTMLElement;
+        const id = target.dataset.id;
+        if (!id) continue;
+        const height = Math.ceil(entry.borderBoxSize?.[0]?.blockSize || entry.contentRect.height);
+        nextHeights[id] = height;
+        changed = true;
+      }
+
+      if (changed) {
+        setItemHeights(prev => {
+          let updated = false;
+          const merged = { ...prev };
+          for (const id in nextHeights) {
+            if (!merged[id] || Math.abs(merged[id] - nextHeights[id]) >= 2) {
+              merged[id] = nextHeights[id];
+              updated = true;
+            }
+          }
+          return updated ? merged : prev;
+        });
+      }
     });
-  };
+
+    return () => {
+      observerRef.current?.disconnect();
+    };
+  }, []);
+
+  const measureItem = useCallback((id: string, node: HTMLDivElement | null) => {
+    if (node) {
+      if (measuredNodesRef.current.get(id) !== node) {
+        if (measuredNodesRef.current.has(id)) {
+          observerRef.current?.unobserve(measuredNodesRef.current.get(id)!);
+        }
+        node.dataset.id = id;
+        observerRef.current?.observe(node);
+        measuredNodesRef.current.set(id, node);
+        
+        // Đo đạc lập tức ở frame đầu tiên để tránh chớp
+        const h = Math.ceil(node.getBoundingClientRect().height);
+        setItemHeights(prev => {
+          if (!prev[id] || Math.abs(prev[id] - h) >= 2) {
+            return { ...prev, [id]: h };
+          }
+          return prev;
+        });
+      }
+    } else {
+      const existing = measuredNodesRef.current.get(id);
+      if (existing) {
+        observerRef.current?.unobserve(existing);
+        measuredNodesRef.current.delete(id);
+      }
+    }
+  }, []);
 
   const scrollToIndex = useCallback((index: number, align: 'start' | 'center' = 'start') => {
     if (index < 0 || index >= items.length || !listRef.current) return;

@@ -302,6 +302,7 @@ export const analyzePdfTextLayer = async (base64OrUrl: string, pagesPerChunk = 3
     const sampled: PdfTextPage[] = [];
 
     for (let pageNumber = 1; pageNumber <= samplePages; pageNumber++) {
+        await new Promise(r => setTimeout(r, 0)); // Yield to main thread
         const page = await pdf.getPage(pageNumber);
         const content = await page.getTextContent();
         const viewport = page.getViewport({ scale: 1 });
@@ -331,6 +332,7 @@ export const analyzePdfTextLayer = async (base64OrUrl: string, pagesPerChunk = 3
 
     const pages = [...sampled];
     for (let pageNumber = samplePages + 1; pageNumber <= pdf.numPages; pageNumber++) {
+        await new Promise(r => setTimeout(r, 0)); // Yield to main thread
         const page = await pdf.getPage(pageNumber);
         const content = await page.getTextContent();
         const viewport = page.getViewport({ scale: 1 });
@@ -359,6 +361,7 @@ export const convertPdfToImages = async (base64OrUrl: string, pageRange?: PdfPag
 
         for (let i = start; i <= end; i++) {
             try {
+                await new Promise(r => setTimeout(r, 0)); // Yield to main thread
                 const page = await pdf.getPage(i);
 
                 // High resolution scale (2.0 = 144-200 DPIish, good for OCR)
@@ -379,9 +382,15 @@ export const convertPdfToImages = async (base64OrUrl: string, pageRange?: PdfPag
 
                 await page.render(renderContext).promise;
 
+                // Nhường lại UI thread trước khi chạy thao tác nặng toDataURL
+                await new Promise(r => setTimeout(r, 0));
+                
                 // Convert to base64 JPEG
                 const imgData = canvas.toDataURL('image/jpeg', 0.85); // 0.85 quality is enough
                 images.push(imgData);
+                
+                // Nhường thêm 1 nhịp sau khi toDataURL xong (rất nặng CPU)
+                await new Promise(r => setTimeout(r, 10));
             } catch (pageError) {
                 console.error(`Error rendering page ${i}:`, pageError);
                 // Continue to next page if one fails? Or fail all? 

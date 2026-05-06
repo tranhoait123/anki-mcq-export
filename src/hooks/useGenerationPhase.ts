@@ -163,6 +163,11 @@ export const useGenerationPhase = ({
           });
           void persistMcqs(checkpoint.questionsSnapshot);
         },
+        onPartialQuestions: (partialQs, batchIndex) => {
+          if (liveAppendToVisible && partialQs.length > 0) {
+            void appendVisibleMcqs(partialQs);
+          }
+        },
       }
     );
 

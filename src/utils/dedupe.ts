@@ -339,15 +339,20 @@ export const scoreMCQDuplicate = (a: MCQLike, b: MCQLike): DuplicateFieldScores 
   const lenA = (a.question || '').length;
   const lenB = (b.question || '').length;
   const maxLen = Math.max(lenA, lenB);
-  let lengthCoeff = 1;
+  
+  let penaltyFactor = 1;
   if (maxLen < 50) {
     // Very short questions – penalize differences more heavily
-    lengthCoeff = 1.05; // boost score so threshold is harder to meet
+    penaltyFactor = 1.5;
   } else if (maxLen > 200) {
     // Long clinical cases – allow a bit more variance
-    lengthCoeff = 0.95; // lower score so threshold is easier to meet
+    penaltyFactor = 0.8;
   }
-  const composite = Math.min(compositeRaw * lengthCoeff, question * 0.75 + optionsScore * 0.25);
+  
+  const rawDiff = 1 - compositeRaw;
+  const adjustedComposite = Math.max(0, 1 - rawDiff * penaltyFactor);
+  
+  const composite = Math.min(adjustedComposite, question * 0.75 + optionsScore * 0.25);
 
   return {
     question,

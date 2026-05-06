@@ -30,6 +30,7 @@ import {
 } from './batching';
 import {
   parseQuestionsFromModelText,
+  salvageCompleteQuestionsFromJson,
 } from './parsing';
 import {
   translateErrorForUser,
@@ -488,8 +489,32 @@ export const generateQuestions = async (
                   const config = getModelConfig(currentKey, (isAdvancedMode || forceJsonRepair) ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction, questionSchema, activeModel, kCacheName || undefined, activeProfile.safeOutputBudget);
                   const chat = aiInstance.chats.create(config);
                   const batchPrompt = kCacheName ? `${sourceInstruction}\n\nDựa trên tài liệu đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${batchLabel}.` : scanPrompt;
-                  const response = await chat.sendMessage({ message: buildGoogleBatchMessage(part, batchPrompt, kCacheName || undefined) });
-                  return parseQuestionsFromModelText(response.text, index, expectedQuestions, { allowEmpty: !isDocxImageBatch });
+                  
+                  const resultStream = await chat.sendMessageStream({ message: buildGoogleBatchMessage(part, batchPrompt, kCacheName || undefined) });
+                  
+                  let fullText = '';
+                  let reportedCount = 0;
+                  const currentBatchIndex = topLevelIndex + 1;
+
+                  for await (const chunk of resultStream) {
+                      fullText += chunk.text;
+                      
+                      if (options.onPartialQuestions) {
+                          const partialQs = salvageCompleteQuestionsFromJson(fullText);
+                          if (partialQs.length > reportedCount) {
+                              const newPartialQs = partialQs.slice(reportedCount);
+                              reportedCount = partialQs.length;
+                              applyTrustedSourceMetadata(newPartialQs, part);
+                              newPartialQs.forEach((q, i) => {
+                                 if (!q.id) q.id = `mcq-stream-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+                              });
+                              // Báo cáo các câu hỏi vừa bóc tách được từ luồng dữ liệu (chưa lọc trùng ở bước này để UI có thể hiển thị nhanh nhất)
+                              options.onPartialQuestions(newPartialQs, currentBatchIndex);
+                          }
+                      }
+                  }
+
+                  return parseQuestionsFromModelText(fullText, index, expectedQuestions, { allowEmpty: !isDocxImageBatch });
               },
               batchStartingKey, // Per-batch key assignment
               stableFallbackModel,

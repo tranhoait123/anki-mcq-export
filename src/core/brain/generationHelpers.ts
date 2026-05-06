@@ -18,6 +18,7 @@ export interface GenerateQuestionsOptions {
   existingAutoSkippedCount?: number;
   sessionPhase?: ProcessingPhase;
   onCheckpoint?: (checkpoint: ProcessingCheckpoint) => void;
+  onPartialQuestions?: (questions: MCQ[], batchIndex: number) => void;
 }
 
 export const waitWithController = async (ms: number, controller?: ProcessingController): Promise<void> => {

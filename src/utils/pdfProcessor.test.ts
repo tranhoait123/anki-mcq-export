@@ -95,6 +95,63 @@ ${'Nội dung bổ sung đủ dài.\n'.repeat(20)}
     expect(analysis.visionPageRanges).toEqual([{ start: 1, end: 1 }]);
   });
 
+  it('does not swallow bare-numbered PDF questions after a complete A-D block', () => {
+    const page = scorePdfTextPage(`
+Câu 1: Cấu trúc nào tạo nên đáy tim?
+A. Tâm thất trái và phần sau tâm thất phải
+B. Tâm nhĩ phải và phần sau tâm nhĩ trái
+C. Tâm nhĩ trái và phần sau tâm nhĩ phải
+D. Tâm thất phải và phần sau tâm thất trái
+2. Tĩnh mạch tim lớn đi trong rãnh nào?
+A. Rãnh vành
+B. Rãnh gian nhĩ
+C. Rãnh tận cùng
+D. Rãnh gian thất trước
+Câu 3: Động mạch cấp máu cho lá tạng ngoại tâm mạc?
+A. Động mạch vành
+B. Động mạch màng ngoài tim
+C. Động mạch gian thất trước
+D. Động mạch mũ
+${'Nội dung bổ sung đủ dài để text layer được chấm goodText.\n'.repeat(8)}
+`, 1);
+
+    const analysis = buildPdfTextAnalysisFromPages([page], 3, 1, 10);
+    const combinedText = analysis.textBatches.map((batch) => batch.text).join('\n');
+
+    expect(analysis.detectedMcqCount).toBe(3);
+    expect(combinedText).toContain('Question: Câu 1: Cấu trúc nào tạo nên đáy tim?');
+    expect(combinedText).toContain('Question: 2. Tĩnh mạch tim lớn đi trong rãnh nào?');
+    expect(combinedText).toContain('Question: Câu 3: Động mạch cấp máu cho lá tạng ngoại tâm mạc?');
+  });
+
+  it('keeps unnumbered PDF questions when the next line restarts at option A', () => {
+    const page = scorePdfTextPage(`
+Câu 1: Cấu trúc nào tạo nên đáy tim?
+A. Tâm thất trái và phần sau tâm thất phải
+B. Tâm nhĩ phải và phần sau tâm nhĩ trái
+C. Tâm nhĩ trái và phần sau tâm nhĩ phải
+D. Tâm thất phải và phần sau tâm thất trái
+Tĩnh mạch tim lớn đi trong rãnh nào?
+A. Rãnh vành
+B. Rãnh gian nhĩ
+C. Rãnh tận cùng
+D. Rãnh gian thất trước
+Động mạch cấp máu cho lá tạng ngoại tâm mạc?
+A. Động mạch vành
+B. Động mạch màng ngoài tim
+C. Động mạch gian thất trước
+D. Động mạch mũ
+${'Nội dung bổ sung đủ dài để text layer được chấm goodText.\n'.repeat(8)}
+`, 1);
+
+    const analysis = buildPdfTextAnalysisFromPages([page], 3, 1, 10);
+    const combinedText = analysis.textBatches.map((batch) => batch.text).join('\n');
+
+    expect(analysis.detectedMcqCount).toBe(3);
+    expect(combinedText).toContain('Question: Tĩnh mạch tim lớn đi trong rãnh nào?');
+    expect(combinedText).toContain('Question: Động mạch cấp máu cho lá tạng ngoại tâm mạc?');
+  });
+
   it('uses text batches for clean pages and no vision ranges', () => {
     const pages = Array.from({ length: 6 }, (_, index) => scorePdfTextPage(numberedMcqPage(index * 3 + 1, 3), index + 1));
     const analysis = buildPdfTextAnalysisFromPages(pages, 3, 1);

@@ -49,6 +49,7 @@ export interface PdfTextAnalysis {
 const QUESTION_MARKER_PATTERN = /(?:^|\n)\s*(?:câu|cau|question|q)\s*\d+\s*[:.)-]/gi;
 const OPTION_MARKER_PATTERN = /(?:^|\n)\s*(?:\(?[A-E]\)?\s*[\.:)-])/gi;
 const QUESTION_LINE_PATTERN = /^(?:câu|cau|question|q)\s*\d+\s*[:.)-]/i;
+const BARE_NUMBERED_QUESTION_LINE_PATTERN = /^(?:\d{1,3}|[IVX]{1,8})\s*[\.)-]\s+\S/i;
 const OPTION_LINE_PATTERN = /^\(?([A-E])\)?\s*[\.:)-]\s*(.+)$/i;
 const SAME_LINE_OPTIONS_PATTERN = /\bA\s*[\.:)-].+\bB\s*[\.:)-].+\bC\s*[\.:)-].+\bD\s*[\.:)-]/i;
 
@@ -188,9 +189,24 @@ const parseMcqBlocksFromText = (text: string): string[] => {
         current = null;
     };
 
-    for (const line of lines) {
+    const isLikelyQuestionBoundaryAfterOptions = (line: string, nextLine = ''): boolean => {
+        if (!current || current.options.length < 4) return false;
+        if (OPTION_LINE_PATTERN.test(line)) return false;
+        if (QUESTION_LINE_PATTERN.test(line)) return true;
+        if (nextLine && OPTION_LINE_PATTERN.test(nextLine)) return true;
+        return BARE_NUMBERED_QUESTION_LINE_PATTERN.test(line) && (line.includes('?') || line.length >= 18);
+    };
+
+    for (let index = 0; index < lines.length; index++) {
+        const line = lines[index];
+        const nextLine = lines[index + 1] || '';
         const optionMatch = line.match(OPTION_LINE_PATTERN);
         if (QUESTION_LINE_PATTERN.test(line)) {
+            flush();
+            current = { question: [line], options: [] };
+            continue;
+        }
+        if (isLikelyQuestionBoundaryAfterOptions(line, nextLine)) {
             flush();
             current = { question: [line], options: [] };
             continue;

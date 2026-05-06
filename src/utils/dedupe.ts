@@ -383,10 +383,12 @@ const selectCandidatePool = <T extends MCQLike>(candidate: MCQLike, existingQues
   const candidateBucket = Math.floor(candidateQuestion.length / LENGTH_BUCKET_SIZE);
   const selected: T[] = [];
   const seen = new Set<T>();
+  let sameOptionsCount = 0;
 
   for (const existing of existingQuestions) {
     const existingQuestion = normalizeMCQField(existing.question || '');
     const sameOptions = buildOptionsFingerprint(existing) === candidateOptionsFingerprint;
+    if (sameOptions) sameOptionsCount++;
     const existingBucket = Math.floor(existingQuestion.length / LENGTH_BUCKET_SIZE);
     const sameLengthBand = Math.abs(existingBucket - candidateBucket) <= GROUPING_NEIGHBOR_RADIUS;
     const containmentMatch =
@@ -400,6 +402,7 @@ const selectCandidatePool = <T extends MCQLike>(candidate: MCQLike, existingQues
     }
   }
 
+  if (sameOptionsCount > 0) return selected;
   return selected.length >= GROUPING_FALLBACK_MIN ? selected : existingQuestions;
 };
 

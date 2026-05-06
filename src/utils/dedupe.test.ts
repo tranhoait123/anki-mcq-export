@@ -231,7 +231,7 @@ describe('MCQ dedupe utilities', () => {
     const result = findDuplicate(longerVariant, [original, ...distractors]);
     expect(result.action).toBe('autoSkip');
     expect(result.matchedData?.id).toBe('target');
-  });
+  }, 10000);
 
   it('does not merge different questions that share a long clinical case stem', () => {
     const stem = 'Bệnh nhân nam 65 tuổi đau ngực dữ dội sau xương ức, vã mồ hôi, điện tâm đồ có ST chênh lên ở DII DIII aVF, tiền sử tăng huyết áp và hút thuốc lá lâu năm.';

@@ -181,15 +181,15 @@ const parseMcqBlocksFromText = (text: string): string[] => {
     let current: { question: string[]; options: { letter: string; text: string }[] } | null = null;
 
     const flush = () => {
-        if (current && current.question.length > 0 && current.options.length >= 4) {
+        if (current && current.question.length > 0 && current.options.length >= 2) {
             const uniqueLetters = new Set(current.options.map((option) => option.letter));
-            if (uniqueLetters.size >= 4) blocks.push(current);
+            if (uniqueLetters.size >= 2) blocks.push(current);
         }
         current = null;
     };
 
     const isLikelyQuestionBoundaryAfterOptions = (line: string, nextLine = ''): boolean => {
-        if (!current || current.options.length < 4) return false;
+        if (!current || current.options.length < 2) return false;
         if (OPTION_LINE_PATTERN.test(line)) return false;
         if (QUESTION_LINE_PATTERN.test(line)) return true;
         if (nextLine && OPTION_LINE_PATTERN.test(nextLine)) return true;

@@ -78,7 +78,7 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
 - Nếu một câu hỏi bị che khuất hoàn toàn (>70%) và không có cách nào suy luận logic, hãy bỏ qua câu đó.
 
 1. **questions**: Mảng chứa danh sách các câu hỏi. Mỗi câu hỏi trong mảng PHẢI có đầy đủ các trường sau:
-   - **question**: Nội dung câu hỏi (kèm Case lâm sàng nếu có).
+   - **question**: Nội dung câu hỏi, phải luôn bắt đầu bằng nhãn câu hỏi nguyên bản từ tài liệu (VD: "Câu 49: Mục đích...", "50. Biết 1 liều..."). TUYỆT ĐỐI không lược bỏ nhãn này. Kèm Case lâm sàng nếu có.
    - **options**: Mảng 4-5 lựa chọn (VD: ["A. ...", "B. ..."]).
    - **correctAnswer**: Đáp án đúng (VD: "A").
    - **explanation**: Đối tượng chi tiết gồm:

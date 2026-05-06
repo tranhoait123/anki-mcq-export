@@ -160,11 +160,14 @@ export const generateQuestions = async (
                   const pageNumber = range.start + imageIndex;
                   const pageRange = { start: pageNumber, end: pageNumber };
                   const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(pageRange));
+                  const rangePages = pdfTextAnalysis.pages.slice(pageRange.start - 1, pageRange.end);
+                  const rangeText = rangePages.map((page) => page.text).join('\n\n');
                   allParts.push({
                     inlineData: { mimeType: 'image/jpeg', data: imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64 },
                     sourceMode: 'pdfVision',
                     sourceLabel,
-                    trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange }),
+                    text: rangeText,
+                    trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange }, rangeText),
                   });
                 });
               }
@@ -173,11 +176,14 @@ export const generateQuestions = async (
               pdfChunks.forEach((chunkBase64, chunkIndex) => {
                 const range = visionRanges[chunkIndex];
                 const sourceLabel = joinSourceLabel(file.name, range ? formatPageRangeLabel(range) : '');
+                const rangePages = range ? pdfTextAnalysis.pages.slice(range.start - 1, range.end) : [];
+                const rangeText = rangePages.map((page) => page.text).join('\n\n');
                 allParts.push({
                   inlineData: { mimeType: 'application/pdf', data: chunkBase64 },
                   sourceMode: 'pdfVision',
                   sourceLabel,
-                  trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range }),
+                  text: rangeText,
+                  trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range }, rangeText),
                 });
               });
             }

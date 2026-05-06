@@ -5,7 +5,7 @@ export interface SharedCaseContext {
   confidence: 'explicit';
 }
 
-const QUESTION_MARKER = /(?:^|\s)(?:câu|cau|question|q)\s*(?:số\s*)?(\d+)\s*[:.)-]/gi;
+const QUESTION_MARKER = /(?:^|\s)(?:(?:câu|cau|question|q)\s*(?:số\s*)?)?(\d+)\s*[:.)-]/gi;
 const RANGE_JOINER = String.raw`(?:[-–—,;]|và|va|and|&|đến|den|tới|toi|to|through)`;
 const SHARED_CASE_MARKER = new RegExp(
   String.raw`(?:tình\s*huống(?:\s*lâm\s*sàng)?|tinh\s*huong(?:\s*lam\s*sang)?|dữ\s*kiện|du\s*kien|bệnh\s*cảnh|benh\s*canh|(?:clinical\s+)?vignette|case|item\s*set)[\s\S]{0,180}?` +
@@ -71,7 +71,11 @@ export const extractSharedCaseContexts = (text: string): SharedCaseContext[] => 
     if (!range) continue;
     const { startQuestion, endQuestion } = range;
 
-    const firstQuestionIndex = findQuestionMarkerIndex(source, startQuestion, match.index + match[0].length);
+    let firstQuestionIndex = -1;
+    for (let qNum = startQuestion; qNum <= endQuestion; qNum++) {
+      firstQuestionIndex = findQuestionMarkerIndex(source, qNum, match.index + match[0].length);
+      if (firstQuestionIndex >= 0) break;
+    }
     if (firstQuestionIndex < 0) continue;
 
     const stem = normalizeWhitespace(source.slice(match.index, firstQuestionIndex));

@@ -77,10 +77,106 @@ export const normalizeMCQField = (text: string = ''): string => {
     .trim();
 };
 
+const MEDICAL_ABBREVIATIONS: Record<string, string> = {
+  bn: 'benh nhan',
+  tha: 'tang huyet ap',
+  dtd: 'dai thao duong',
+  gpb: 'giai phau benh',
+  ux: 'u xo',
+  ct: 'cat lop vi tinh',
+  cx: 'co tu cung',
+  mri: 'cong huong tu',
+  vq: 'vong kinh',
+  stis: 'benh lay truyen qua duong tinh duc',
+};
+
+const MEDICAL_STOPWORDS = new Set([
+  'nao sau day la',
+  'nao sau day',
+  'sau day',
+  'hay chon',
+  'chon phat bieu',
+  'phat bieu nao',
+  'trieu chung nao',
+  'dau hieu nao',
+  'cau hoi nao',
+  'cau hoi',
+  'phat bieu',
+  'cau nao',
+  'cau',
+  'la',
+  've',
+]);
+
+const expandMedicalTerms = (text: string): string => {
+  let expanded = text;
+  for (const [abbr, full] of Object.entries(MEDICAL_ABBREVIATIONS)) {
+    const regex = new RegExp(`\\b${abbr}\\b`, 'g');
+    expanded = expanded.replace(regex, full);
+  }
+  return expanded;
+};
+
+const removeMedicalStopwords = (text: string): string => {
+  let cleaned = text;
+  for (const stopword of MEDICAL_STOPWORDS) {
+    cleaned = cleaned.replace(new RegExp(`\\b${stopword}\\b`, 'g'), ' ');
+  }
+  return cleaned.replace(/\s+/g, ' ').trim();
+};
+
+export const normalizeSemanticField = (text: string = ''): string => {
+  const base = normalizeMCQField(text);
+  const expanded = expandMedicalTerms(base);
+  return removeMedicalStopwords(expanded);
+};
+
+const getTrigrams = (text: string): Set<string> => {
+  const trigrams = new Set<string>();
+  for (let i = 0; i < text.length - 2; i++) {
+    trigrams.add(text.substring(i, i + 3));
+  }
+  return trigrams;
+};
+
+const sorensenDiceSimilarity = (a: string, b: string): number => {
+  if (a === b) return 1;
+  if (a.length < 3 || b.length < 3) return levenshteinSimilarity(a, b);
+
+  const trigramsA = getTrigrams(a);
+  const trigramsB = getTrigrams(b);
+
+  let intersection = 0;
+  for (const trigram of trigramsA) {
+    if (trigramsB.has(trigram)) {
+      intersection++;
+    }
+  }
+
+  return (2 * intersection) / (trigramsA.size + trigramsB.size);
+};
+
 const normalizeAnswer = (text: string = ''): string => {
   const normalized = normalizeMCQField(text);
   const letter = String(text).trim().match(/^[A-E]/i)?.[0]?.toLowerCase();
   return letter || normalized;
+};
+
+const extractQuestionNumber = (text: string): number | null => {
+  if (!text || typeof text !== 'string') return null;
+  const patterns = [
+    /câu\s*(?:số\s*)?(\d+)/i,
+    /question\s*(\d+)/i,
+    /^(\d+)\s*[.:)\]]/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+  }
+  return null;
 };
 
 const getOptions = (mcq: MCQLike): string[] => {
@@ -256,8 +352,12 @@ const scoreQuestionDetailed = (a: string = '', b: string = '') => {
   const intentB = questionIntentProfile(b);
   const intentMismatch = !areIntentsCompatible(intentA, intentB);
   const intentReviewRequired = needsIntentReview(intentA, intentB);
-  const questionTokenSort = tokenSortRatio(a, b);
-  const questionPartial = partialRatio(a, b);
+
+  const semA = normalizeSemanticField(a);
+  const semB = normalizeSemanticField(b);
+
+  const questionTokenSort = tokenSortRatio(semA, semB);
+  const questionPartial = partialRatio(semA, semB);
 
   if (intentMismatch) {
     return {
@@ -269,7 +369,14 @@ const scoreQuestionDetailed = (a: string = '', b: string = '') => {
     };
   }
 
-  const base = Math.max(tokenRatio(a, b), questionPartial * 0.97);
+  const tokenRatioScore = tokenRatio(semA, semB);
+  const diceScore = sorensenDiceSimilarity(semA, semB);
+  const levenshteinScore = levenshteinSimilarity(semA, semB);
+
+  // Hybrid Score: 0.4 * TokenSortRatio + 0.35 * Sørensen-Dice + 0.25 * Levenshtein
+  const hybridScore = 0.4 * questionTokenSort + 0.35 * diceScore + 0.25 * levenshteinScore;
+
+  const base = Math.max(tokenRatioScore, hybridScore, questionPartial * 0.97);
   const tailScore = tailAfterSharedStemScore(a, b);
   const score = tailScore === null ? base : Math.min(base, 0.55 + tailScore * 0.45);
 
@@ -492,6 +599,12 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
         (fieldScores.questionPartial >= 0.58 && fieldScores.questionTokenSort >= 0.32)
       );
 
+    const numCandidate = extractQuestionNumber(candidate.question || '');
+    const numExisting = extractQuestionNumber(existing.question || '');
+    const sameNumber = numCandidate !== null && numExisting !== null && numCandidate === numExisting;
+    const isQuestionHighlySimilar = fieldScores.question >= 0.88 || (sameNumber && fieldScores.question >= 0.70);
+    const overlappingPageDuplicate = !fieldScores.intentMismatch && isQuestionHighlySimilar;
+
     if (
         (
           fieldScores.composite >= 0.82 &&
@@ -500,15 +613,20 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
         ) ||
         reorderedOptionsReview ||
         partialReview ||
-        intentReview
+        intentReview ||
+        overlappingPageDuplicate
       ) {
       const reason = fieldScores.intentReviewRequired
         ? `Có phủ định/ngoại trừ cần review; ${formatScoreSummary(fieldScores, optionsScore, answerConflict)}`
         : reorderedOptionsReview
           ? 'Options giống nhưng đổi vị trí; cần review'
-          : partialReview && fieldScores.question < 0.78
-            ? `Nghi trùng do partial match; ${formatScoreSummary(fieldScores, optionsScore, answerConflict)}`
-            : formatScoreSummary(fieldScores, optionsScore, answerConflict);
+          : overlappingPageDuplicate && optionsScore < 0.75
+            ? sameNumber
+              ? `Trùng số thứ tự câu hỏi (Câu ${numCandidate}); các lựa chọn khác nhau hoặc xung đột đáp án`
+              : `Trùng lặp thân câu hỏi (~${formatPercent(fieldScores.question)}%) từ các trang gối đầu; các lựa chọn khác nhau`
+            : partialReview && fieldScores.question < 0.78
+              ? `Nghi trùng do partial match; ${formatScoreSummary(fieldScores, optionsScore, answerConflict)}`
+              : formatScoreSummary(fieldScores, optionsScore, answerConflict);
       const reviewMatch: DuplicateMatch<T> = {
         action: 'review',
         isDup: true,

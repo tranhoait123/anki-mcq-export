@@ -83,8 +83,6 @@ A. Một    B. Hai    C. Ba    D. Bốn
     const page = scorePdfTextPage(`
 Câu 1: Chọn đáp án đúng
 A. Một
-B. Hai
-C. Ba
 ${'Nội dung bổ sung đủ dài.\n'.repeat(20)}
 `, 1);
     const analysis = buildPdfTextAnalysisFromPages([page], 3, 1);

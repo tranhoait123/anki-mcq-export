@@ -342,6 +342,79 @@ describe('MCQ dedupe utilities', () => {
     expect(result.matchedData?.id).toBe('exact');
   });
 
+  it('detects duplicate on overlapping pages if same question number or highly similar stem even with different options', () => {
+    const original = makeMCQ({
+      question: 'Câu 49. Điểm giống nhau của adenomyosis và u xơ cơ tử cung là gì?',
+      options: ['A. Không có gì', 'B. U lành', 'C. Đều phụ thuộc estrogen', 'D. Đều ác tính'],
+      correctAnswer: 'C',
+    });
+    const duplicateSameNumber = makeMCQ({
+      question: 'Câu 49. Điểm giống nhau của adenomyosis và u xơ cơ tử cung là gì?',
+      options: ['A. Không giống nhau', 'B. Bệnh lành tính', 'C. Cùng nguồn gốc', 'D. Đáp ứng nội tiết'],
+      correctAnswer: 'D',
+    });
+    const duplicateNoNumberButHighlySimilarStem = makeMCQ({
+      question: 'Điểm giống nhau của adenomyosis và u xơ cơ tử cung là gì?',
+      options: ['A. Là bệnh lý ác tính', 'B. Cực kỳ hiếm gặp', 'C. Không có triệu chứng gì', 'D. Chỉ gặp ở người trẻ'],
+      correctAnswer: 'C',
+    });
+
+    const resultSameNumber = findDuplicate(duplicateSameNumber, [original]);
+    expect(resultSameNumber.isDup).toBe(true);
+    expect(resultSameNumber.action).toBe('review');
+    expect(resultSameNumber.reason).toContain('Trùng số thứ tự câu hỏi');
+
+    const resultHighlySimilarStem = findDuplicate(duplicateNoNumberButHighlySimilarStem, [original]);
+    expect(resultHighlySimilarStem.isDup).toBe(true);
+    expect(resultHighlySimilarStem.action).toBe('review');
+    expect(resultHighlySimilarStem.reason).toContain('Trùng lặp thân câu hỏi');
+  });
+
+  it('detects duplicates when medical abbreviations are used interchangeably', () => {
+    const original = makeMCQ({
+      question: 'Bệnh nhân tăng huyết áp và đái tháo đường cần lưu ý gì khi dùng thuốc điều trị?',
+      options: ['A. Hạn chế muối', 'B. Uống nhiều nước', 'C. Tập thể dục', 'D. Theo dõi đường huyết'],
+    });
+    const candidateWithAbbr = makeMCQ({
+      question: 'BN THA và ĐTĐ cần lưu ý gì khi dùng thuốc điều trị?',
+      options: ['A. Hạn chế muối', 'B. Uống nhiều nước', 'C. Tập thể dục', 'D. Theo dõi đường huyết'],
+    });
+
+    const result = findDuplicate(candidateWithAbbr, [original]);
+    expect(result.isDup).toBe(true);
+    expect(result.action).toBe('autoSkip');
+  });
+
+  it('detects duplicates when different question filler words or stopwords are used', () => {
+    const original = makeMCQ({
+      question: 'Câu hỏi nào sau đây là triệu chứng điển hình của viêm phổi thùy?',
+      options: ['A. Sốt cao rét run', 'B. Ho khan', 'C. Đau bụng', 'D. Nôn mửa'],
+    });
+    const candidateWithDifferentStopwords = makeMCQ({
+      question: 'Hãy chọn phát biểu về triệu chứng điển hình của viêm phổi thùy?',
+      options: ['A. Sốt cao rét run', 'B. Ho khan', 'C. Đau bụng', 'D. Nôn mửa'],
+    });
+
+    const result = findDuplicate(candidateWithDifferentStopwords, [original]);
+    expect(result.isDup).toBe(true);
+    expect(result.action).toBe('autoSkip');
+  });
+
+  it('handles minor OCR typos robustly using Sørensen-Dice coefficient', () => {
+    const original = makeMCQ({
+      question: 'Chẩn đoán xác định u xơ tử cung dựa vào phương pháp cận lâm sàng nào?',
+      options: ['A. Siêu âm ngả âm đạo', 'B. Chụp X-quang bụng', 'C. Thử thai', 'D. Nội soi buồng tử cung'],
+    });
+    const candidateWithTypos = makeMCQ({
+      question: 'Chân doan xac dịnh u xo tu cung dựa vao phuong phap can lam sang nao?',
+      options: ['A. Siêu âm ngả âm đạo', 'B. Chụp X-quang bụng', 'C. Thử thai', 'D. Nội soi buồng tử cung'],
+    });
+
+    const result = findDuplicate(candidateWithTypos, [original]);
+    expect(result.isDup).toBe(true);
+    expect(result.action).toBe('autoSkip');
+  });
+
   it('keeps few-hundred-question dedupe fast enough for interactive review', () => {
     const unique: MCQ[] = [];
     const incoming = Array.from({ length: 300 }, (_, index) => makeMCQ({

@@ -16,38 +16,48 @@ const extractJson = (text: string): string => {
 
   if (actualStart === -1) return cleanText.trim();
 
-  let subText = cleanText.substring(actualStart);
-  let braceCount = 0;
-  let bracketCount = 0;
-  let lastValidEnd = -1;
+  const subText = cleanText.substring(actualStart);
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  let lastStructuralEnd = -1;
 
   for (let i = 0; i < subText.length; i++) {
     const char = subText[i];
-    if (char === '{') braceCount++;
-    else if (char === '}') braceCount--;
-    else if (char === '[') bracketCount++;
-    else if (char === ']') bracketCount--;
 
-    if (braceCount === 0 && bracketCount === 0) {
-      lastValidEnd = i;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+
+    if (char === '{') {
+      stack.push('}');
+    } else if (char === '[') {
+      stack.push(']');
+    } else if (char === '}' || char === ']') {
+      lastStructuralEnd = i;
+      if (stack[stack.length - 1] === char) {
+        stack.pop();
+        if (stack.length === 0) {
+          return subText.substring(0, i + 1);
+        }
+      }
     }
   }
 
-  if (lastValidEnd !== -1) {
-    return subText.substring(0, lastValidEnd + 1);
-  }
-
-  const lastBrace = subText.lastIndexOf('}');
-  const lastBracket = subText.lastIndexOf(']');
-  const actualEnd = Math.max(lastBrace, lastBracket);
-
-  if (actualEnd !== -1) {
-    let result = subText.substring(0, actualEnd + 1);
-    let tempBrace = braceCount;
-    let tempBracket = bracketCount;
-
-    while (tempBrace > 0) { result += '}'; tempBrace--; }
-    while (tempBracket > 0) { result += ']'; tempBracket--; }
+  if (lastStructuralEnd !== -1) {
+    let result = subText.substring(0, lastStructuralEnd + 1);
+    if (inString) result += '"';
+    result += [...stack].reverse().join('');
 
     try {
       JSON.parse(result);
@@ -129,8 +139,7 @@ const fillMissingQuestionFields = (q: any): any => {
 };
 
 const tryForceCloseObject = (subText: string): any | null => {
-  let depth = 0;
-  let bracketDepth = 0;
+  const stack: string[] = [];
   let inString = false;
   let escaped = false;
   const cleanText = subText;
@@ -151,21 +160,16 @@ const tryForceCloseObject = (subText: string): any | null => {
     }
     if (inString) continue;
 
-    if (char === '{') depth++;
-    else if (char === '}') depth--;
-    else if (char === '[') bracketDepth++;
-    else if (char === ']') bracketDepth--;
+    if (char === '{') stack.push('}');
+    else if (char === '[') stack.push(']');
+    else if ((char === '}' || char === ']') && stack[stack.length - 1] === char) stack.pop();
   }
 
   let fixed = cleanText;
   if (inString) {
     fixed += '"';
   }
-  let tempDepth = depth;
-  while (tempDepth > 0) {
-    fixed += '}';
-    tempDepth--;
-  }
+  fixed += [...stack].reverse().join('');
   try {
     const parsed = JSON.parse(fixed);
     return parsed;
@@ -174,8 +178,7 @@ const tryForceCloseObject = (subText: string): any | null => {
       let candidate = cleanText.substring(0, len);
       candidate = candidate.trim().replace(/,\s*$/, '');
       
-      let d = 0;
-      let bd = 0;
+      const repairStack: string[] = [];
       let isStr = false;
       let esc = false;
       for (let i = 0; i < candidate.length; i++) {
@@ -184,14 +187,13 @@ const tryForceCloseObject = (subText: string): any | null => {
         if (char === '\\') { esc = true; continue; }
         if (char === '"') { isStr = !isStr; continue; }
         if (isStr) continue;
-        if (char === '{') d++;
-        else if (char === '}') d--;
-        else if (char === '[') bd++;
-        else if (char === ']') bd--;
+        if (char === '{') repairStack.push('}');
+        else if (char === '[') repairStack.push(']');
+        else if ((char === '}' || char === ']') && repairStack[repairStack.length - 1] === char) repairStack.pop();
       }
       let f = candidate;
       if (isStr) f += '"';
-      while (d > 0) { f += '}'; d--; }
+      f += [...repairStack].reverse().join('');
       try {
         const parsed = JSON.parse(f);
         return parsed;

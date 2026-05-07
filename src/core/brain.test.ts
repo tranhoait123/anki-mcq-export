@@ -13,6 +13,7 @@ import {
   applySharedCaseContextToQuestion,
   extractSharedCaseContexts,
   parseQuestionsFromModelText,
+  parseJsonFromModelText,
   salvageCompleteQuestionsFromJson,
   translateErrorForUser,
 } from './brain';
@@ -313,5 +314,21 @@ Câu 12: Xử trí tiếp theo là gì?
     expect(extractProviderMessageContent({
       choices: [{ message: { content: '{"questions":[]}' } }],
     })).toBe('{"questions":[]}');
+  });
+
+  it('extracts JSON without treating brackets inside strings as structure', () => {
+    const payload = {
+      estimatedCount: 12,
+      specialty: 'Dược lý [tim mạch',
+      confidence: 0.91,
+      hasAnswers: true,
+      structureNote: 'Có ký hiệu tập {x | x > 0 trong đề và hậu tố ngoài JSON bị bỏ qua.',
+    };
+
+    const parsed = parseJsonFromModelText<typeof payload>(
+      `Model output:\n${JSON.stringify(payload)}\n\nGhi chú ngoài JSON.`
+    );
+
+    expect(parsed).toEqual(payload);
   });
 });

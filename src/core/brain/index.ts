@@ -25,6 +25,7 @@ export {
 
 export {
   parseQuestionsFromModelText,
+  parseJsonFromModelText,
   salvageCompleteQuestionsFromJson,
 } from './parsing';
 

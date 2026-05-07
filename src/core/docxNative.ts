@@ -45,6 +45,7 @@ const MCQ_MARKER_PATTERN = /^<<<MCQ\s+\d+>>>$/m;
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E'];
 const LETTER_NUMBER_FORMATS = new Set(['upperLetter', 'lowerLetter']);
 const ANSWER_SYMBOL_PATTERN = /^(?:[✓✔☑✅*•●■]\s*)+/;
+const ANSWER_KEY_LINE_PATTERN = /^(?:đáp\s*án|dap\s*an|đáp\s*án\s*đúng|dap\s*an\s*dung|answer|correct\s*answer|key)\s*(?:đúng|dung)?\s*[:：.\-]?\s*(?:\(?([A-E])\)?|([A-E])\s*[\.:)-])/i;
 const SUPPORTED_IMAGE_MIME_TYPES: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
@@ -185,6 +186,39 @@ const enrichNumbering = (
 const cleanOptionText = (text: string): string => text.replace(ANSWER_SYMBOL_PATTERN, '').trim();
 
 const getOptionMatch = (text: string): RegExpMatchArray | null => text.match(OPTION_PATTERN) || text.match(PAREN_OPTION_PATTERN);
+
+const getAnswerKeyLetter = (text: string): string => {
+  const cleanText = normalizeParagraphText(text);
+  const match = cleanText.match(ANSWER_KEY_LINE_PATTERN);
+  return (match?.[1] || match?.[2] || '').toUpperCase();
+};
+
+const parseInlineOptions = (text: string, highlighted: boolean): { letter: string; text: string; highlighted: boolean }[] => {
+  const cleanText = cleanOptionText(text);
+  if (!cleanText) return [];
+
+  const markers: { letter: string; markerStart: number; contentStart: number; highlighted: boolean }[] = [];
+  const pattern = /(?:^|[\n\r;|]|\s{2,}|\s+)([✓✔☑✅*•●■]\s*)?\(?([A-E])\)?\s*[\.:)-]\s+/gi;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(cleanText)) !== null) {
+    markers.push({
+      letter: match[2].toUpperCase(),
+      markerStart: match.index + match[0].search(/[✓✔☑✅*•●■]|\(?[A-E]\)?/i),
+      contentStart: match.index + match[0].length,
+      highlighted: highlighted || Boolean(match[1]),
+    });
+  }
+
+  if (markers.length < 2) return [];
+
+  return markers
+    .map((marker, index) => ({
+      letter: marker.letter,
+      text: cleanOptionText(cleanText.slice(marker.contentStart, markers[index + 1]?.markerStart ?? cleanText.length)),
+      highlighted: marker.highlighted,
+    }))
+    .filter((option) => option.text);
+};
 
 const isLetterNumbering = (numbering?: DocxParagraph['numbering']): boolean =>
   Boolean(numbering && (!numbering.numFmt || LETTER_NUMBER_FORMATS.has(numbering.numFmt)));
@@ -327,6 +361,8 @@ export const parseMcqsFromParagraphs = (paragraphs: DocxParagraph[]): NativeDocx
 
     const optionCandidateText = cleanOptionText(text);
     const optionMatch = getOptionMatch(optionCandidateText);
+    const inlineOptions = parseInlineOptions(text, paragraph.highlighted);
+    const answerKeyLetter = getAnswerKeyLetter(text);
 
     if (QUESTION_PATTERN.test(text) && (questionLines.length > 0 || options.length > 0)) {
       flush();
@@ -337,6 +373,19 @@ export const parseMcqsFromParagraphs = (paragraphs: DocxParagraph[]): NativeDocx
     if (!optionMatch && paragraph.numbering && options.length >= 4) {
       flush();
       questionLines.push(text);
+      continue;
+    }
+
+    if (inlineOptions.length >= 2) {
+      if (questionLines.length === 0) continue;
+      if (options.length + inlineOptions.length > OPTION_LETTERS.length) flush();
+      options.push(...inlineOptions.slice(0, OPTION_LETTERS.length - options.length));
+      continue;
+    }
+
+    if (answerKeyLetter && options.length >= 2) {
+      const matchedOption = options.find((option) => option.letter === answerKeyLetter);
+      if (matchedOption) matchedOption.highlighted = true;
       continue;
     }
 

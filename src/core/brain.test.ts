@@ -331,4 +331,105 @@ Câu 12: Xử trí tiếp theo là gì?
 
     expect(parsed).toEqual(payload);
   });
+
+  it('normalizes common model shape drift before rendering/export', () => {
+    const parsed = parseQuestionsFromModelText(JSON.stringify({
+      questions: [
+        {
+          question: 'Câu 1: Thuốc nào là lựa chọn đúng?',
+          options: {
+            B: 'Metformin',
+            A: 'Insulin',
+            D: 'Amlodipin',
+            C: 'Aspirin',
+          },
+          correctAnswer: 'Aspirin',
+          explanation: 'Vì aspirin là đáp án trong đề.',
+          source: 'demo.pdf | Trang 1',
+          difficulty: 'Medium',
+          depthAnalysis: 'Key point',
+        },
+        {
+          question: 'Câu 2: Marker option nằm chung dòng?',
+          options: 'A. Một B. Hai C. Ba D. Bốn',
+          correctAnswer: 2,
+          explanation: {
+            core: 'B đúng.',
+          },
+          source: 'demo.pdf | Trang 1',
+          difficulty: 'Easy',
+          depthAnalysis: 'Key point',
+        },
+      ],
+    }), 0, 2);
+
+    expect(parsed[0].options).toEqual(['A. Insulin', 'B. Metformin', 'C. Aspirin', 'D. Amlodipin']);
+    expect(parsed[0].correctAnswer).toBe('C');
+    expect(parsed[0].explanation.core).toBe('Vì aspirin là đáp án trong đề.');
+    expect(parsed[1].options).toEqual(['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn']);
+    expect(parsed[1].correctAnswer).toBe('B');
+  });
+
+  it('accepts common alias fields from model output', () => {
+    const parsed = parseQuestionsFromModelText(JSON.stringify({
+      questions: [
+        {
+          stem: 'Câu 3: Thuật ngữ nào phù hợp nhất?',
+          choices: [
+            { label: 'C', text: 'Tăng huyết áp' },
+            { label: 'A', text: 'Sốt' },
+            { label: 'B', text: 'Ho' },
+            { label: 'D', text: 'Đau bụng' },
+          ],
+          correct_answer: { letter: 'C' },
+          rationale: 'Tăng huyết áp là thuật ngữ phù hợp.',
+          source: 'alias-fixture',
+          difficulty: 'Medium',
+          depthAnalysis: '> Alias fields',
+        },
+      ],
+    }), 0, 1);
+
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].question).toBe('Câu 3: Thuật ngữ nào phù hợp nhất?');
+    expect(parsed[0].options).toEqual(['A. Sốt', 'B. Ho', 'C. Tăng huyết áp', 'D. Đau bụng']);
+    expect(parsed[0].correctAnswer).toBe('C');
+    expect(parsed[0].explanation.core).toBe('Tăng huyết áp là thuật ngữ phù hợp.');
+  });
+
+  it('infers correct answers from option markers and cleans option text', () => {
+    const markerExplanation = {
+      core: 'Core',
+      evidence: 'Evidence',
+      analysis: 'Analysis',
+      warning: 'Warning',
+    };
+    const parsed = parseQuestionsFromModelText(JSON.stringify({
+      questions: [
+        {
+          question: 'Câu 4: Marker nằm trong option array?',
+          options: ['A. Sốt', 'B. Ho', '✅ C. Đau bụng', 'D. Khó thở'],
+          correctAnswer: '',
+          explanation: markerExplanation,
+          source: 'marker-fixture',
+          difficulty: 'Easy',
+          depthAnalysis: '> Marker',
+        },
+        {
+          question: 'Câu 5: Marker nằm trong option string?',
+          options: 'A. Một B. Hai ✓ C. Ba D. Bốn',
+          correctAnswer: 'A',
+          explanation: markerExplanation,
+          source: 'marker-fixture',
+          difficulty: 'Easy',
+          depthAnalysis: '> Marker',
+        },
+      ],
+    }), 0, 2);
+
+    expect(parsed[0].options).toEqual(['A. Sốt', 'B. Ho', 'C. Đau bụng', 'D. Khó thở']);
+    expect(parsed[0].correctAnswer).toBe('C');
+    expect(parsed[1].options).toEqual(['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn']);
+    expect(parsed[1].correctAnswer).toBe('C');
+  });
 });

@@ -122,10 +122,198 @@ const isCompleteQuestionObject = (value: any): boolean =>
     typeof value.correctAnswer === 'string'
   );
 
+const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E'];
+const OPTION_CORRECT_MARKER_PATTERN = /^[\s✓✔☑✅*•●■]+/;
+
+const withOptionLabel = (letter: string, value: any): string => {
+  const text = String(value ?? '').replace(OPTION_CORRECT_MARKER_PATTERN, '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return /^[A-E][\s.:)-]/i.test(text) ? text : `${letter}. ${text}`;
+};
+
+const hasOptionCorrectMarker = (value: any): boolean =>
+  OPTION_CORRECT_MARKER_PATTERN.test(String(value ?? ''));
+
+const getAliasValue = (source: any, keys: string[]): any => {
+  if (!source || typeof source !== 'object') return undefined;
+  for (const key of keys) {
+    if (source[key] !== undefined && source[key] !== null) return source[key];
+  }
+  return undefined;
+};
+
+const getOptionTextValue = (option: any): any => {
+  if (!option || typeof option !== 'object' || Array.isArray(option)) return option;
+  return getAliasValue(option, ['text', 'content', 'value', 'option', 'answer', 'labelText']) ?? option;
+};
+
+const getOptionLetterValue = (option: any): string | undefined => {
+  if (!option || typeof option !== 'object' || Array.isArray(option)) return undefined;
+  const raw = getAliasValue(option, ['letter', 'key', 'label', 'id']);
+  const letter = String(raw ?? '').trim().match(/^[A-E]/i)?.[0]?.toUpperCase();
+  return letter;
+};
+
+const getOptionLetterFromAny = (option: any): string | undefined => {
+  const explicitLetter = getOptionLetterValue(option);
+  if (explicitLetter) return explicitLetter;
+  return String(getOptionTextValue(option) ?? '')
+    .trim()
+    .replace(OPTION_CORRECT_MARKER_PATTERN, '')
+    .match(/^[A-E][\s.:)-]/i)?.[0]?.charAt(0).toUpperCase();
+};
+
+const parseOptionsFromString = (value: string): { options: string[]; markedAnswer?: string } => {
+  const text = String(value || '').trim();
+  if (!text) return { options: [] };
+
+  const collectMarkers = (pattern: RegExp) => {
+    const markers: { letter: string; markerStart: number; contentStart: number; marked: boolean }[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) {
+      const raw = match[0];
+      const letterIndex = raw.search(/[A-E]/i);
+      if (letterIndex < 0) continue;
+      const markerPrefix = raw.slice(0, letterIndex);
+      const markerIndex = markerPrefix.search(/[✓✔☑✅*•●■]/);
+      markers.push({
+        letter: raw[letterIndex].toUpperCase(),
+        markerStart: match.index + (markerIndex >= 0 ? markerIndex : letterIndex),
+        contentStart: match.index + raw.length,
+        marked: markerIndex >= 0,
+      });
+    }
+    return markers;
+  };
+
+  let markers = collectMarkers(/(?:^|[\n\r;|]|\s{2,}|\s+)\s*[✓✔☑✅*•●■]?\s*\(?[A-E]\)?[\s.:)-]+/gi);
+  if (markers.length < 2) {
+    const inlineMarkers = collectMarkers(/(?:^|\s+)[✓✔☑✅*•●■]?\s*\(?[A-E]\)?[\s.:)-]+/gi);
+    if (inlineMarkers.length >= 3) markers = inlineMarkers;
+  }
+  if (markers.length < 2) return { options: [] };
+
+  const options = markers
+    .map((marker, index) => {
+      const end = markers[index + 1]?.markerStart ?? text.length;
+      return withOptionLabel(marker.letter, text.slice(marker.contentStart, end));
+    })
+    .filter(Boolean);
+  return { options, markedAnswer: markers.find(marker => marker.marked)?.letter };
+};
+
+const normalizeOptionPayload = (value: any): { options: string[]; markedAnswer?: string } => {
+  if (Array.isArray(value)) {
+    const labeledOptions = value.map((option, index) => ({
+      letter: getOptionLetterFromAny(option),
+      originalIndex: index,
+      value: option,
+      marked: hasOptionCorrectMarker(getOptionTextValue(option)),
+    }));
+    const shouldSortByLetter = labeledOptions.filter(item => item.letter).length >= 2;
+    const orderedOptions = shouldSortByLetter
+      ? labeledOptions.slice().sort((a, b) => {
+        const aIndex = OPTION_LETTERS.indexOf(a.letter || '');
+        const bIndex = OPTION_LETTERS.indexOf(b.letter || '');
+        if (aIndex !== -1 || bIndex !== -1) {
+          return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+        }
+        return a.originalIndex - b.originalIndex;
+      })
+      : labeledOptions;
+
+    return {
+      options: orderedOptions
+      .map((item, index) => withOptionLabel(
+        item.letter || OPTION_LETTERS[index] || String(index + 1),
+        getOptionTextValue(item.value)
+      ))
+      .filter(Boolean),
+      markedAnswer: orderedOptions.find(item => item.marked)?.letter,
+    };
+  }
+
+  if (typeof value === 'string') return parseOptionsFromString(value);
+
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value)
+      .filter(([, option]) => option !== null && option !== undefined && String(option).trim())
+      .sort(([a], [b]) => {
+        const aIndex = OPTION_LETTERS.indexOf(a.trim().toUpperCase());
+        const bIndex = OPTION_LETTERS.indexOf(b.trim().toUpperCase());
+        if (aIndex !== -1 || bIndex !== -1) {
+          return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+        }
+        return a.localeCompare(b, undefined, { numeric: true });
+      });
+
+    const markedAnswer = entries
+      .map(([key, option], index) => ({
+        letter: OPTION_LETTERS.includes(key.trim().toUpperCase()) ? key.trim().toUpperCase() : (OPTION_LETTERS[index] || String(index + 1)),
+        marked: hasOptionCorrectMarker(option),
+      }))
+      .find(item => item.marked)?.letter;
+
+    return {
+      options: entries
+      .map(([key, option], index) => {
+        const letter = OPTION_LETTERS.includes(key.trim().toUpperCase())
+          ? key.trim().toUpperCase()
+          : (OPTION_LETTERS[index] || String(index + 1));
+        return withOptionLabel(letter, option);
+      })
+      .filter(Boolean),
+      markedAnswer,
+    };
+  }
+
+  return { options: [] };
+};
+
+const normalizeCorrectAnswer = (value: any, options: string[]): string => {
+  const rawValue = Array.isArray(value) ? value[0] : value;
+  const raw = rawValue && typeof rawValue === 'object'
+    ? getAliasValue(rawValue, ['letter', 'answer', 'correctAnswer', 'correct_answer', 'value', 'text'])
+    : rawValue;
+  if (typeof raw === 'number') {
+    const answerIndex = raw >= 1 && raw <= options.length ? raw - 1 : raw;
+    if (answerIndex >= 0 && answerIndex < options.length) return OPTION_LETTERS[answerIndex] || String(raw);
+  }
+  const text = String(raw ?? '').trim();
+  if (!text) return '';
+
+  const letter = text.match(/^[A-E](?:$|[\s.:)-])/i)?.[0]?.trim().charAt(0).toUpperCase();
+  if (letter) return letter;
+
+  const normalizedAnswer = text
+    .replace(/^[A-E][\s.:)-]+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  const matchedIndex = options.findIndex(option => option
+    .replace(/^[A-E][\s.:)-]+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase() === normalizedAnswer);
+
+  return matchedIndex >= 0 ? OPTION_LETTERS[matchedIndex] : text;
+};
+
 const fillMissingQuestionFields = (q: any): any => {
   if (!q || typeof q !== 'object') return q;
+  const questionValue = getAliasValue(q, ['question', 'stem', 'prompt', 'questionText', 'text']);
+  if (typeof questionValue !== 'string') q.question = String(questionValue ?? '').trim();
+  else q.question = questionValue.trim();
+
+  const optionsValue = getAliasValue(q, ['options', 'choices', 'answers', 'answerOptions']);
+  const optionPayload = normalizeOptionPayload(optionsValue);
+  q.options = optionPayload.options;
+
+  const correctAnswerValue = getAliasValue(q, ['correctAnswer', 'answer', 'correct_answer', 'correctOption', 'correct', 'correctChoice']);
+  q.correctAnswer = optionPayload.markedAnswer || normalizeCorrectAnswer(correctAnswerValue, q.options);
   if (!q.explanation || typeof q.explanation !== 'object') {
-    q.explanation = { core: '', evidence: '', analysis: '', warning: '' };
+    const explanationValue = getAliasValue(q, ['explanation', 'rationale', 'reason', 'reasoning', 'explain']);
+    q.explanation = { core: typeof explanationValue === 'string' ? explanationValue : '', evidence: '', analysis: '', warning: '' };
   } else {
     if (typeof q.explanation.core !== 'string') q.explanation.core = '';
     if (typeof q.explanation.evidence !== 'string') q.explanation.evidence = '';
@@ -225,8 +413,9 @@ export const salvageCompleteQuestionsFromJson = (text: string, allowTruncatedSal
       if (allowTruncatedSalvage) {
         const rawSub = jsonText.substring(objectStart);
         const parsed = tryForceCloseObject(rawSub);
-        if (parsed && isCompleteQuestionObject(parsed)) {
-          questions.push(fillMissingQuestionFields(parsed));
+        const normalized = fillMissingQuestionFields(parsed);
+        if (isCompleteQuestionObject(normalized)) {
+          questions.push(normalized);
         }
       }
       break;
@@ -234,7 +423,8 @@ export const salvageCompleteQuestionsFromJson = (text: string, allowTruncatedSal
 
     try {
       const parsed = JSON.parse(jsonText.substring(objectStart, objectEnd + 1));
-      if (isCompleteQuestionObject(parsed)) questions.push(fillMissingQuestionFields(parsed));
+      const normalized = fillMissingQuestionFields(parsed);
+      if (isCompleteQuestionObject(normalized)) questions.push(normalized);
     } catch {
       // Keep scanning; one malformed object should not discard previous complete MCQs.
     }
@@ -262,8 +452,10 @@ export const parseQuestionsFromModelText = (
     jsonStr = jsonStr.replace(/,\s*([\]\}])/g, '$1');
 
     const parsed = JSON.parse(jsonStr);
-    const questions = Array.isArray(parsed) ? parsed : (parsed?.questions || []);
-    questions.forEach(fillMissingQuestionFields);
+    const rawQuestions = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.questions) ? parsed.questions : []);
+    const questions = rawQuestions
+      .map(fillMissingQuestionFields)
+      .filter(isCompleteQuestionObject);
     if (questions.length === 0) {
       if (!allowEmpty || expectedQuestions > 0) {
         throw new Error("📄 AI đã xử lý nhưng không tìm thấy câu hỏi trắc nghiệm nào trong phần này. Batch sẽ được chia nhỏ để quét kỹ hơn.");

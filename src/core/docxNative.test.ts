@@ -201,6 +201,56 @@ describe('DOCX native MCQ parser', () => {
     expect(result.mcqs[1].options[2]).toBe('C. Ba');
   });
 
+  it('splits DOCX options that are packed into the same paragraph', () => {
+    const xml = `
+      <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body>
+          ${p('Câu 1: Chọn đáp án đúng')}
+          ${p('A. Một B. Hai C. Ba D. Bốn')}
+          ${p('Câu 2: Chọn đáp án đúng')}
+          ${p('(A) Sốt (B) Ho ✓ (C) Đau bụng (D) Khó thở')}
+        </w:body>
+      </w:document>
+    `;
+
+    const result = parseDocxDocumentXml(xml);
+
+    expect(result.mcqs).toHaveLength(2);
+    expect(result.mcqs[0].options).toEqual(['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn']);
+    expect(result.mcqs[0].correctAnswer).toBe('');
+    expect(result.mcqs[1].options).toEqual(['A. Sốt', 'B. Ho', 'C. Đau bụng', 'D. Khó thở']);
+    expect(result.mcqs[1].correctAnswer).toBe('C');
+  });
+
+  it('reads answer-key lines after DOCX options', () => {
+    const xml = `
+      <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body>
+          ${p('Câu 1: Cấu trúc nào đúng?')}
+          ${p('A. Một')}
+          ${p('B. Hai')}
+          ${p('C. Ba')}
+          ${p('D. Bốn')}
+          ${p('Đáp án: C')}
+          ${p('Câu 2: Dòng answer tiếng Anh')}
+          ${p('A. Alpha')}
+          ${p('B. Beta')}
+          ${p('C. Gamma')}
+          ${p('D. Delta')}
+          ${p('Answer - B. Beta')}
+        </w:body>
+      </w:document>
+    `;
+
+    const result = parseDocxDocumentXml(xml);
+
+    expect(result.mcqs).toHaveLength(2);
+    expect(result.mcqs[0].correctAnswer).toBe('C');
+    expect(result.mcqs[1].correctAnswer).toBe('B');
+    expect(result.nativeText).toContain('✅ C. Ba');
+    expect(result.nativeText).toContain('✅ B. Beta');
+  });
+
   it('splits native DOCX MCQs into fixed-size batches without cutting questions', () => {
     const xml = `
       <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">

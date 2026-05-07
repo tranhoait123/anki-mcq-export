@@ -149,6 +149,32 @@ ${'Nội dung bổ sung đủ dài để text layer được chấm goodText.\n'
     expect(combinedText).toContain('Question: Động mạch cấp máu cho lá tạng ngoại tâm mạc?');
   });
 
+  it('preserves PDF text answer-key lines as correct option markers', () => {
+    const page = scorePdfTextPage(`
+Câu 1: Cấu trúc nào tạo nên đáy tim?
+A. Tâm thất trái và phần sau tâm thất phải
+B. Tâm nhĩ phải và phần sau tâm nhĩ trái
+C. Tâm nhĩ trái và phần sau tâm nhĩ phải
+D. Tâm thất phải và phần sau tâm thất trái
+Đáp án: C
+Câu 2: Tĩnh mạch tim lớn đi trong rãnh nào?
+A. Rãnh vành
+B. Rãnh gian nhĩ
+C. Rãnh tận cùng
+D. Rãnh gian thất trước
+Answer - D. Rãnh gian thất trước
+${'Nội dung bổ sung đủ dài để text layer được chấm goodText.\n'.repeat(8)}
+`, 1);
+
+    const analysis = buildPdfTextAnalysisFromPages([page], 3, 1, 10);
+    const combinedText = analysis.textBatches.map((batch) => batch.text).join('\n');
+
+    expect(analysis.detectedMcqCount).toBe(2);
+    expect(combinedText).toContain('✅ C. Tâm nhĩ trái và phần sau tâm nhĩ phải');
+    expect(combinedText).toContain('✅ D. Rãnh gian thất trước');
+    expect(combinedText).not.toContain('Tâm thất phải và phần sau tâm thất trái Đáp án');
+  });
+
   it('uses text batches for clean pages and no vision ranges', () => {
     const pages = Array.from({ length: 6 }, (_, index) => scorePdfTextPage(numberedMcqPage(index * 3 + 1, 3), index + 1));
     const analysis = buildPdfTextAnalysisFromPages(pages, 3, 1);

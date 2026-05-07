@@ -51,6 +51,7 @@ const OPTION_MARKER_PATTERN = /(?:^|\n)\s*(?:\(?[A-E]\)?\s*[\.:)-])/gi;
 const QUESTION_LINE_PATTERN = /^(?:câu|cau|question|q)\s*\d+\s*[:.)-]/i;
 const BARE_NUMBERED_QUESTION_LINE_PATTERN = /^(?:\d{1,3}|[IVX]{1,8})\s*[\.)-]\s+\S/i;
 const OPTION_LINE_PATTERN = /^\(?([A-E])\)?\s*[\.:)-]\s*(.+)$/i;
+const ANSWER_KEY_LINE_PATTERN = /^(?:đáp\s*án|dap\s*an|đáp\s*án\s*đúng|dap\s*an\s*dung|answer|correct\s*answer|key)\s*(?:đúng|dung)?\s*[:：.\-]?\s*(?:\(?([A-E])\)?|([A-E])\s*[\.:)-])/i;
 const SAME_LINE_OPTIONS_PATTERN = /\bA\s*[\.:)-].+\bB\s*[\.:)-].+\bC\s*[\.:)-].+\bD\s*[\.:)-]/i;
 
 interface PdfTextGeometry {
@@ -177,8 +178,13 @@ const buildPageRanges = (pageCount: number, pagesPerChunk = 3, overlap = 1): Pdf
 
 const parseMcqBlocksFromText = (text: string): string[] => {
     const lines = normalizePdfText(text).split(/\n+/).map((line) => line.trim()).filter(Boolean);
-    const blocks: { question: string[]; options: { letter: string; text: string }[] }[] = [];
-    let current: { question: string[]; options: { letter: string; text: string }[] } | null = null;
+    const blocks: { question: string[]; options: { letter: string; text: string }[]; correctAnswer?: string }[] = [];
+    let current: { question: string[]; options: { letter: string; text: string }[]; correctAnswer?: string } | null = null;
+
+    const getAnswerKeyLetter = (line: string): string => {
+        const match = line.match(ANSWER_KEY_LINE_PATTERN);
+        return (match?.[1] || match?.[2] || '').toUpperCase();
+    };
 
     const flush = () => {
         if (current && current.question.length > 0 && current.options.length >= 2) {
@@ -200,6 +206,7 @@ const parseMcqBlocksFromText = (text: string): string[] => {
         const line = lines[index];
         const nextLine = lines[index + 1] || '';
         const optionMatch = line.match(OPTION_LINE_PATTERN);
+        const answerKeyLetter = getAnswerKeyLetter(line);
         if (QUESTION_LINE_PATTERN.test(line)) {
             flush();
             current = { question: [line], options: [] };
@@ -212,6 +219,10 @@ const parseMcqBlocksFromText = (text: string): string[] => {
         }
         if (optionMatch && current) {
             current.options.push({ letter: optionMatch[1].toUpperCase(), text: optionMatch[2].trim() });
+            continue;
+        }
+        if (answerKeyLetter && current && current.options.length >= 2) {
+            current.correctAnswer = answerKeyLetter;
             continue;
         }
         if (!current) {
@@ -230,7 +241,7 @@ const parseMcqBlocksFromText = (text: string): string[] => {
     const structuredBlocks = blocks.map((block, index) => [
         `<<<MCQ ${index + 1}>>>`,
         `Question: ${block.question.join(' ').replace(/\s+/g, ' ').trim()}`,
-        ...block.options.map((option) => `${option.letter}. ${option.text.replace(/\s+/g, ' ').trim()}`),
+        ...block.options.map((option) => `${option.letter === block.correctAnswer ? '✅ ' : ''}${option.letter}. ${option.text.replace(/\s+/g, ' ').trim()}`),
     ].join('\n'));
 
     return applySharedCaseContextToBlocks(text, structuredBlocks);

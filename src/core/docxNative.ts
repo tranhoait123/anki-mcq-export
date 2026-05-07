@@ -46,6 +46,8 @@ const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E'];
 const LETTER_NUMBER_FORMATS = new Set(['upperLetter', 'lowerLetter']);
 const ANSWER_SYMBOL_PATTERN = /^(?:[✓✔☑✅*•●■]\s*)+/;
 const ANSWER_KEY_LINE_PATTERN = /^(?:đáp\s*án|dap\s*an|đáp\s*án\s*đúng|dap\s*an\s*dung|answer|correct\s*answer|key)\s*(?:đúng|dung)?\s*[:：.\-]?\s*(?:\(?([A-E])\)?|([A-E])\s*[\.:)-])/i;
+const ANSWER_KEY_SECTION_PATTERN = /^(?:đáp\s*án|dap\s*an|bảng\s*đáp\s*án|bang\s*dap\s*an|answer\s*key|answers?|key)\b/i;
+const ANSWER_KEY_PAIR_PATTERN = /(?:^|[\s,;|]+)(?:câu|cau|question|q)?\s*(\d{1,3})\s*(?:[\.:)\-]\s*)?([A-E])(?:\b|$)/gi;
 const SUPPORTED_IMAGE_MIME_TYPES: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
@@ -193,6 +195,68 @@ const getAnswerKeyLetter = (text: string): string => {
   return (match?.[1] || match?.[2] || '').toUpperCase();
 };
 
+const extractQuestionNumber = (text: string): number | null => {
+  const cleanText = normalizeParagraphText(text);
+  const match = cleanText.match(/(?:câu|cau|question|q)\s*(?:số\s*)?(\d{1,3})/i) || cleanText.match(/^(\d{1,3})\s*[\.:)-]/);
+  return match ? Number(match[1]) : null;
+};
+
+const extractAnswerKeyPairs = (text: string): Map<number, string> => {
+  const answers = new Map<number, string>();
+  ANSWER_KEY_PAIR_PATTERN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = ANSWER_KEY_PAIR_PATTERN.exec(text)) !== null) {
+    const questionNumber = Number(match[1]);
+    const answer = match[2]?.toUpperCase();
+    if (questionNumber > 0 && answer && OPTION_LETTERS.includes(answer)) answers.set(questionNumber, answer);
+  }
+  return answers;
+};
+
+const extractTrailingAnswerKeyMap = (paragraphs: DocxParagraph[]): Map<number, string> => {
+  const answers = new Map<number, string>();
+  let inAnswerKeySection = false;
+
+  for (const paragraph of paragraphs) {
+    const text = normalizeParagraphText(paragraph.text);
+    if (!text) continue;
+
+    const pairs = extractAnswerKeyPairs(text);
+    const isSectionHeader = ANSWER_KEY_SECTION_PATTERN.test(text);
+
+    if (isSectionHeader || (pairs.size >= 3 && !QUESTION_PATTERN.test(text))) {
+      pairs.forEach((answer, questionNumber) => answers.set(questionNumber, answer));
+      inAnswerKeySection = true;
+      continue;
+    }
+
+    if (!inAnswerKeySection) continue;
+    if (pairs.size > 0) {
+      pairs.forEach((answer, questionNumber) => answers.set(questionNumber, answer));
+      continue;
+    }
+
+    if (QUESTION_PATTERN.test(text) || getOptionMatch(cleanOptionText(text))) {
+      inAnswerKeySection = false;
+    } else {
+      inAnswerKeySection = false;
+    }
+  }
+
+  return answers;
+};
+
+const applyTrailingAnswerKeyMap = (mcqs: NativeDocxMcq[], answerKeyMap: Map<number, string>): NativeDocxMcq[] => {
+  if (answerKeyMap.size === 0) return mcqs;
+  return mcqs.map((mcq, index) => {
+    if (mcq.correctAnswer) return mcq;
+    const questionNumber = extractQuestionNumber(mcq.question) ?? index + 1;
+    const answer = answerKeyMap.get(questionNumber);
+    if (!answer || !mcq.options.some(option => option.match(/^([A-E])\s*[\.:)]/i)?.[1]?.toUpperCase() === answer)) return mcq;
+    return { ...mcq, correctAnswer: answer };
+  });
+};
+
 const parseInlineOptions = (text: string, highlighted: boolean): { letter: string; text: string; highlighted: boolean }[] => {
   const cleanText = cleanOptionText(text);
   if (!cleanText) return [];
@@ -334,6 +398,7 @@ export const extractDocxEmbeddedImages = async (
 export const parseMcqsFromParagraphs = (paragraphs: DocxParagraph[]): NativeDocxMcq[] => {
   const mcqs: NativeDocxMcq[] = [];
   const sharedCaseContexts = extractSharedCaseContextsFromParagraphs(paragraphs);
+  const trailingAnswerKeyMap = extractTrailingAnswerKeyMap(paragraphs);
   let questionLines: string[] = [];
   let options: { letter: string; text: string; highlighted: boolean }[] = [];
 
@@ -419,7 +484,7 @@ export const parseMcqsFromParagraphs = (paragraphs: DocxParagraph[]): NativeDocx
   }
 
   flush();
-  return mcqs;
+  return applyTrailingAnswerKeyMap(mcqs, trailingAnswerKeyMap);
 };
 
 export const buildNativeMcqText = (mcqs: NativeDocxMcq[]): string => {

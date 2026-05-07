@@ -251,6 +251,43 @@ describe('DOCX native MCQ parser', () => {
     expect(result.nativeText).toContain('✅ B. Beta');
   });
 
+  it('applies trailing DOCX answer key sections without overriding marked answers', () => {
+    const xml = `
+      <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body>
+          ${p('Câu 1: Đáp án nằm ở bảng cuối?')}
+          ${p('A. Một')}
+          ${p('B. Hai')}
+          ${p('C. Ba')}
+          ${p('D. Bốn')}
+          ${p('Câu 2: Đã có highlight thì giữ nguyên')}
+          ${p('A. Alpha')}
+          ${p('B. Beta', true)}
+          ${p('C. Gamma')}
+          ${p('D. Delta')}
+          ${p('Câu 3: Key nằm cùng dòng')}
+          ${p('A. Sốt')}
+          ${p('B. Ho')}
+          ${p('C. Đau bụng')}
+          ${p('D. Khó thở')}
+          ${p('Đáp án')}
+          ${p('1.C 2.D')}
+          ${p('Câu 3: A')}
+        </w:body>
+      </w:document>
+    `;
+
+    const result = parseDocxDocumentXml(xml);
+
+    expect(result.mcqs).toHaveLength(3);
+    expect(result.mcqs[0].correctAnswer).toBe('C');
+    expect(result.mcqs[1].correctAnswer).toBe('B');
+    expect(result.mcqs[2].correctAnswer).toBe('A');
+    expect(result.nativeText).toContain('✅ C. Ba');
+    expect(result.nativeText).toContain('✅ B. Beta');
+    expect(result.nativeText).toContain('✅ A. Sốt');
+  });
+
   it('splits native DOCX MCQs into fixed-size batches without cutting questions', () => {
     const xml = `
       <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">

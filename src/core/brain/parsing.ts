@@ -299,11 +299,29 @@ const normalizeCorrectAnswer = (value: any, options: string[]): string => {
   return matchedIndex >= 0 ? OPTION_LETTERS[matchedIndex] : text;
 };
 
+export const cleanQuestionText = (text: string): string => {
+  let cleaned = text.trim();
+  
+  // Trích xuất tiền tố câu hỏi (Question Prefix) - PHIÊN BẢN THÔNG MINH TỐI ĐA (Absolute Smartest)
+  // 1. Chấp nhận các chữ đệm: "Câu số 1", "Câu thứ 1", "Question No 1", "Bài tập 1"
+  // 2. Chấp nhận số phân cấp (Hierarchical): "Câu 1.1", "1.2.3."
+  // 3. Xử lý Markdown, Tags, Ngoặc kép, và bảo vệ số thập phân an toàn tuyệt đối.
+  const prefixRegex = /^(?:[\s*_*\[\(<]*)(?:(?:(?:c[âa]u(?:\s*(?:h[ỏo]i|s[ốo]|th[ứu]))?|question(?:\s*no\.?)?|q|b[àa]i(?:\s*t[ậa]p)?)\s*(?:\d{1,3}(?:\.\d{1,3})*[a-zA-Z]?|[IVX]{1,8})(?:\s*[([<][^\])>]+[\])>])?\s*[:.)-]?)|(?:(?:\d{1,3}(?:\.\d{1,3})*[a-zA-Z]?|[IVX]{1,8})(?:\s*[([<][^\])>]+[\])>])?\s*(?:[:)-]|\.(?=[\s*_*\]\)>]))))(?:[\s*_*\]\)>]*)\s*/i;
+  
+  const stripped = cleaned.replace(prefixRegex, '');
+  
+  // Fallback về chuỗi gốc nếu sau khi cắt chuỗi bị rỗng hoàn toàn
+  return stripped.trim() || cleaned;
+};
+
 const fillMissingQuestionFields = (q: any): any => {
   if (!q || typeof q !== 'object') return q;
   const questionValue = getAliasValue(q, ['question', 'stem', 'prompt', 'questionText', 'text']);
   if (typeof questionValue !== 'string') q.question = String(questionValue ?? '').trim();
   else q.question = questionValue.trim();
+  
+  // Tự động xoá tiền tố thừa (Câu 1:, v.v)
+  q.question = cleanQuestionText(q.question);
 
   const optionsValue = getAliasValue(q, ['options', 'choices', 'answers', 'answerOptions']);
   const optionPayload = normalizeOptionPayload(optionsValue);

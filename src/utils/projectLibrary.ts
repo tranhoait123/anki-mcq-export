@@ -18,6 +18,8 @@ const normalizeQuestion = (value: string): string => String(value || '')
   .trim()
   .toLowerCase();
 
+const LIKELY_DUPLICATE_SCAN_PAIR_LIMIT = 200_000;
+
 const getCorrectLetter = (mcq: MCQ): string => {
   const index = (mcq.options || []).findIndex((option, optionIndex) =>
     isOptionCorrect(option, mcq.correctAnswer || '', optionIndex)
@@ -132,24 +134,28 @@ export const compareProjectToCurrent = (
     return items;
   }, []);
 
-  const likelyDuplicates = currentMcqs.reduce<ProjectComparison['likelyDuplicates']>((items, current) => {
-    if (projectByQuestion.has(normalizeQuestion(current.question))) return items;
-    const match = findDuplicate(current, project.mcqs);
-    if (!match.isDup || !match.matchedData) return items;
-    items.push({
-      id: current.id,
-      question: current.question,
-      matchedWith: match.matchedWith || match.matchedData.question.substring(0, 60) || 'Câu hỏi đã có',
-      score: match.score,
-    });
-    return items;
-  }, []);
+  const skippedLikelyDuplicateScan = currentMcqs.length * project.mcqs.length > LIKELY_DUPLICATE_SCAN_PAIR_LIMIT;
+  const likelyDuplicates = skippedLikelyDuplicateScan
+    ? []
+    : currentMcqs.reduce<ProjectComparison['likelyDuplicates']>((items, current) => {
+      if (projectByQuestion.has(normalizeQuestion(current.question))) return items;
+      const match = findDuplicate(current, project.mcqs);
+      if (!match.isDup || !match.matchedData) return items;
+      items.push({
+        id: current.id,
+        question: current.question,
+        matchedWith: match.matchedWith || match.matchedData.question.substring(0, 60) || 'Câu hỏi đã có',
+        score: match.score,
+      });
+      return items;
+    }, []);
 
   return {
     added,
     removed,
     changedAnswers,
     likelyDuplicates,
+    skippedLikelyDuplicateScan,
   };
 };
 

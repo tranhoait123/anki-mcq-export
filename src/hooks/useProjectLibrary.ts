@@ -148,10 +148,8 @@ export const useProjectLibrary = ({
       return;
     }
 
-    void (async () => {
-      await ensureCurrentProjectSaved();
-      setShowLibraryState(true);
-    })();
+    setShowLibraryState(true);
+    void ensureCurrentProjectSaved();
   }, [ensureCurrentProjectSaved]);
 
   const openProject = React.useCallback(async (project: StudyProject) => {

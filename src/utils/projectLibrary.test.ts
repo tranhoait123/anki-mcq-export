@@ -110,6 +110,20 @@ describe('project library helpers', () => {
     }]);
   });
 
+  it('skips expensive fuzzy duplicate scans for very large comparisons', () => {
+    const project = makeProject(
+      Array.from({ length: 500 }, (_, index) => makeMcq(`old-${index}`, `Câu ${index}. Nội dung cũ?`, 'A'))
+    );
+    const current = Array.from({ length: 500 }, (_, index) => makeMcq(`new-${index}`, `Câu mới ${index}. Nội dung?`, 'B'));
+
+    const comparison = compareProjectToCurrent(project, current);
+
+    expect(comparison.skippedLikelyDuplicateScan).toBe(true);
+    expect(comparison.likelyDuplicates).toEqual([]);
+    expect(comparison.added).toHaveLength(500);
+    expect(comparison.removed).toHaveLength(500);
+  });
+
   it('sanitizes project names for downloads', () => {
     expect(sanitizeDownloadName('Đề thi / demo 01')).toBe('thi_demo_01');
   });

@@ -273,4 +273,5 @@ export interface ProjectComparison {
   removed: ProjectComparisonItem[];
   changedAnswers: ProjectChangedAnswerItem[];
   likelyDuplicates: ProjectLikelyDuplicateItem[];
+  skippedLikelyDuplicateScan?: boolean;
 }

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Archive, Download, FileText, FolderOpen, Loader2, Pencil, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { MCQ, ProjectComparison, StudyProject, StudyProjectSummary } from '../types';
@@ -52,11 +52,23 @@ const ComparisonSummary: React.FC<{ comparison: ProjectComparison }> = ({ compar
       <div className="text-[10px] font-black uppercase tracking-wider">Đổi đáp án</div>
     </div>
     <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-700 dark:bg-indigo-950/25 dark:text-indigo-300">
-      <div className="text-lg font-black">{comparison.likelyDuplicates.length}</div>
+      <div className="text-lg font-black">{comparison.skippedLikelyDuplicateScan ? '—' : comparison.likelyDuplicates.length}</div>
       <div className="text-[10px] font-black uppercase tracking-wider">Nghi trùng</div>
     </div>
   </div>
 );
+
+const scheduleIdleTask = (callback: () => void): (() => void) => {
+  if (typeof window === 'undefined') return () => undefined;
+  const requestIdle = (window as any).requestIdleCallback as ((cb: () => void, options?: { timeout: number }) => number) | undefined;
+  const cancelIdle = (window as any).cancelIdleCallback as ((id: number) => void) | undefined;
+  if (requestIdle) {
+    const id = requestIdle(callback, { timeout: 800 });
+    return () => cancelIdle?.(id);
+  }
+  const id = window.setTimeout(callback, 0);
+  return () => window.clearTimeout(id);
+};
 
 const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
   activeProjectId,
@@ -74,15 +86,13 @@ const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedProject, setSelectedProject] = useState<StudyProject | null>(null);
   const [loadingProjectId, setLoadingProjectId] = useState<string | null>(null);
+  const [comparison, setComparison] = useState<ProjectComparison | null>(null);
+  const [comparisonPending, setComparisonPending] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const [busyAction, setBusyAction] = useState<string | null>(null);
 
   const selectedSummary = projects.find(project => project.id === selectedId) || projects[0] || null;
   const loadingSelectedProject = Boolean(selectedSummary && loadingProjectId === selectedSummary.id);
-  const comparison = useMemo(
-    () => selectedProject ? compareProjectToCurrent(selectedProject, currentMcqs) : null,
-    [currentMcqs, selectedProject]
-  );
 
   React.useEffect(() => {
     if (!show) return;
@@ -98,6 +108,8 @@ const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
   React.useEffect(() => {
     if (!show || !selectedId) {
       setSelectedProject(null);
+      setComparison(null);
+      setComparisonPending(false);
       return;
     }
 
@@ -116,6 +128,21 @@ const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
       cancelled = true;
     };
   }, [onLoadProject, selectedId, show]);
+
+  React.useEffect(() => {
+    if (!show || !selectedProject) {
+      setComparison(null);
+      setComparisonPending(false);
+      return;
+    }
+
+    setComparison(null);
+    setComparisonPending(true);
+    return scheduleIdleTask(() => {
+      setComparison(compareProjectToCurrent(selectedProject, currentMcqs));
+      setComparisonPending(false);
+    });
+  }, [currentMcqs, selectedProject, show]);
 
   if (!show) return null;
 
@@ -282,6 +309,12 @@ const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
                         </div>
                       </div>
                       <ComparisonSummary comparison={comparison} />
+                    </div>
+                  )}
+
+                  {comparisonPending && !comparison && (
+                    <div className="rounded-3xl border border-slate-200 bg-white p-5 text-sm font-bold text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                      Đang so sánh với bộ đang mở...
                     </div>
                   )}
 

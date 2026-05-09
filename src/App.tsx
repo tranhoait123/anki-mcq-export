@@ -114,6 +114,7 @@ const App: React.FC = () => {
     autoSaveCurrentProject,
     clearActiveProject,
     deleteProject,
+    loadProject,
     openProject,
     projects,
     renameProject,
@@ -410,6 +411,7 @@ const App: React.FC = () => {
         handleConfirmCancel={handleConfirmCancel}
         handleConfirmSubmit={handleConfirmSubmit}
         handleDeleteProject={deleteProject}
+        handleLoadProject={loadProject}
         handleKeepAllDuplicates={handleKeepAllDuplicates}
         handleOpenProject={openProject}
         handleRenameProject={renameProject}

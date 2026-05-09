@@ -1,7 +1,7 @@
-import { MCQ, AppSettings, ProcessingSession, StudyProject, UploadedFile } from '../types';
+import { MCQ, AppSettings, ProcessingSession, StudyProject, StudyProjectSummary, UploadedFile } from '../types';
 
 const DB_NAME = 'AnkiGenProDB';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const STORES = {
     MCQS: 'mcqs',
     SETTINGS: 'settings',
@@ -9,8 +9,19 @@ const STORES = {
     MARKDOWN: 'markdown',
     FILES: 'files',
     SESSIONS: 'sessions',
-    PROJECTS: 'projects'
+    PROJECTS: 'projects',
+    PROJECT_SUMMARIES: 'projectSummaries'
 };
+
+const toProjectSummary = (project: StudyProject): StudyProjectSummary => ({
+    id: project.id,
+    name: project.name,
+    filesFingerprint: project.filesFingerprint,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+    settingsSummary: project.settingsSummary,
+    stats: project.stats,
+});
 
 export interface CacheEntry {
     id: string; // fileHash_modelName_apiKeyHash
@@ -54,6 +65,9 @@ export class AppDB {
                 }
                 if (!db.objectStoreNames.contains(STORES.PROJECTS)) {
                     db.createObjectStore(STORES.PROJECTS, { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains(STORES.PROJECT_SUMMARIES)) {
+                    db.createObjectStore(STORES.PROJECT_SUMMARIES, { keyPath: 'id' });
                 }
             };
 
@@ -208,9 +222,9 @@ export class AppDB {
     async saveProject(project: StudyProject): Promise<void> {
         if (!this.db) await this.init();
         return new Promise((resolve, reject) => {
-            const transaction = this.db!.transaction([STORES.PROJECTS], 'readwrite');
-            const store = transaction.objectStore(STORES.PROJECTS);
-            store.put(project);
+            const transaction = this.db!.transaction([STORES.PROJECTS, STORES.PROJECT_SUMMARIES], 'readwrite');
+            transaction.objectStore(STORES.PROJECTS).put(project);
+            transaction.objectStore(STORES.PROJECT_SUMMARIES).put(toProjectSummary(project));
             transaction.oncomplete = () => resolve();
             transaction.onerror = (e: any) => reject(e.target.error);
         });
@@ -241,11 +255,44 @@ export class AppDB {
         });
     }
 
+    async getProjectSummaries(): Promise<StudyProjectSummary[]> {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db!.transaction([STORES.PROJECT_SUMMARIES], 'readonly');
+            const store = transaction.objectStore(STORES.PROJECT_SUMMARIES);
+            const request = store.getAll();
+            request.onsuccess = () => {
+                const projects = (request.result || []) as StudyProjectSummary[];
+                if (projects.length > 0) {
+                    resolve(projects.sort((a, b) => b.updatedAt - a.updatedAt));
+                    return;
+                }
+
+                void this.getAllProjects()
+                    .then((fullProjects) => {
+                        const summaries = fullProjects.map(toProjectSummary).sort((a, b) => b.updatedAt - a.updatedAt);
+                        if (summaries.length === 0) {
+                            resolve([]);
+                            return;
+                        }
+                        const writeTx = this.db!.transaction([STORES.PROJECT_SUMMARIES], 'readwrite');
+                        const writeStore = writeTx.objectStore(STORES.PROJECT_SUMMARIES);
+                        summaries.forEach(summary => writeStore.put(summary));
+                        writeTx.oncomplete = () => resolve(summaries);
+                        writeTx.onerror = (e: any) => reject(e.target.error);
+                    })
+                    .catch(reject);
+            };
+            request.onerror = (e: any) => reject(e.target.error);
+        });
+    }
+
     async deleteProject(id: string): Promise<void> {
         if (!this.db) await this.init();
         return new Promise((resolve, reject) => {
-            const transaction = this.db!.transaction([STORES.PROJECTS], 'readwrite');
+            const transaction = this.db!.transaction([STORES.PROJECTS, STORES.PROJECT_SUMMARIES], 'readwrite');
             transaction.objectStore(STORES.PROJECTS).delete(id);
+            transaction.objectStore(STORES.PROJECT_SUMMARIES).delete(id);
             transaction.oncomplete = () => resolve();
             transaction.onerror = (e: any) => reject(e.target.error);
         });

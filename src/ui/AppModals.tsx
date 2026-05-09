@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppSettings, DuplicateInfo, MCQ, StudyProject } from '../types';
+import { AppSettings, DuplicateInfo, MCQ, StudyProject, StudyProjectSummary } from '../types';
 import { ConfirmDialogOptions, ConfirmDialogState } from '../hooks/useConfirmDialog';
 import ConfirmModal from './ConfirmModal';
 import DuplicatesReviewModal from './DuplicatesReviewModal';
@@ -15,7 +15,8 @@ interface AppModalsProps {
   confirmState: ConfirmDialogState;
   handleConfirmCancel: () => void;
   handleConfirmSubmit: () => void;
-  handleDeleteProject: (project: StudyProject) => Promise<void>;
+  handleDeleteProject: (project: StudyProjectSummary) => Promise<void>;
+  handleLoadProject: (projectId: string) => Promise<StudyProject | null>;
   restoreDuplicate: (dupId: string) => void;
   handleOpenProject: (project: StudyProject) => Promise<void>;
   handleRenameProject: (projectId: string, name: string) => Promise<void>;
@@ -23,7 +24,7 @@ interface AppModalsProps {
   activeProjectId: string | null;
   loading: boolean;
   mcqs: MCQ[];
-  projects: StudyProject[];
+  projects: StudyProjectSummary[];
   setSettings: React.Dispatch<React.SetStateAction<AppSettings>>;
   setShowDuplicates: (show: boolean) => void;
   setShowLibrary: (show: boolean) => void;
@@ -44,6 +45,7 @@ const AppModals: React.FC<AppModalsProps> = ({
   handleConfirmCancel,
   handleConfirmSubmit,
   handleDeleteProject,
+  handleLoadProject,
   handleOpenProject,
   handleRenameProject,
   handleSaveCurrentProject,
@@ -84,6 +86,7 @@ const AppModals: React.FC<AppModalsProps> = ({
       loading={loading}
       onClose={() => setShowLibrary(false)}
       onDeleteProject={handleDeleteProject}
+      onLoadProject={handleLoadProject}
       onOpenProject={handleOpenProject}
       onRenameProject={handleRenameProject}
       onSaveCurrentProject={handleSaveCurrentProject}

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Archive, Download, FileText, FolderOpen, Loader2, Pencil, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { MCQ, ProjectComparison, StudyProject } from '../types';
+import { MCQ, ProjectComparison, StudyProject, StudyProjectSummary } from '../types';
 import { generateCSVData } from '../hooks/useExportActions';
 import { buildStudyDocxBlob } from '../core/docxExport';
 import { compareProjectToCurrent, sanitizeDownloadName } from '../utils/projectLibrary';
@@ -11,11 +11,12 @@ interface ProjectLibraryModalProps {
   currentMcqs: MCQ[];
   loading: boolean;
   onClose: () => void;
-  onDeleteProject: (project: StudyProject) => Promise<void>;
+  onDeleteProject: (project: StudyProjectSummary) => Promise<void>;
+  onLoadProject: (projectId: string) => Promise<StudyProject | null>;
   onOpenProject: (project: StudyProject) => Promise<void>;
   onRenameProject: (projectId: string, name: string) => Promise<void>;
   onSaveCurrentProject: () => Promise<void>;
-  projects: StudyProject[];
+  projects: StudyProjectSummary[];
   show: boolean;
 }
 
@@ -63,6 +64,7 @@ const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
   loading,
   onClose,
   onDeleteProject,
+  onLoadProject,
   onOpenProject,
   onRenameProject,
   onSaveCurrentProject,
@@ -70,10 +72,13 @@ const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
   show,
 }) => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedProject, setSelectedProject] = useState<StudyProject | null>(null);
+  const [loadingProjectId, setLoadingProjectId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [busyAction, setBusyAction] = useState<string | null>(null);
 
-  const selectedProject = projects.find(project => project.id === selectedId) || projects[0] || null;
+  const selectedSummary = projects.find(project => project.id === selectedId) || projects[0] || null;
+  const loadingSelectedProject = Boolean(selectedSummary && loadingProjectId === selectedSummary.id);
   const comparison = useMemo(
     () => selectedProject ? compareProjectToCurrent(selectedProject, currentMcqs) : null,
     [currentMcqs, selectedProject]
@@ -87,8 +92,30 @@ const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
   }, [activeProjectId, projects, show]);
 
   React.useEffect(() => {
-    setRenameValue(selectedProject?.name || '');
-  }, [selectedProject?.id, selectedProject?.name]);
+    setRenameValue(selectedSummary?.name || '');
+  }, [selectedSummary?.id, selectedSummary?.name]);
+
+  React.useEffect(() => {
+    if (!show || !selectedId) {
+      setSelectedProject(null);
+      return;
+    }
+
+    let cancelled = false;
+    setSelectedProject(null);
+    setLoadingProjectId(selectedId);
+    void onLoadProject(selectedId)
+      .then((project) => {
+        if (!cancelled) setSelectedProject(project);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingProjectId(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [onLoadProject, selectedId, show]);
 
   if (!show) return null;
 
@@ -165,7 +192,7 @@ const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
             <div className="min-h-0 overflow-y-auto border-b border-slate-200 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/60 lg:border-b-0 lg:border-r">
               <div className="space-y-3">
                 {projects.map(project => {
-                  const active = selectedProject?.id === project.id;
+                  const active = selectedSummary?.id === project.id;
                   return (
                     <button
                       key={project.id}
@@ -193,7 +220,7 @@ const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
             </div>
 
             <div className="min-h-0 overflow-y-auto p-5 sm:p-7">
-              {selectedProject && (
+              {selectedSummary && (
                 <div className="space-y-5">
                   <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -206,7 +233,7 @@ const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
                             className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                           />
                           <button
-                            onClick={() => onRenameProject(selectedProject.id, renameValue)}
+                            onClick={() => onRenameProject(selectedSummary.id, renameValue)}
                             className="rounded-2xl bg-indigo-600 px-4 py-3 text-white transition hover:bg-indigo-500"
                             title="Đổi tên"
                           >
@@ -216,27 +243,28 @@ const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <button
-                          onClick={() => onOpenProject(selectedProject)}
-                          disabled={loading}
+                          onClick={() => selectedProject && onOpenProject(selectedProject)}
+                          disabled={loading || loadingSelectedProject || !selectedProject}
                           className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-indigo-600 dark:hover:bg-indigo-500"
                         >
                           <FolderOpen size={16} /> Mở lại
                         </button>
                         <button
-                          onClick={() => exportCsv(selectedProject)}
+                          onClick={() => selectedProject && exportCsv(selectedProject)}
+                          disabled={loadingSelectedProject || !selectedProject}
                           className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white transition hover:bg-emerald-500"
                         >
                           <Download size={16} /> CSV
                         </button>
                         <button
-                          onClick={() => exportDocx(selectedProject)}
-                          disabled={busyAction === `docx-${selectedProject.id}`}
+                          onClick={() => selectedProject && exportDocx(selectedProject)}
+                          disabled={loadingSelectedProject || !selectedProject || busyAction === `docx-${selectedSummary.id}`}
                           className="inline-flex items-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-black text-sky-700 transition hover:bg-sky-100 disabled:opacity-50 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-300"
                         >
-                          {busyAction === `docx-${selectedProject.id}` ? <Loader2 className="animate-spin" size={16} /> : <FileText size={16} />} DOCX
+                          {busyAction === `docx-${selectedSummary.id}` ? <Loader2 className="animate-spin" size={16} /> : <FileText size={16} />} DOCX
                         </button>
                         <button
-                          onClick={() => onDeleteProject(selectedProject)}
+                          onClick={() => onDeleteProject(selectedSummary)}
                           className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-black text-rose-700 transition hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300"
                         >
                           <Trash2 size={16} /> Xóa
@@ -257,13 +285,19 @@ const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
                     </div>
                   )}
 
+                  {loadingSelectedProject && (
+                    <div className="rounded-3xl border border-slate-200 bg-white p-5 text-sm font-bold text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                      Đang tải dữ liệu chi tiết của bộ đề...
+                    </div>
+                  )}
+
                   <div className="rounded-3xl border border-slate-200 bg-white p-5 text-sm dark:border-slate-800 dark:bg-slate-900">
                     <h3 className="mb-3 font-black text-slate-900 dark:text-white">Thông tin nhanh</h3>
                     <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-950/50">Model: <strong>{selectedProject.settingsSummary.model}</strong></div>
-                      <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-950/50">Ước tính: <strong>{selectedProject.stats.estimatedCount || 'N/A'}</strong></div>
-                      <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-950/50">Duplicate: <strong>{selectedProject.stats.duplicateCount}</strong></div>
-                      <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-950/50">Cập nhật: <strong>{formatDate(selectedProject.updatedAt)}</strong></div>
+                      <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-950/50">Model: <strong>{selectedSummary.settingsSummary.model}</strong></div>
+                      <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-950/50">Ước tính: <strong>{selectedSummary.stats.estimatedCount || 'N/A'}</strong></div>
+                      <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-950/50">Duplicate: <strong>{selectedSummary.stats.duplicateCount}</strong></div>
+                      <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-950/50">Cập nhật: <strong>{formatDate(selectedSummary.updatedAt)}</strong></div>
                     </div>
                   </div>
                 </div>

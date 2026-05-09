@@ -243,6 +243,11 @@ export interface StudyProject {
   stats: ProjectStats;
 }
 
+export type StudyProjectSummary = Pick<
+  StudyProject,
+  'id' | 'name' | 'filesFingerprint' | 'createdAt' | 'updatedAt' | 'settingsSummary' | 'stats'
+>;
+
 export interface ProjectComparisonItem {
   id: string;
   question: string;

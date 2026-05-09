@@ -5,6 +5,7 @@ import {
   MCQ,
   ProjectComparison,
   StudyProject,
+  StudyProjectSummary,
   UploadedFile,
 } from '../types';
 import { hashFiles } from '../core/brain';
@@ -74,7 +75,7 @@ export const buildProjectSnapshot = async ({
   analysis,
   settings,
 }: {
-  existing?: StudyProject | null;
+  existing?: Pick<StudyProjectSummary, 'id' | 'name' | 'createdAt'> | null;
   files: UploadedFile[];
   mcqs: MCQ[];
   duplicates: DuplicateInfo[];

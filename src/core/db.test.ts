@@ -316,9 +316,13 @@ describe('AppDB session persistence', () => {
     await appDb.saveProject({ ...baseProject, id: 'project-2', name: 'Newer', updatedAt: 5 });
 
     expect((await appDb.getAllProjects()).map(project => project.id)).toEqual(['project-2', 'project-1']);
+    expect((await appDb.getProjectSummaries()).map(project => project.id)).toEqual(['project-2', 'project-1']);
+    expect((await appDb.getProjectSummaries())[0]).not.toHaveProperty('mcqs');
+    expect((await appDb.getProjectSummaries())[0]).not.toHaveProperty('files');
 
     await appDb.deleteProject('project-2');
     expect((await appDb.getAllProjects()).map(project => project.id)).toEqual(['project-1']);
+    expect((await appDb.getProjectSummaries()).map(project => project.id)).toEqual(['project-1']);
     expect(await appDb.getAllMCQs()).toEqual([baseQuestion]);
   });
 

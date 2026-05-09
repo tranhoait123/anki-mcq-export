@@ -6,6 +6,7 @@ import {
   DuplicateInfo,
   MCQ,
   StudyProject,
+  StudyProjectSummary,
   UploadedFile,
 } from '../types';
 import { db } from '../core/db';
@@ -50,11 +51,11 @@ export const useProjectLibrary = ({
   setRetryFailedAttempted,
 }: UseProjectLibraryParams) => {
   const [showLibrary, setShowLibraryState] = React.useState(false);
-  const [projects, setProjects] = React.useState<StudyProject[]>([]);
+  const [projects, setProjects] = React.useState<StudyProjectSummary[]>([]);
   const [activeProjectId, setActiveProjectId] = React.useState<string | null>(null);
 
   const refreshProjects = React.useCallback(async () => {
-    const nextProjects = await db.getAllProjects();
+    const nextProjects = await db.getProjectSummaries();
     setProjects(nextProjects);
     return nextProjects;
   }, []);
@@ -75,7 +76,7 @@ export const useProjectLibrary = ({
     const persistableFiles = getPersistableFiles(files);
     const fingerprint = await hashFiles(persistableFiles);
     const existing = activeProjectId ? await db.getProject(activeProjectId) : null;
-    const existingProjects = existing?.filesFingerprint === fingerprint ? [] : await db.getAllProjects();
+    const existingProjects = existing?.filesFingerprint === fingerprint ? [] : await db.getProjectSummaries();
     const matchingProject = existingProjects.find(project => project.filesFingerprint === fingerprint) || null;
     const reusableProject = existing?.filesFingerprint === fingerprint ? existing : matchingProject;
 
@@ -109,7 +110,7 @@ export const useProjectLibrary = ({
     try {
       const persistableFiles = getPersistableFiles(files);
       const fingerprint = await hashFiles(persistableFiles);
-      const existingProjects = await db.getAllProjects();
+      const existingProjects = await db.getProjectSummaries();
       const existingProject = existingProjects.find(project => project.filesFingerprint === fingerprint);
       if (existingProject) {
         const refreshedProject = await buildProjectSnapshot({
@@ -187,7 +188,7 @@ export const useProjectLibrary = ({
     toast.success('Đã đổi tên bộ đề.');
   }, [refreshProjects]);
 
-  const deleteProject = React.useCallback(async (project: StudyProject) => {
+  const deleteProject = React.useCallback(async (project: StudyProjectSummary) => {
     const ok = await confirm({
       title: 'Xóa project khỏi thư viện?',
       body: `"${project.name}" sẽ bị xóa khỏi thư viện. Dữ liệu đang mở hiện tại không bị ảnh hưởng.`,
@@ -204,12 +205,14 @@ export const useProjectLibrary = ({
   }, [activeProjectId, confirm, refreshProjects]);
 
   const clearActiveProject = React.useCallback(() => setActiveProjectId(null), []);
+  const loadProject = React.useCallback((projectId: string) => db.getProject(projectId), []);
 
   return {
     activeProjectId,
     autoSaveCurrentProject,
     clearActiveProject,
     deleteProject,
+    loadProject,
     openProject,
     projects,
     refreshProjects,

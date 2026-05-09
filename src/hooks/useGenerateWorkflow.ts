@@ -213,6 +213,8 @@ export const useGenerateWorkflow = ({
             autoRescue: true,
             liveAppendToVisible: true,
             forcedOcrMode: activeOcrMode,
+            seedQuestions: res.questions,
+            seedDuplicates: res.duplicates || [],
           });
           const rescueRes = rescuePhase.res;
 

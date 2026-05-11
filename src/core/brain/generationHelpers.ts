@@ -49,4 +49,5 @@ export const extractQuestionNumber = (text: string): number | null => {
   return null;
 };
 
-export const partsRequireVision = (parts: any[]): boolean => parts.some(part => Boolean(part.inlineData));
+export const partsRequireVision = (parts: any[]): boolean =>
+  parts.some(part => Boolean(part.inlineData) || (Array.isArray(part.inlineDataParts) && part.inlineDataParts.length > 0));

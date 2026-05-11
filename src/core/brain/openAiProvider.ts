@@ -146,11 +146,26 @@ export const callOpenAICompatibleProvider = async (
 };
 
 export const toOpenAIContentFromPart = (part: any): any[] => {
+  const inlineDataParts = Array.isArray(part.inlineDataParts) ? part.inlineDataParts : [];
+  if (inlineDataParts.length > 0) {
+    return [
+      ...(part.text ? [{ type: 'text', text: `[PDF_TEXT_LAYER_CONTEXT]\n${part.text}` }] : []),
+      ...inlineDataParts.map((inlineData: any) => {
+        if (inlineData.mimeType === 'application/pdf') {
+          throw new Error('PDF_PROVIDER_RASTERIZATION_REQUIRED: Provider OpenAI-compatible không nhận PDF thô. Hãy để hệ thống chuyển PDF sang ảnh trước khi quét.');
+        }
+        return { type: 'image_url', image_url: { url: `data:${inlineData.mimeType};base64,${inlineData.data}` } };
+      }),
+    ];
+  }
   if (part.inlineData) {
     if (part.inlineData.mimeType === 'application/pdf') {
       throw new Error('PDF_PROVIDER_RASTERIZATION_REQUIRED: Provider OpenAI-compatible không nhận PDF thô. Hãy để hệ thống chuyển PDF sang ảnh trước khi quét.');
     }
-    return [{ type: 'image_url', image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` } }];
+    return [
+      ...(part.text ? [{ type: 'text', text: `[PDF_TEXT_LAYER_CONTEXT]\n${part.text}` }] : []),
+      { type: 'image_url', image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` } },
+    ];
   }
   return [{ type: 'text', text: part.text || '' }];
 };

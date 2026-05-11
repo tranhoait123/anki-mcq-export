@@ -215,6 +215,21 @@ ${'Nội dung bổ sung đủ dài để text layer được chấm goodText.\n'
     expect(analysis.visionPageRanges).toEqual([{ start: 1, end: 3 }]);
   });
 
+  it('keeps overlap when merged vision ranges cross clinical page boundaries', () => {
+    const pages = Array.from({ length: 5 }, (_, index) => scorePdfTextPage(`
+Tình huống lâm sàng cho câu 41-42 nằm sát mép trang ${index + 1}.
+Bệnh nhân đau ngực, huyết áp tụt, cần đọc tiếp trang kế tiếp.
+`, index + 1));
+
+    const analysis = buildPdfTextAnalysisFromPages(pages, 3, 1);
+
+    expect(analysis.textBatches).toHaveLength(0);
+    expect(analysis.visionPageRanges).toEqual([
+      { start: 1, end: 3 },
+      { start: 3, end: 5 },
+    ]);
+  });
+
   it('splits many MCQ blocks under 15000 chars by structured batches instead of raw text size', () => {
     const page = scorePdfTextPage(cleanMcqPage(40), 1);
     const analysis = buildPdfTextAnalysisFromPages([page], 3, 1);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applySharedCaseContextToBlocks,
   applySharedCaseContextToQuestion,
   extractSharedCaseContexts,
 } from './sharedCaseContext';
@@ -64,6 +65,34 @@ Câu 41. Chẩn đoán phù hợp nhất?
 
     expect(contexts[0]).toMatchObject({ startQuestion: 41, endQuestion: 42 });
     expect(contexts[0].stem).toContain('huyết áp tụt');
+  });
+
+  it('expands parsed MCQ blocks when the clinical stem is split by a page boundary', () => {
+    const source = `
+--- Trang 7 ---
+Tình huống lâm sàng sau dùng cho câu 41-42
+Bệnh nhân nữ 63 tuổi đau ngực dữ dội, khó thở, mạch nhanh,
+huyết áp tụt sau phẫu thuật thay khớp háng.
+--- Trang 8 ---
+Câu 41. Chẩn đoán phù hợp nhất?
+A. Thuyên tắc phổi
+B. Viêm phổi
+C. Tràn khí màng phổi
+D. Nhồi máu cơ tim
+`;
+    const blocks = applySharedCaseContextToBlocks(source, [
+      [
+        '<<<MCQ 1>>>',
+        'Question: Câu 41. Chẩn đoán phù hợp nhất?',
+        'A. Thuyên tắc phổi',
+        'B. Viêm phổi',
+      ].join('\n'),
+    ]);
+
+    expect(blocks[0]).toContain('[TÌNH HUỐNG]');
+    expect(blocks[0]).toContain('đau ngực dữ dội, khó thở, mạch nhanh');
+    expect(blocks[0]).toContain('huyết áp tụt sau phẫu thuật thay khớp háng');
+    expect(blocks[0]).toContain('[CÂU HỎI]');
   });
 
   it('prepends a stable shared-case block without duplicating existing stems', () => {

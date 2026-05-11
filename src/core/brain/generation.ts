@@ -156,19 +156,18 @@ export const generateQuestions = async (
             if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
               for (const range of visionRanges) {
                 const images = await convertPdfToImages(pdfDataUrl, range);
-                images.forEach((imageBase64, imageIndex) => {
-                  const pageNumber = range.start + imageIndex;
-                  const pageRange = { start: pageNumber, end: pageNumber };
-                  const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(pageRange));
-                  const rangePages = pdfTextAnalysis.pages.slice(pageRange.start - 1, pageRange.end);
-                  const rangeText = rangePages.map((page) => page.text).join('\n\n');
-                  allParts.push({
-                    inlineData: { mimeType: 'image/jpeg', data: imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64 },
-                    sourceMode: 'pdfVision',
-                    sourceLabel,
-                    text: rangeText,
-                    trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange }, rangeText),
-                  });
+                const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(range));
+                const rangePages = pdfTextAnalysis.pages.slice(range.start - 1, range.end);
+                const rangeText = rangePages.map((page) => page.text).join('\n\n');
+                allParts.push({
+                  inlineDataParts: images.map((imageBase64) => ({
+                    mimeType: 'image/jpeg',
+                    data: imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64,
+                  })),
+                  sourceMode: 'pdfVision',
+                  sourceLabel,
+                  text: rangeText,
+                  trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range }, rangeText),
                 });
               }
             } else {
@@ -191,20 +190,22 @@ export const generateQuestions = async (
         } catch (splitError) {
           console.warn('PDF safe hybrid fallback to legacy vision:', splitError);
           const legacyRanges = getPdfPageRanges(await getPdfPageCount(rawBase64), visionPagesPerChunk, 1);
-          const pdfChunks = await splitPdfByRanges(rawBase64, legacyRanges);
           if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
-            const images = await convertPdfToImages(pdfDataUrl);
-            images.forEach((imageBase64, imageIndex) => {
-              const pageRange = { start: imageIndex + 1, end: imageIndex + 1 };
-              const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(pageRange));
+            for (const range of legacyRanges) {
+              const images = await convertPdfToImages(pdfDataUrl, range);
+              const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(range));
               allParts.push({
-                inlineData: { mimeType: 'image/jpeg', data: imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64 },
+                inlineDataParts: images.map((imageBase64) => ({
+                  mimeType: 'image/jpeg',
+                  data: imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64,
+                })),
                 sourceMode: 'pdfVision',
                 sourceLabel,
-                trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange }),
+                trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range }),
               });
-            });
+            }
           } else {
+            const pdfChunks = await splitPdfByRanges(rawBase64, legacyRanges);
             pdfChunks.forEach((chunkBase64, chunkIndex) => {
               const range = legacyRanges[chunkIndex];
               const sourceLabel = joinSourceLabel(file.name, range ? formatPageRangeLabel(range) : '');
@@ -461,7 +462,7 @@ export const generateQuestions = async (
         const imagePrompt = part.sourceMode === 'docxImage'
           ? `${part.docxImageLabel || '[DOCX IMAGE]'}\nẢnh này được nhúng trong file Word và CÓ THỂ chứa câu hỏi trắc nghiệm. Hãy phóng to/đọc kỹ toàn bộ chữ trong ảnh. Nếu ảnh chứa MCQ, hãy trích xuất đầy đủ mọi câu hỏi, lựa chọn và đáp án nếu nhìn thấy. ${forceJsonRepair ? 'Lần trước ảnh này trả rỗng hoặc lỗi; chỉ trả {"questions":[]} nếu bạn chắc chắn ảnh hoàn toàn không có câu hỏi trắc nghiệm.' : 'Nếu ảnh chỉ là minh họa và KHÔNG chứa câu hỏi trắc nghiệm, hãy trả về chính xác {"questions":[]}.'}`
           : '';
-        const visionPrompt = (part.sourceMode === 'pdfVision' || part.inlineData)
+        const visionPrompt = (part.sourceMode === 'pdfVision' || part.inlineData || (Array.isArray(part.inlineDataParts) && part.inlineDataParts.length > 0))
           ? `[CHỈ THỊ QUAN TRỌNG CHO PHẦN ẢNH/VISION]: Tài liệu hiện tại đang được xử lý ở chế độ quét Vision (ảnh chụp/PDF scan). Hãy đọc cực kỳ chậm và tỉ mỉ từng dòng, từng góc của trang ảnh này. Hãy đếm thầm xem có chính xác bao nhiêu câu hỏi trắc nghiệm (MCQ) xuất hiện trên trang. Bạn phải trích xuất ĐẦY ĐỦ TRĂM PHẦN TRĂM câu hỏi, không được bỏ sót bất kỳ câu nào dù là câu ngắn, câu tình huống hay câu ở cuối trang.`
           : '';
         const scanPrompt = `${repairInstruction ? `${repairInstruction}\n\n` : ''}${sourceInstruction}\n\n${nativePrompt ? `${nativePrompt}\n\n` : ''}${imagePrompt ? `${imagePrompt}\n\n` : ''}${visionPrompt ? `${visionPrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;

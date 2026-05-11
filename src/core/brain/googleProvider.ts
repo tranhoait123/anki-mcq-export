@@ -51,6 +51,14 @@ const toGoogleContentPart = (part: any): any => {
 };
 
 export const buildGoogleBatchMessage = (part: any, batchPrompt: string, cachedContent?: string) => {
+  const inlineDataParts = Array.isArray(part.inlineDataParts) ? part.inlineDataParts : [];
+  if (inlineDataParts.length > 0) {
+    return [
+      ...(part.text ? [{ text: part.text }] : []),
+      ...inlineDataParts.map((inlineData: any) => ({ inlineData })),
+      { text: batchPrompt },
+    ];
+  }
   if (cachedContent && !part.inlineData) return [{ text: batchPrompt }];
   return [toGoogleContentPart(part), { text: batchPrompt }];
 };

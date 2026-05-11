@@ -319,11 +319,14 @@ export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChun
         }
     }
 
-    // Re-chunk merged vision ranges into pagesPerChunk-sized chunks with NO overlap
+    // Re-chunk merged vision ranges with overlap so page-boundary clinical stems
+    // stay visible with the questions that continue on the next page.
     const finalVisionRanges: PdfPageRange[] = [];
     for (const merged of mergedVisionRanges) {
-        for (let start = merged.start; start <= merged.end; start += pagesPerChunk) {
+        const step = Math.max(1, pagesPerChunk - overlap);
+        for (let start = merged.start; start <= merged.end; start += step) {
             finalVisionRanges.push({ start, end: Math.min(merged.end, start + pagesPerChunk - 1) });
+            if (start + pagesPerChunk - 1 >= merged.end) break;
         }
     }
 

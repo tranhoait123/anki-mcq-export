@@ -22,6 +22,13 @@ const numberedP = (text: string, numId: number, red = false) => `
   </w:p>
 `;
 
+const tabbedP = (text: string, red = false) => `
+  <w:p>
+    <w:r><w:tab/></w:r>
+    <w:r>${red ? '<w:rPr><w:color w:val="FF0000"/></w:rPr>' : ''}<w:t>${text}</w:t></w:r>
+  </w:p>
+`;
+
 const numberingXml = `
   <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
     <w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="upperLetter"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum>
@@ -220,6 +227,91 @@ describe('DOCX native MCQ parser', () => {
     expect(result.mcqs[0].correctAnswer).toBe('');
     expect(result.mcqs[1].options).toEqual(['A. Sốt', 'B. Ho', 'C. Đau bụng', 'D. Khó thở']);
     expect(result.mcqs[1].correctAnswer).toBe('C');
+  });
+
+  it('keeps option text that follows Word tab tokens', () => {
+    const xml = `
+      <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body>
+          ${p('Câu 1: Text sau tab không bị rơi')}
+          ${tabbedP('A. Một')}
+          ${tabbedP('B. Hai')}
+          ${tabbedP('C. Ba')}
+          ${tabbedP('D. Bốn', true)}
+        </w:body>
+      </w:document>
+    `;
+
+    const result = parseDocxDocumentXml(xml);
+
+    expect(result.mcqs).toHaveLength(1);
+    expect(result.mcqs[0].options).toEqual(['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn']);
+    expect(result.mcqs[0].correctAnswer).toBe('D');
+  });
+
+  it('splits hard line breaks inside one Word paragraph into MCQ lines', () => {
+    const xml = `
+      <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body>
+          <w:p>
+            <w:r><w:t>Câu 51. Câu hỏi và lựa chọn chung paragraph:</w:t></w:r>
+            <w:r><w:br/><w:t>A. Một</w:t></w:r>
+            <w:r><w:br/><w:t>B. Hai</w:t></w:r>
+            <w:r><w:br/><w:t>C. Ba</w:t></w:r>
+            <w:r><w:br/></w:r>
+            <w:r><w:rPr><w:color w:val="FF0000"/></w:rPr><w:t>D. Bốn</w:t></w:r>
+          </w:p>
+        </w:body>
+      </w:document>
+    `;
+
+    const result = parseDocxDocumentXml(xml);
+
+    expect(result.mcqs).toHaveLength(1);
+    expect(result.mcqs[0].question).toBe('Câu 51. Câu hỏi và lựa chọn chung paragraph:');
+    expect(result.mcqs[0].options).toEqual(['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn']);
+    expect(result.mcqs[0].correctAnswer).toBe('D');
+  });
+
+  it('uses run-level red text for inline tabbed options on the same line', () => {
+    const xml = `
+      <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body>
+          ${p('Câu 1: Dòng có nhiều lựa chọn inline')}
+          <w:p>
+            <w:r><w:tab/><w:t>A. Một</w:t><w:tab/></w:r>
+            <w:r><w:rPr><w:color w:val="FF0000"/></w:rPr><w:t>B. Hai</w:t></w:r>
+            <w:r><w:tab/><w:t>C. Ba</w:t><w:tab/><w:t>D. Bốn</w:t></w:r>
+          </w:p>
+        </w:body>
+      </w:document>
+    `;
+
+    const result = parseDocxDocumentXml(xml);
+
+    expect(result.mcqs).toHaveLength(1);
+    expect(result.mcqs[0].options).toEqual(['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn']);
+    expect(result.mcqs[0].correctAnswer).toBe('B');
+  });
+
+  it('repairs missing leading C in corrupted Vietnamese question markers', () => {
+    const xml = `
+      <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body>
+          ${p('âu 11: Marker câu hỏi bị thiếu chữ C')}
+          ${p('A. Một')}
+          ${p('B. Hai', true)}
+          ${p('C. Ba')}
+          ${p('D. Bốn')}
+        </w:body>
+      </w:document>
+    `;
+
+    const result = parseDocxDocumentXml(xml);
+
+    expect(result.mcqs).toHaveLength(1);
+    expect(result.mcqs[0].question).toBe('Câu 11: Marker câu hỏi bị thiếu chữ C');
+    expect(result.mcqs[0].correctAnswer).toBe('B');
   });
 
   it('reads answer-key lines after DOCX options', () => {

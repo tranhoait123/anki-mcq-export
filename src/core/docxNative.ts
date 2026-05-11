@@ -4,6 +4,7 @@ import { applySharedCaseContextToQuestion, extractSharedCaseContexts } from '../
 export interface DocxParagraph {
   text: string;
   highlighted: boolean;
+  highlightRanges?: TextRange[];
   styleId?: string;
   numbering?: {
     numId: string;
@@ -56,6 +57,8 @@ const SUPPORTED_IMAGE_MIME_TYPES: Record<string, string> = {
 };
 
 type NumberingDefinitions = Record<string, Record<string, { numFmt?: string; lvlText?: string }>>;
+type TextRange = { start: number; end: number };
+type TextSegment = { text: string; highlighted: boolean };
 
 const decodeXml = (value: string): string =>
   value
@@ -75,20 +78,8 @@ const normalizeParagraphText = (value: string): string =>
 const extractSharedCaseContextsFromParagraphs = (paragraphs: DocxParagraph[]) =>
   extractSharedCaseContexts(paragraphs.map(paragraph => normalizeParagraphText(paragraph.text)).filter(Boolean).join('\n'));
 
-const extractParagraphText = (paragraphXml: string): string => {
-  const pieces: string[] = [];
-  const tokenPattern = /<w:(t|tab|br)\b([^>]*)>([\s\S]*?)<\/w:t>|<w:(tab|br)\b[^>]*\/>/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = tokenPattern.exec(paragraphXml)) !== null) {
-    const token = match[1] || match[4];
-    if (token === 't') pieces.push(decodeXml(match[3] || ''));
-    if (token === 'tab') pieces.push('\t');
-    if (token === 'br') pieces.push('\n');
-  }
-
-  return normalizeParagraphText(pieces.join(''));
-};
+const repairQuestionMarker = (text: string): string =>
+  text.replace(/^(?:âu|au)(\s*\d+\s*[:.)-])/i, (_match: string, suffix: string) => `Câu${suffix}`);
 
 const hasHighlight = (paragraphXml: string): boolean =>
   /<w:highlight\b(?![^>]*w:val="none")[^>]*\/?>/i.test(paragraphXml);
@@ -102,6 +93,89 @@ const hasShadingAnswerFill = (paragraphXml: string): boolean => {
 };
 
 const hasAnswerSymbol = (text: string): boolean => ANSWER_SYMBOL_PATTERN.test(text.trim());
+
+const textHasAnswerMark = (text: string, ranges: TextRange[] = []): boolean =>
+  hasAnswerSymbol(text) || ranges.length > 0;
+
+const rangesOverlap = (ranges: TextRange[] = [], start: number, end: number): boolean =>
+  ranges.some((range) => Math.max(range.start, start) < Math.min(range.end, end));
+
+const buildLineFromSegments = (segments: TextSegment[]): { text: string; highlighted: boolean; highlightRanges: TextRange[] } | null => {
+  const chars: string[] = [];
+  const charHighlights: boolean[] = [];
+
+  for (const segment of segments) {
+    for (const rawChar of segment.text.replace(/\u00a0/g, ' ')) {
+      const char = /[ \t]/.test(rawChar) ? ' ' : rawChar;
+      if (char === ' ' && chars[chars.length - 1] === ' ') {
+        const lastIndex = charHighlights.length - 1;
+        if (lastIndex >= 0) charHighlights[lastIndex] = charHighlights[lastIndex] || segment.highlighted;
+        continue;
+      }
+      chars.push(char);
+      charHighlights.push(segment.highlighted);
+    }
+  }
+
+  while (chars.length > 0 && chars[0] === ' ') {
+    chars.shift();
+    charHighlights.shift();
+  }
+  while (chars.length > 0 && chars[chars.length - 1] === ' ') {
+    chars.pop();
+    charHighlights.pop();
+  }
+
+  const text = repairQuestionMarker(chars.join('').trim());
+  if (!text) return null;
+
+  const highlightRanges: TextRange[] = [];
+  let rangeStart = -1;
+  charHighlights.forEach((highlighted, index) => {
+    if (highlighted && rangeStart < 0) rangeStart = index;
+    if (!highlighted && rangeStart >= 0) {
+      highlightRanges.push({ start: rangeStart, end: index });
+      rangeStart = -1;
+    }
+  });
+  if (rangeStart >= 0) highlightRanges.push({ start: rangeStart, end: charHighlights.length });
+
+  return {
+    text,
+    highlighted: textHasAnswerMark(text, highlightRanges),
+    highlightRanges,
+  };
+};
+
+const extractParagraphLines = (paragraphXml: string): { text: string; highlighted: boolean; highlightRanges: TextRange[] }[] => {
+  const lines: { text: string; highlighted: boolean; highlightRanges: TextRange[] }[] = [];
+  let segments: TextSegment[] = [];
+  const flush = () => {
+    const line = buildLineFromSegments(segments);
+    if (line) lines.push(line);
+    segments = [];
+  };
+
+  for (const runMatch of paragraphXml.matchAll(/<w:r\b[\s\S]*?<\/w:r>/gi)) {
+    const runXml = runMatch[0];
+    const highlighted = hasHighlight(runXml) || hasRedAnswerColor(runXml) || hasShadingAnswerFill(runXml);
+    for (const tokenMatch of runXml.matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>|<w:tab\b[^>]*\/>|<w:br\b[^>]*\/>/gi)) {
+      const [token, text] = tokenMatch;
+      if (text !== undefined) {
+        segments.push({ text: decodeXml(text), highlighted });
+        continue;
+      }
+      if (/^<w:tab\b/i.test(token)) {
+        segments.push({ text: ' ', highlighted: false });
+        continue;
+      }
+      flush();
+    }
+  }
+
+  flush();
+  return lines;
+};
 
 const extractWordValue = (xml: string, tag: string): string | undefined => {
   const match = xml.match(new RegExp(`<w:${tag}\\b[^>]*w:val="([^"]+)"`, 'i'));
@@ -257,30 +331,37 @@ const applyTrailingAnswerKeyMap = (mcqs: NativeDocxMcq[], answerKeyMap: Map<numb
   });
 };
 
-const parseInlineOptions = (text: string, highlighted: boolean): { letter: string; text: string; highlighted: boolean }[] => {
-  const cleanText = cleanOptionText(text);
-  if (!cleanText) return [];
+const parseInlineOptions = (
+  text: string,
+  highlighted: boolean,
+  highlightRanges: TextRange[] = [],
+): { letter: string; text: string; highlighted: boolean }[] => {
+  const sourceText = text.trim();
+  if (!sourceText) return [];
 
-  const markers: { letter: string; markerStart: number; contentStart: number; highlighted: boolean }[] = [];
+  const markers: { letter: string; markerStart: number; contentStart: number; symbolMarked: boolean }[] = [];
   const pattern = /(?:^|[\n\r;|]|\s{2,}|\s+)([✓✔☑✅*•●■]\s*)?\(?([A-E])\)?\s*[\.:)-]\s+/gi;
   let match: RegExpExecArray | null;
-  while ((match = pattern.exec(cleanText)) !== null) {
+  while ((match = pattern.exec(sourceText)) !== null) {
     markers.push({
       letter: match[2].toUpperCase(),
       markerStart: match.index + match[0].search(/[✓✔☑✅*•●■]|\(?[A-E]\)?/i),
       contentStart: match.index + match[0].length,
-      highlighted: highlighted || Boolean(match[1]),
+      symbolMarked: Boolean(match[1]),
     });
   }
 
   if (markers.length < 2) return [];
 
   return markers
-    .map((marker, index) => ({
-      letter: marker.letter,
-      text: cleanOptionText(cleanText.slice(marker.contentStart, markers[index + 1]?.markerStart ?? cleanText.length)),
-      highlighted: marker.highlighted,
-    }))
+    .map((marker, index) => {
+      const end = markers[index + 1]?.markerStart ?? sourceText.length;
+      return {
+        letter: marker.letter,
+        text: cleanOptionText(sourceText.slice(marker.contentStart, end)),
+        highlighted: marker.symbolMarked || (highlighted && highlightRanges.length === 0) || rangesOverlap(highlightRanges, marker.markerStart, end),
+      };
+    })
     .filter((option) => option.text);
 };
 
@@ -291,18 +372,15 @@ export const parseDocxDocumentXml = (documentXml: string, numberingXml = '', sty
   const numberingDefs = parseNumberingDefinitions(numberingXml);
   const styleNumbering = parseStyleNumbering(stylesXml, numberingDefs);
   const paragraphs = (documentXml.match(/<w:p\b[\s\S]*?<\/w:p>/g) || [])
-    .map((paragraphXml) => {
-      const text = extractParagraphText(paragraphXml);
+    .flatMap((paragraphXml) => {
       const styleId = extractStyleId(paragraphXml);
       const directNumbering = enrichNumbering(extractNumbering(paragraphXml), numberingDefs);
       const numbering = directNumbering || (styleId ? styleNumbering[styleId] : undefined);
-      const highlighted = hasHighlight(paragraphXml) || hasRedAnswerColor(paragraphXml) || hasShadingAnswerFill(paragraphXml) || hasAnswerSymbol(text);
-      return {
-        text,
-        highlighted,
+      return extractParagraphLines(paragraphXml).map((line, lineIndex) => ({
+        ...line,
         styleId,
-        numbering,
-      };
+        numbering: lineIndex === 0 ? numbering : undefined,
+      }));
     })
     .filter((paragraph) => paragraph.text.length > 0);
 
@@ -426,7 +504,7 @@ export const parseMcqsFromParagraphs = (paragraphs: DocxParagraph[]): NativeDocx
 
     const optionCandidateText = cleanOptionText(text);
     const optionMatch = getOptionMatch(optionCandidateText);
-    const inlineOptions = parseInlineOptions(text, paragraph.highlighted);
+    const inlineOptions = parseInlineOptions(text, paragraph.highlighted, paragraph.highlightRanges);
     const answerKeyLetter = getAnswerKeyLetter(text);
 
     if (QUESTION_PATTERN.test(text) && (questionLines.length > 0 || options.length > 0)) {

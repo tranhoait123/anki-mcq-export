@@ -199,7 +199,7 @@ describe('Core Logic', () => {
     const questions = salvageCompleteQuestionsFromJson(malformed);
 
     expect(questions).toHaveLength(2);
-    expect(questions.map((q) => q.question)).toEqual(['Câu 1: Nội dung câu hỏi', 'Câu 2: Nội dung câu hỏi']);
+    expect(questions.map((q) => q.question)).toEqual(['Nội dung câu hỏi', 'Nội dung câu hỏi']);
   });
 
   it('overrides hallucinated source with the trusted batch source label', () => {
@@ -301,8 +301,8 @@ Câu 12: Xử trí tiếp theo là gì?
     ]}`;
     const questions = salvageCompleteQuestionsFromJson(truncated);
     expect(questions).toHaveLength(2);
-    expect(questions[0].question).toBe("Câu 1: Câu hỏi hoàn chỉnh");
-    expect(questions[1].question).toBe("Câu 2: Câu hỏi bị cắt");
+    expect(questions[0].question).toBe("Câu hỏi hoàn chỉnh");
+    expect(questions[1].question).toBe("Câu hỏi bị cắt");
     expect(questions[1].explanation.core).toBe("");
   });
 
@@ -391,7 +391,7 @@ Câu 12: Xử trí tiếp theo là gì?
     }), 0, 1);
 
     expect(parsed).toHaveLength(1);
-    expect(parsed[0].question).toBe('Câu 3: Thuật ngữ nào phù hợp nhất?');
+    expect(parsed[0].question).toBe('Thuật ngữ nào phù hợp nhất?');
     expect(parsed[0].options).toEqual(['A. Sốt', 'B. Ho', 'C. Tăng huyết áp', 'D. Đau bụng']);
     expect(parsed[0].correctAnswer).toBe('C');
     expect(parsed[0].explanation.core).toBe('Tăng huyết áp là thuật ngữ phù hợp.');

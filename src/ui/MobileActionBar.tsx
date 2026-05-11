@@ -14,6 +14,7 @@ interface MobileActionBarProps {
   loading: boolean;
   mcqCount: number;
   processingState: ProcessingState;
+  projectLibraryEnabled: boolean;
   setDarkMode: (value: boolean) => void;
   setShowLibrary: (value: boolean) => void;
   setShowSettings: (value: boolean) => void;
@@ -35,6 +36,7 @@ const MobileActionBar: React.FC<MobileActionBarProps> = ({
   loading,
   mcqCount,
   processingState,
+  projectLibraryEnabled,
   setDarkMode,
   setShowLibrary,
   setShowSettings,
@@ -91,9 +93,11 @@ const MobileActionBar: React.FC<MobileActionBarProps> = ({
             </button>
           </>
         ) : null}
-        <button onClick={() => setShowLibrary(true)} className={iconButtonClass} title="Thư viện">
-          <Archive size={18} />
-        </button>
+        {projectLibraryEnabled && (
+          <button onClick={() => setShowLibrary(true)} className={iconButtonClass} title="Thư viện">
+            <Archive size={18} />
+          </button>
+        )}
         <button onClick={() => setShowSettings(true)} className={iconButtonClass} title="Cài đặt">
           <Settings size={18} />
         </button>

@@ -20,6 +20,7 @@ interface UseProjectLibraryParams {
   clearResumeSession: () => Promise<void>;
   confirm: (options: ConfirmDialogOptions) => Promise<boolean>;
   duplicates: DuplicateInfo[];
+  enabled: boolean;
   files: UploadedFile[];
   isLoaded: boolean;
   mcqs: MCQ[];
@@ -38,6 +39,7 @@ export const useProjectLibrary = ({
   clearResumeSession,
   confirm,
   duplicates,
+  enabled,
   files,
   isLoaded,
   mcqs,
@@ -55,14 +57,24 @@ export const useProjectLibrary = ({
   const [activeProjectId, setActiveProjectId] = React.useState<string | null>(null);
 
   const refreshProjects = React.useCallback(async () => {
+    if (!enabled) {
+      setProjects([]);
+      return [];
+    }
     const nextProjects = await db.getProjectSummaries();
     setProjects(nextProjects);
     return nextProjects;
-  }, []);
+  }, [enabled]);
 
   React.useEffect(() => {
+    if (!enabled) {
+      setProjects([]);
+      setShowLibraryState(false);
+      setActiveProjectId(null);
+      return;
+    }
     void refreshProjects();
-  }, [refreshProjects]);
+  }, [enabled, refreshProjects]);
 
   const autoSaveCurrentProject = React.useCallback(async (override?: {
     mcqs?: MCQ[];
@@ -70,6 +82,7 @@ export const useProjectLibrary = ({
     analysis?: AnalysisResult | null;
     settings?: AppSettings;
   }) => {
+    if (!enabled) return null;
     const snapshotMcqs = override?.mcqs || mcqs;
     if (files.length === 0 || snapshotMcqs.length === 0) return null;
 
@@ -93,18 +106,23 @@ export const useProjectLibrary = ({
     setActiveProjectId(project.id);
     await refreshProjects();
     return project;
-  }, [activeProjectId, analysis, duplicates, files, mcqs, refreshProjects, settings]);
+  }, [activeProjectId, analysis, duplicates, enabled, files, mcqs, refreshProjects, settings]);
 
   const saveCurrentProject = React.useCallback(async () => {
+    if (!enabled) {
+      toast.info('Thư viện bộ đề đang tắt để giảm lag. Bật lại trong Cài đặt nâng cao nếu cần lưu/mở bộ đề.');
+      return;
+    }
     const project = await autoSaveCurrentProject();
     if (project) {
       toast.success(`Đã lưu "${project.name}" vào thư viện.`);
     } else {
       toast.error('Chưa có đủ file và câu hỏi để lưu project.');
     }
-  }, [autoSaveCurrentProject]);
+  }, [autoSaveCurrentProject, enabled]);
 
   const ensureCurrentProjectSaved = React.useCallback(async () => {
+    if (!enabled) return;
     if (!isLoaded || activeProjectId || files.length === 0 || mcqs.length === 0) return;
 
     try {
@@ -140,7 +158,7 @@ export const useProjectLibrary = ({
     } catch (error) {
       console.warn('Project library backfill failed:', error);
     }
-  }, [activeProjectId, analysis, duplicates, files, isLoaded, mcqs, refreshProjects, settings]);
+  }, [activeProjectId, analysis, duplicates, enabled, files, isLoaded, mcqs, refreshProjects, settings]);
 
   const setShowLibrary = React.useCallback((show: boolean) => {
     if (!show) {
@@ -148,11 +166,18 @@ export const useProjectLibrary = ({
       return;
     }
 
+    if (!enabled) {
+      setShowLibraryState(false);
+      toast.info('Thư viện bộ đề đang tắt để giảm lag. Bật lại trong Cài đặt nâng cao nếu cần dùng.');
+      return;
+    }
+
     setShowLibraryState(true);
     void ensureCurrentProjectSaved();
-  }, [ensureCurrentProjectSaved]);
+  }, [enabled, ensureCurrentProjectSaved]);
 
   const openProject = React.useCallback(async (project: StudyProject) => {
+    if (!enabled) return;
     await clearResumeSession();
     const sortedMcqs = sortMcqsByQuestionNumber(project.mcqs || []);
     setFiles(project.files || []);
@@ -168,6 +193,7 @@ export const useProjectLibrary = ({
     toast.success(`Đã mở "${project.name}" từ thư viện.`);
   }, [
     clearResumeSession,
+    enabled,
     setAnalysis,
     setCurrentCount,
     setDuplicates,
@@ -178,15 +204,17 @@ export const useProjectLibrary = ({
   ]);
 
   const renameProject = React.useCallback(async (projectId: string, name: string) => {
+    if (!enabled) return;
     const project = await db.getProject(projectId);
     const cleanName = name.trim();
     if (!project || !cleanName) return;
     await db.saveProject({ ...project, name: cleanName, updatedAt: Date.now() });
     await refreshProjects();
     toast.success('Đã đổi tên bộ đề.');
-  }, [refreshProjects]);
+  }, [enabled, refreshProjects]);
 
   const deleteProject = React.useCallback(async (project: StudyProjectSummary) => {
+    if (!enabled) return;
     const ok = await confirm({
       title: 'Xóa project khỏi thư viện?',
       body: `"${project.name}" sẽ bị xóa khỏi thư viện. Dữ liệu đang mở hiện tại không bị ảnh hưởng.`,
@@ -200,10 +228,13 @@ export const useProjectLibrary = ({
     if (activeProjectId === project.id) setActiveProjectId(null);
     await refreshProjects();
     toast.success('Đã xóa project khỏi thư viện.');
-  }, [activeProjectId, confirm, refreshProjects]);
+  }, [activeProjectId, confirm, enabled, refreshProjects]);
 
   const clearActiveProject = React.useCallback(() => setActiveProjectId(null), []);
-  const loadProject = React.useCallback((projectId: string) => db.getProject(projectId), []);
+  const loadProject = React.useCallback((projectId: string) => {
+    if (!enabled) return Promise.resolve(null);
+    return db.getProject(projectId);
+  }, [enabled]);
 
   return {
     activeProjectId,

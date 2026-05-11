@@ -320,9 +320,6 @@ const fillMissingQuestionFields = (q: any): any => {
   if (typeof questionValue !== 'string') q.question = String(questionValue ?? '').trim();
   else q.question = questionValue.trim();
   
-  // Tự động xoá tiền tố thừa (Câu 1:, v.v)
-  q.question = cleanQuestionText(q.question);
-
   const optionsValue = getAliasValue(q, ['options', 'choices', 'answers', 'answerOptions']);
   const optionPayload = normalizeOptionPayload(optionsValue);
   q.options = optionPayload.options;

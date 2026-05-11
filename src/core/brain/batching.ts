@@ -2,6 +2,7 @@ import { UploadedFile, MCQ, SourceTrace } from '../../types';
 import { PdfPageRange } from '../../utils/pdfProcessor';
 import { ModelTokenProfile } from '../../utils/models';
 import { buildNativeMcqBatchText, getNativeMcqBlocks } from '../docxNative';
+import { hashStringSha256 } from '../../utils/hash';
 
 export const STRUCTURED_QUESTION_BATCH_CAP = 10;
 
@@ -148,9 +149,6 @@ export const getAdaptiveVisionPagesPerChunk = (profile: ModelTokenProfile, adapt
 
 export const hashFiles = async (files: UploadedFile[]): Promise<string> => {
   const sortedFiles = [...files].sort((a, b) => a.name.localeCompare(b.name));
-  const combined = sortedFiles.map(file => `${file.name}:${getFileTextContent(file)}`).join('|');
-  const msgUint8 = new TextEncoder().encode(combined);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(byte => byte.toString(16).padStart(2, '0')).join('');
+  const combined = sortedFiles.map(file => `${file.name}:${file.contentHash || getFileTextContent(file)}`).join('|');
+  return hashStringSha256(combined);
 };

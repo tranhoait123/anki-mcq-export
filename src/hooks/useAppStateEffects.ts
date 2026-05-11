@@ -43,18 +43,51 @@ export const useAppStateEffects = ({
   setRetryFailedAttempted,
 }: UseAppStateEffectsParams) => {
   const previousFilesSignatureRef = React.useRef<string | null>(null);
+  const previousPersistedFilesSignatureRef = React.useRef<string | null>(null);
+  const previousPersistedMcqsSignatureRef = React.useRef<string | null>(null);
 
   // Save MCQs on change
   React.useEffect(() => {
     if (!isLoaded) return;
     if (activeSessionRef.current) return;
-    void persistMcqs(mcqs);
+    const signature = `${mcqs.length}:${mcqs.map(mcq => [
+      mcq.id,
+      mcq.question,
+      (mcq.options || []).join('\u0001'),
+      mcq.correctAnswer,
+      mcq.source,
+      mcq.difficulty,
+      mcq.depthAnalysis,
+      mcq.explanation?.core,
+      mcq.explanation?.evidence,
+      mcq.explanation?.analysis,
+      mcq.explanation?.warning,
+    ].join('\u0002')).join('|')}`;
+    if (signature === previousPersistedMcqsSignatureRef.current) return;
+
+    const timeoutId = window.setTimeout(() => {
+      previousPersistedMcqsSignatureRef.current = signature;
+      void persistMcqs(mcqs);
+    }, 300);
+
+    return () => window.clearTimeout(timeoutId);
   }, [activeSessionRef, isLoaded, mcqs, persistMcqs]);
 
   // Save uploaded files on change so reload/reset doesn't force re-upload
   React.useEffect(() => {
     if (!isLoaded) return;
-    db.saveFiles(getPersistableFiles(files));
+    const persistableFiles = getPersistableFiles(files);
+    const signature = persistableFiles
+      .map(file => `${file.id}:${file.name}:${file.type}:${file.contentHash || file.content.length}:${file.nativeMcqCount || 0}:${file.docxImageCount || 0}`)
+      .join('|');
+    if (signature === previousPersistedFilesSignatureRef.current) return;
+
+    const timeoutId = window.setTimeout(() => {
+      previousPersistedFilesSignatureRef.current = signature;
+      void db.saveFiles(persistableFiles);
+    }, 350);
+
+    return () => window.clearTimeout(timeoutId);
   }, [files, isLoaded]);
 
   React.useEffect(() => {

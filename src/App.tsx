@@ -126,6 +126,7 @@ const App: React.FC = () => {
     clearResumeSession,
     confirm,
     duplicates,
+    enabled: settings.projectLibraryEnabled !== false,
     files,
     isLoaded,
     mcqs,
@@ -255,6 +256,7 @@ const App: React.FC = () => {
     waitWithController,
     warnVisionRecommendedDocx,
     onGenerationComplete: async ({ mcqs: completedMcqs, duplicates: completedDuplicates, analysis: completedAnalysis, settings: completedSettings }) => {
+      if (settings.projectLibraryEnabled === false || completedSettings.projectLibraryEnabled === false) return;
       await autoSaveCurrentProject({
         mcqs: completedMcqs,
         duplicates: completedDuplicates,
@@ -332,6 +334,7 @@ const App: React.FC = () => {
         filesCount={files.length}
         handleInstallApp={handleInstallApp}
         isSplitView={isSplitView}
+        projectLibraryEnabled={settings.projectLibraryEnabled !== false}
         setDarkMode={setDarkMode}
         setIsSplitView={setIsSplitView}
         setShowLibrary={setShowLibrary}
@@ -391,6 +394,7 @@ const App: React.FC = () => {
         loading={loading}
         mcqCount={mcqs.length}
         processingState={processingState}
+        projectLibraryEnabled={settings.projectLibraryEnabled !== false}
         setDarkMode={setDarkMode}
         setShowLibrary={setShowLibrary}
         setShowSettings={setShowSettings}

@@ -1,4 +1,4 @@
-import React, { useDeferredValue, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useMemo, useRef, useState } from 'react';
 import { Explanation, MCQ, SourceTrace } from '../types';
 import MCQCard from './mcqDisplay/MCQCard';
 import MCQToolbar from './mcqDisplay/MCQToolbar';
@@ -51,59 +51,70 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, onSou
     [mcqs]
   );
 
+  const searchIndex = useMemo(
+    () => mcqs.map(m => ({
+      id: m.id,
+      question: m.question.toLowerCase(),
+      difficulty: m.difficulty,
+    })),
+    [mcqs]
+  );
+
   const filtered = useMemo(
-    () => mcqs.filter(m => {
-      const matchSearch = m.question.toLowerCase().includes(deferredSearchTerm.toLowerCase());
-      const matchDifficulty = difficultyFilter === 'all' ? true : m.difficulty === difficultyFilter;
-      return matchSearch && matchDifficulty;
-    }),
-    [mcqs, deferredSearchTerm, difficultyFilter]
+    () => {
+      const normalizedSearch = deferredSearchTerm.trim().toLowerCase();
+      return mcqs.filter((_, index) => {
+        const itemIndex = searchIndex[index];
+        const matchSearch = !normalizedSearch || itemIndex.question.includes(normalizedSearch);
+        const matchDifficulty = difficultyFilter === 'all' ? true : itemIndex.difficulty === difficultyFilter;
+        return matchSearch && matchDifficulty;
+      });
+    },
+    [mcqs, searchIndex, deferredSearchTerm, difficultyFilter]
   );
 
   const isLargeList = filtered.length >= LIST_VIRTUALIZATION_THRESHOLD;
 
-  const handleEditStart = (mcq: MCQ) => {
+  const handleEditStart = useCallback((mcq: MCQ) => {
     setEditingId(mcq.id);
     setEditForm(JSON.parse(JSON.stringify(mcq)));
     setViewMode('edit');
-  };
+  }, []);
 
-  const handleEditSave = () => {
+  const handleEditSave = useCallback(() => {
     if (onUpdate && editForm) {
       onUpdate(editForm);
       setEditingId(null);
       setEditForm(null);
     }
-  };
+  }, [editForm, onUpdate]);
 
-  const handleEditCancel = () => {
+  const handleEditCancel = useCallback(() => {
     setEditingId(null);
     setEditForm(null);
-  };
+  }, []);
 
-  const handleChange = (field: keyof MCQ, value: any) => {
-    if (!editForm) return;
-    setEditForm(prev => ({ ...prev!, [field]: value }));
-  };
+  const handleChange = useCallback((field: keyof MCQ, value: any) => {
+    setEditForm(prev => prev ? { ...prev, [field]: value } : prev);
+  }, []);
 
-  const handleExplanationChange = (field: keyof Explanation, value: string) => {
-    if (!editForm) return;
-    setEditForm(prev => ({
-      ...prev!,
-      explanation: { ...prev!.explanation, [field]: value }
-    }));
-  };
+  const handleExplanationChange = useCallback((field: keyof Explanation, value: string) => {
+    setEditForm(prev => prev ? ({
+      ...prev,
+      explanation: { ...prev.explanation, [field]: value }
+    }) : prev);
+  }, []);
 
-  const handleOptionChange = (idx: number, value: string) => {
-    if (!editForm) return;
+  const handleOptionChange = useCallback((idx: number, value: string) => {
     setEditForm(prev => {
+      if (!prev) return prev;
       const newOps = [...prev!.options];
       newOps[idx] = value;
       return { ...prev!, options: newOps };
     });
-  };
+  }, []);
 
-  const renderCard = (mcq: MCQ, idx: number) => (
+  const renderCard = useCallback((mcq: MCQ, idx: number) => (
     <div data-mcq-index={idx}>
       <MCQCard
         compact={compactCards}
@@ -119,10 +130,27 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, onSou
         onExplanationChange={handleExplanationChange}
         onOptionChange={handleOptionChange}
         onSourceTraceClick={onSourceTraceClick}
+        performanceMode={isLargeList}
         viewMode={viewMode}
       />
     </div>
-  );
+  ), [
+    compactCards,
+    editForm,
+    editingId,
+    handleChange,
+    handleEditCancel,
+    handleEditSave,
+    handleEditStart,
+    handleExplanationChange,
+    handleOptionChange,
+    isLargeList,
+    onDelete,
+    onSourceTraceClick,
+    viewMode,
+  ]);
+
+  const handleScrollRequestHandled = useCallback(() => undefined, []);
 
   const questionListContent = mcqs.length > 0 && filtered.length === 0 ? (
     <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50/70 px-6 py-12 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-400">
@@ -133,7 +161,7 @@ const MCQDisplay: React.FC<MCQDisplayProps> = ({ mcqs, onUpdate, onDelete, onSou
       editingId={editingId}
       editForm={editForm}
       items={filtered}
-      onScrollRequestHandled={() => undefined}
+      onScrollRequestHandled={handleScrollRequestHandled}
       renderCard={renderCard}
       requestedScrollIndex={null}
       scrollContainerRef={questionScrollContainerRef}

@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { UploadedFile, ProgressCallback, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, SourceTrace } from "../../types";
-import { findDuplicate } from '../../utils/dedupe';
+import { createDuplicateLookup } from '../../utils/dedupe';
 import {
   applySharedCaseContextToQuestion,
   extractSharedCaseContexts,
@@ -570,11 +570,13 @@ export const generateQuestions = async (
           const newQs = [];
           const batchNewDuplicates: DuplicateInfo[] = [];
           let batchNewAutoSkipped = 0;
+          const duplicateLookup = createDuplicateLookup<MCQ>(allQuestions);
           for (const q of rawNewQs) {
-            const result = findDuplicate(q, [...allQuestions, ...newQs]);
+            const result = duplicateLookup.find(q);
             if (!result.isDup) {
               q.id = `mcq-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
               newQs.push(q);
+              duplicateLookup.add(q);
             } else {
               duplicateCounter++;
               const sameTopLevelBatchDuplicate = isSameTopLevelBatchDuplicate(topLevelIndex + 1, result.matchedData);

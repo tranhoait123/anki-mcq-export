@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MCQ } from '../types';
-import { buildMCQFingerprint, findDuplicate, normalizeMCQField } from './dedupe';
+import { buildMCQFingerprint, createDuplicateLookup, findDuplicate, normalizeMCQField } from './dedupe';
 
 const makeMCQ = (overrides: Partial<MCQ>): MCQ => ({
   id: overrides.id || 'q1',
@@ -284,6 +284,24 @@ describe('MCQ dedupe utilities', () => {
 
     const uniqueRetry = retry.filter(q => !findDuplicate(q, existing).isDup);
     expect(uniqueRetry).toHaveLength(0);
+  });
+
+  it('duplicate lookup returns the same decisions as findDuplicate while allowing incremental additions', () => {
+    const original = makeMCQ({
+      id: 'original',
+      question: 'Câu 6b. Biến chứng cấp của đái tháo đường?',
+      options: ['A. Hôn mê nhiễm toan ceton', 'B. Gout', 'C. Viêm gan', 'D. Sỏi thận', 'E. Thiếu máu'],
+    });
+    const retry = makeMCQ({
+      id: 'retry',
+      question: 'Bien chung cap cua dai thao duong',
+      options: ['A. Hon me nhiem toan ceton', 'B. Gout', 'C. Viêm gan', 'D. Sỏi thận', 'E. Thiếu máu'],
+    });
+    const lookup = createDuplicateLookup<MCQ>();
+
+    expect(lookup.find(retry).action).toBe(findDuplicate(retry, []).action);
+    lookup.add(original);
+    expect(lookup.find(retry).action).toBe(findDuplicate(retry, [original]).action);
   });
 
   it('does not auto-skip exact fingerprints when the answer conflicts', () => {

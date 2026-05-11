@@ -165,3 +165,44 @@ test('retrying failed batches appends rescued questions to existing results', as
   await expect(page.getByTestId('result-count')).toHaveText('3');
   await expect(page.getByText('Câu 3: Đâu là đáp án đúng trong smoke test?')).toBeVisible();
 });
+
+test('renders, filters, edits, deletes, and traces a large virtualized MCQ list', async ({ page }) => {
+  await page.goto('/');
+  await page.getByTestId('file-input').setInputFiles({
+    name: 'e2e-large.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('E2E large list should stay responsive while review/search/edit/delete/source trace are used.'),
+  });
+
+  await page.getByTestId('analyze-button').click();
+  await expect(page.getByText('Hệ thống đã sẵn sàng')).toBeVisible();
+  await page.getByTestId('generate-button').click();
+  await expect(page.getByTestId('result-count')).toHaveText('350');
+
+  await page.getByText('Soạn thảo').click();
+  await page.locator('[data-mcq-index="0"]').getByTestId('edit-mcq-button').dispatchEvent('click');
+  await expect(page.getByTestId('save-mcq-button')).toBeVisible();
+  await page.locator('textarea').first().evaluate((element, value) => {
+    const textarea = element as HTMLTextAreaElement;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+    setter?.call(textarea, value);
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  }, 'Câu 1: Large list smoke item 1 đã chỉnh sửa?');
+  await page.getByTestId('save-mcq-button').dispatchEvent('click');
+  await expect(page.getByText('Câu 1: Large list smoke item 1 đã chỉnh sửa?')).toBeVisible();
+
+  await page.getByPlaceholder('Tìm câu hỏi...').fill('Large list smoke item 349');
+  await expect(page.getByText('Câu 349: Large list smoke item 349 cần review mượt?')).toBeVisible();
+  await page.getByPlaceholder('Tìm câu hỏi...').fill('');
+
+  await page.getByPlaceholder('Tìm câu hỏi...').fill('Large list smoke item 2');
+  await expect(page.getByText('Câu 2: Large list smoke item 2 cần review mượt?')).toBeVisible();
+  await page.locator('[data-mcq-index="0"]').getByTestId('delete-mcq-button').dispatchEvent('click');
+  await expect(page.getByText('Xóa câu hỏi này?')).toBeVisible();
+  await page.getByTestId('confirm-submit-button').click();
+  await expect(page.getByTestId('result-count')).toHaveText('349');
+
+  await page.getByPlaceholder('Tìm câu hỏi...').fill('Large list smoke item 120');
+  await page.getByRole('button', { name: /Nguồn: e2e-large.txt/i }).first().click();
+  await expect(page.getByText('Tài liệu gốc')).toBeVisible();
+});

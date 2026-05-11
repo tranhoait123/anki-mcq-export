@@ -120,6 +120,7 @@ export interface UploadedFile {
   name: string;
   type: string;
   content: string;
+  contentHash?: string;
   plainText?: string;
   nativeText?: string;
   structuredText?: string;
@@ -210,6 +211,7 @@ export interface AppSettings {
   concurrencyLimit?: number;
   adaptiveBatching?: boolean;
   batchingMode?: 'safe';
+  projectLibraryEnabled?: boolean;
 }
 
 export interface ProjectSettingsSummary {
@@ -218,6 +220,7 @@ export interface ProjectSettingsSummary {
   skipAnalysis?: boolean;
   concurrencyLimit?: number;
   adaptiveBatching?: boolean;
+  projectLibraryEnabled?: boolean;
   hasCustomPrompt: boolean;
 }
 

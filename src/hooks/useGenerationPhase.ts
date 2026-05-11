@@ -45,7 +45,7 @@ export interface RunGenerationPhaseResult {
 
 interface UseGenerationPhaseParams {
   activeSessionRef: React.MutableRefObject<ProcessingSession | null>;
-  appendVisibleMcqs: (items: MCQ[]) => Promise<MCQ[]>;
+  appendVisibleMcqs: (items: MCQ[], options?: { persist?: boolean }) => Promise<MCQ[]>;
   buildSessionBase: (
     phase: ProcessingPhase,
     settingsSnapshot: AppSettings,
@@ -118,6 +118,32 @@ export const useGenerationPhase = ({
       phaseComparisonFailedBatchDetails: comparisonFailedBatchDetails,
     }));
 
+    let partialFlushTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingPartialQuestions: MCQ[] = [];
+
+    const flushPartialQuestions = async () => {
+      if (partialFlushTimer !== null) {
+        clearTimeout(partialFlushTimer);
+        partialFlushTimer = null;
+      }
+      if (pendingPartialQuestions.length === 0) return;
+      const batch = pendingPartialQuestions;
+      pendingPartialQuestions = [];
+      await appendVisibleMcqs(batch, { persist: false });
+    };
+
+    const queuePartialQuestions = (partialQuestions: MCQ[]) => {
+      pendingPartialQuestions.push(...partialQuestions);
+      if (pendingPartialQuestions.length >= 5) {
+        void flushPartialQuestions();
+        return;
+      }
+      if (partialFlushTimer !== null) return;
+      partialFlushTimer = setTimeout(() => {
+        void flushPartialQuestions();
+      }, 350);
+    };
+
     const res = await generateQuestions(
       filesToUse,
       requestSettings,
@@ -130,7 +156,7 @@ export const useGenerationPhase = ({
       (newBatch) => {
         const persistBatch = async () => {
           if (liveAppendToVisible) {
-            await appendVisibleMcqs(newBatch);
+            await appendVisibleMcqs(newBatch, { persist: true });
           }
           phaseQuestions = sortMcqsByQuestionNumber([...phaseQuestions, ...newBatch]);
         };
@@ -164,15 +190,15 @@ export const useGenerationPhase = ({
             phaseAutoSkippedCount: checkpoint.autoSkippedCount,
             phaseCurrentCount: checkpoint.questionsSnapshot.length,
           });
-          void persistMcqs(checkpoint.questionsSnapshot);
+          if (!liveAppendToVisible) void persistMcqs(checkpoint.questionsSnapshot);
         },
         onPartialQuestions: (partialQs, _batchIndex) => {
-          if (liveAppendToVisible && partialQs.length > 0) {
-            void appendVisibleMcqs(partialQs);
-          }
+          if (liveAppendToVisible && partialQs.length > 0) queuePartialQuestions(partialQs);
         },
       }
     );
+
+    await flushPartialQuestions();
 
     phaseQuestions = sortMcqsByQuestionNumber(res.questions);
     phaseDuplicates = [...(res.duplicates || [])];

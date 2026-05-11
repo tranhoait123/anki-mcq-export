@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, Trash2, ChevronDown, ChevronUp, ShieldAlert, Gauge, Zap, Database } from 'lucide-react';
+import { Settings as SettingsIcon, Trash2, ChevronDown, ChevronUp, ShieldAlert, Gauge, Zap, Database, RefreshCw, CheckCircle2, AlertCircle, Archive } from 'lucide-react';
 import { AppSettings } from '../types';
 import { db } from '../core/db';
 import { toast } from 'sonner';
-import { AIProvider, coerceModelForProvider, getModelGroups } from '../utils/models';
+import { validateShopAIKeyConnection } from '../core/brain';
+import { AIProvider, coerceModelForProvider, getModelGroups, getShopAIKeyVerifiedModelGroups } from '../utils/models';
 import { ConfirmDialogOptions } from '../hooks/useConfirmDialog';
+import type { ShopAIKeyValidationResult } from '../core/brain/openAiProvider';
 
 interface SettingsModalProps {
     show: boolean;
@@ -16,15 +18,40 @@ interface SettingsModalProps {
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, setSettings, confirm }) => {
     const [showAdvanced, setShowAdvanced] = useState(false);
-    const modelGroups = getModelGroups(settings.provider);
+    const [isCheckingShopAIKey, setIsCheckingShopAIKey] = useState(false);
+    const [shopAIKeyValidation, setShopAIKeyValidation] = useState<ShopAIKeyValidationResult | null>(null);
+    const [verifiedShopAIKeyModels, setVerifiedShopAIKeyModels] = useState<string[]>([]);
+    const modelGroups = settings.provider === 'shopaikey' && verifiedShopAIKeyModels.length > 0
+        ? getShopAIKeyVerifiedModelGroups(verifiedShopAIKeyModels)
+        : getModelGroups(settings.provider);
     
     if (!show) return null;
 
     const handleProviderChange = (provider: AIProvider) => {
         const nextModel = coerceModelForProvider(provider, settings.model);
+        setShopAIKeyValidation(null);
+        setVerifiedShopAIKeyModels([]);
         setSettings({ ...settings, provider, model: nextModel });
         if (nextModel !== settings.model) {
             toast.info("Đã tự đổi model cho khớp provider mới để tránh lỗi endpoint.");
+        }
+    };
+
+    const handleShopAIKeyCheck = async () => {
+        setIsCheckingShopAIKey(true);
+        const result = await validateShopAIKeyConnection(settings.shopAIKeyKey, settings.model);
+        setShopAIKeyValidation(result);
+        setVerifiedShopAIKeyModels(result.models);
+        setIsCheckingShopAIKey(false);
+
+        if (result.selectedModelAvailable && result.selectedModel !== settings.model) {
+            setSettings({ ...settings, model: result.selectedModel });
+        }
+
+        if (result.ok) {
+            toast.success(result.message);
+        } else {
+            toast.error(result.message, { duration: 7000 });
         }
     };
 
@@ -68,8 +95,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                 AI Engine
                             </label>
                             {settings.provider === 'shopaikey' && (
-                                <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 rounded-full animate-pulse">
-                                    Tính năng dành riêng cho Admin
+                                <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 rounded-full">
+                                    OpenAI-compatible gateway
                                 </span>
                             )}
                         </div>
@@ -105,6 +132,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                             type="password"
                             value={settings.provider === 'google' ? settings.apiKey : settings.provider === 'shopaikey' ? settings.shopAIKeyKey : (settings.openRouterKey || '')}
                             onChange={e => {
+                                setShopAIKeyValidation(null);
+                                setVerifiedShopAIKeyModels([]);
                                 if (settings.provider === 'google') setSettings({ ...settings, apiKey: e.target.value });
                                 else if (settings.provider === 'shopaikey') setSettings({ ...settings, shopAIKeyKey: e.target.value });
                                 else setSettings({ ...settings, openRouterKey: e.target.value });
@@ -117,9 +146,35 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                             {settings.provider === 'google'
                                 ? 'Hệ thống tự động xoay vòng nếu nhập nhiều Key (phân cách bằng dấu phẩy).'
                                 : settings.provider === 'shopaikey'
-                                    ? 'Này của Admin và phải tốn tiền nên các bạn đừng quan tâm nhé!'
+                                    ? 'Dùng key ShopAIKey dạng Bearer token; có thể kiểm tra key/model trước khi quét để tránh lỗi batch.'
                                     : 'Truy cập hàng loạt model đỉnh nhất như Claude 3.7, GPT-4o, DeepSeek.'}
                         </p>
+                        {settings.provider === 'shopaikey' && (
+                            <div className="mt-3 space-y-2">
+                                <button
+                                    type="button"
+                                    onClick={handleShopAIKeyCheck}
+                                    disabled={isCheckingShopAIKey || !settings.shopAIKeyKey.trim()}
+                                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-950/50"
+                                >
+                                    <RefreshCw size={14} className={isCheckingShopAIKey ? 'animate-spin' : ''} />
+                                    {isCheckingShopAIKey ? 'Đang kiểm tra ShopAIKey...' : 'Kiểm tra key và model ShopAIKey'}
+                                </button>
+                                {shopAIKeyValidation && (
+                                    <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-[11px] leading-relaxed ${
+                                        shopAIKeyValidation.ok
+                                            ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300'
+                                            : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300'
+                                    }`}>
+                                        {shopAIKeyValidation.ok ? <CheckCircle2 size={14} className="mt-0.5 flex-shrink-0" /> : <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />}
+                                        <span>
+                                            {shopAIKeyValidation.message}
+                                            {shopAIKeyValidation.models.length > 0 && ` Đã tải ${shopAIKeyValidation.models.length} model khả dụng.`}
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </section>
 
                     {/* Model Selection */}
@@ -129,7 +184,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                         </label>
                         <select
                             value={settings.model}
-                            onChange={e => setSettings({ ...settings, model: e.target.value })}
+                            onChange={e => {
+                                setShopAIKeyValidation(null);
+                                setSettings({ ...settings, model: e.target.value });
+                            }}
                             className="w-full border dark:border-slate-700 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white dark:bg-slate-800 dark:text-white transition-all shadow-sm"
                         >
                             {modelGroups.map(group => (
@@ -203,6 +261,24 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                         type="checkbox"
                                         checked={settings.skipAnalysis}
                                         onChange={e => setSettings({ ...settings, skipAnalysis: e.target.checked })}
+                                        className="w-5 h-5 text-indigo-600 border-gray-300 rounded-md focus:ring-indigo-500 cursor-pointer"
+                                    />
+                                </div>
+
+                                <div className="flex items-start justify-between gap-4 border-t border-slate-200/70 pt-4 dark:border-slate-700">
+                                    <div className="flex-1">
+                                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                            <Archive size={14} className="text-emerald-500" />
+                                            Thư viện bộ đề
+                                        </label>
+                                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                            Tự lưu/mở bộ đề đã xử lý. Tắt để giảm đọc/ghi IndexedDB và giảm lag trên máy yếu.
+                                        </p>
+                                    </div>
+                                    <input
+                                        type="checkbox"
+                                        checked={settings.projectLibraryEnabled !== false}
+                                        onChange={e => setSettings({ ...settings, projectLibraryEnabled: e.target.checked })}
                                         className="w-5 h-5 text-indigo-600 border-gray-300 rounded-md focus:ring-indigo-500 cursor-pointer"
                                     />
                                 </div>

@@ -3,8 +3,8 @@ import { Archive, Download, FileText, FolderOpen, Loader2, Pencil, Trash2, X } f
 import { toast } from 'sonner';
 import { MCQ, ProjectComparison, StudyProject, StudyProjectSummary } from '../types';
 import { generateCSVData } from '../hooks/useExportActions';
-import { buildStudyDocxBlob } from '../core/docxExport';
 import { compareProjectToCurrent, sanitizeDownloadName } from '../utils/projectLibrary';
+import { measureAsync, scheduleIdleTask } from '../utils/performance';
 
 interface ProjectLibraryModalProps {
   activeProjectId: string | null;
@@ -57,18 +57,6 @@ const ComparisonSummary: React.FC<{ comparison: ProjectComparison }> = ({ compar
     </div>
   </div>
 );
-
-const scheduleIdleTask = (callback: () => void): (() => void) => {
-  if (typeof window === 'undefined') return () => undefined;
-  const requestIdle = (window as any).requestIdleCallback as ((cb: () => void, options?: { timeout: number }) => number) | undefined;
-  const cancelIdle = (window as any).cancelIdleCallback as ((id: number) => void) | undefined;
-  if (requestIdle) {
-    const id = requestIdle(callback, { timeout: 800 });
-    return () => cancelIdle?.(id);
-  }
-  const id = window.setTimeout(callback, 0);
-  return () => window.clearTimeout(id);
-};
 
 const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
   activeProjectId,
@@ -147,7 +135,7 @@ const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
   if (!show) return null;
 
   const exportCsv = async (project: StudyProject) => {
-    const csv = generateCSVData(project.mcqs);
+    const csv = await measureAsync(`library.exportCsv(${project.mcqs.length})`, async () => generateCSVData(project.mcqs));
     if (!csv) {
       toast.error('Project chưa có câu hỏi để xuất CSV.');
       return;
@@ -164,7 +152,8 @@ const ProjectLibraryModal: React.FC<ProjectLibraryModalProps> = ({
     }
     setBusyAction(`docx-${project.id}`);
     try {
-      const blob = await buildStudyDocxBlob(project.mcqs, project.name);
+      const { buildStudyDocxBlob } = await import('../core/docxExport');
+      const blob = await measureAsync(`library.exportDocx(${project.mcqs.length})`, () => buildStudyDocxBlob(project.mcqs, project.name));
       const filename = `[DOCX]_${sanitizeDownloadName(project.name)}_${new Date().toISOString().slice(0, 10)}.docx`;
       downloadBlob(blob, filename);
       toast.success('Đã xuất DOCX từ thư viện.');

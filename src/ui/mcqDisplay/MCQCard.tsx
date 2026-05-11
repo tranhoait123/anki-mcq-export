@@ -20,6 +20,7 @@ interface MCQCardProps {
   onExplanationChange: (field: keyof Explanation, value: string) => void;
   onOptionChange: (idx: number, value: string) => void;
   onSourceTraceClick?: (trace: SourceTrace) => void;
+  performanceMode?: boolean;
   viewMode: MCQViewMode;
 }
 
@@ -37,7 +38,8 @@ const MCQCard = React.memo(({
   onExplanationChange,
   onDelete,
   onSourceTraceClick,
-  compact = false
+  compact = false,
+  performanceMode = false
 }: MCQCardProps) => {
   const data = isEditing && editForm ? editForm : mcq;
   const cardPaddingClass = compact ? 'p-6' : 'p-8';
@@ -45,11 +47,19 @@ const MCQCard = React.memo(({
   const questionTextClass = compact ? 'text-lg' : 'text-xl';
   const headerGapClass = compact ? 'gap-3 mb-4' : 'gap-4 mb-6';
   const badgeSizeClass = compact ? 'w-9 h-9 rounded-xl' : 'w-10 h-10 rounded-2xl';
+  const cardSurfaceClass = performanceMode
+    ? `bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 ${cardRadiusClass} ${cardPaddingClass}`
+    : `glass ${cardRadiusClass} ${cardPaddingClass} pro-shadow`;
+  const passiveCardMotionClass = performanceMode ? 'transition-colors' : 'transition-all group hover:-translate-y-1';
+  const editCardMotionClass = performanceMode ? 'transition-colors' : 'transition-all';
+  const htmlContent = React.useMemo(
+    () => buildAnkiHtml(data.explanation, data.difficulty, data.depthAnalysis),
+    [data.depthAnalysis, data.difficulty, data.explanation]
+  );
 
   if (viewMode === 'preview' && !isEditing) {
-    const htmlContent = buildAnkiHtml(data.explanation, data.difficulty, data.depthAnalysis);
     return (
-      <div className={`glass ${cardRadiusClass} ${cardPaddingClass} pro-shadow transition-all group hover:-translate-y-1`}>
+      <div className={`${cardSurfaceClass} ${passiveCardMotionClass} group`}>
         <div className={`flex ${headerGapClass}`}>
           <div className={`${badgeSizeClass} bg-indigo-600 flex items-center justify-center text-white font-black text-sm shadow-lg shadow-indigo-200 dark:shadow-none shrink-0`}>
             #{idx + 1}
@@ -112,7 +122,7 @@ const MCQCard = React.memo(({
 
   return (
     <div
-      className={`glass ${cardRadiusClass} ${cardPaddingClass} transition-all pro-shadow ${isEditing ? 'ring-2 ring-indigo-500 bg-white dark:bg-slate-900' : 'group hover:-translate-y-1'}`}
+      className={`${cardSurfaceClass} ${editCardMotionClass} ${isEditing ? 'ring-2 ring-indigo-500 bg-white dark:bg-slate-900' : performanceMode ? 'group' : 'group hover:-translate-y-1'}`}
       onKeyDown={isEditing ? (e) => {
         if (e.key === 'Escape') onEditCancel();
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') onEditSave();
@@ -143,6 +153,7 @@ const MCQCard = React.memo(({
           <div className="flex gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
               onClick={() => onEditStart(mcq)}
+              data-testid="edit-mcq-button"
               className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
               title="Chỉnh sửa"
             >
@@ -151,6 +162,7 @@ const MCQCard = React.memo(({
             {onDelete && (
               <button
                 onClick={() => void onDelete(mcq.id)}
+                data-testid="delete-mcq-button"
                 className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 hover:bg-rose-600 hover:text-white transition-all shadow-sm"
                 title="Xóa câu hỏi"
               >
@@ -212,7 +224,7 @@ const MCQCard = React.memo(({
             </div>
             <div className="flex gap-3 justify-end pt-4">
               <button onClick={onEditCancel} className="px-6 py-2.5 text-slate-500 font-bold text-xs bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-slate-200 transition-all">Hủy bỏ</button>
-              <button onClick={onEditSave} className="px-8 py-2.5 text-white font-bold text-xs pro-gradient rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none hover:scale-105 transition-all">Lưu thay đổi</button>
+              <button onClick={onEditSave} data-testid="save-mcq-button" className="px-8 py-2.5 text-white font-bold text-xs pro-gradient rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none hover:scale-105 transition-all">Lưu thay đổi</button>
             </div>
           </div>
         ) : (

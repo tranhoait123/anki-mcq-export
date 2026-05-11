@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { UploadedFile } from '../types';
 import { isDocxFile } from '../utils/appHelpers';
+import { measureAsync, scheduleIdleTask } from '../utils/performance';
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => void;
@@ -10,6 +11,7 @@ type BeforeInstallPromptEvent = Event & {
 export const useUiPreferences = (files: UploadedFile[], previewFileId?: string | null) => {
   const [isSplitView, setIsSplitView] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('anki_dark_mode') === 'true';
@@ -48,30 +50,52 @@ export const useUiPreferences = (files: UploadedFile[], previewFileId?: string |
     }
   };
 
-  const previewUrl = useMemo(() => {
+  const previewFile = useMemo(() => {
     if (!isSplitView || files.length === 0) return null;
     const file = files.find(item => item.id === previewFileId) || files[0];
     if (isDocxFile(file) || (!file.type.startsWith('image/') && file.type !== 'application/pdf')) return null;
-    try {
-      const base64Data = file.content.includes(',') ? file.content.split(',')[1] : file.content;
-      const byteCharacters = atob(base64Data);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: file.type });
-      return URL.createObjectURL(blob);
-    } catch (error) {
-      console.error('Failed to generate preview URL', error);
-      return null;
-    }
+    return file;
   }, [files, isSplitView, previewFileId]);
 
   useEffect(() => {
+    let cancelled = false;
+    setPreviewUrl(null);
+    if (!previewFile) return undefined;
+
+    const cancelIdleTask = scheduleIdleTask(() => {
+      void measureAsync(`preview.createObjectUrl(${previewFile.name})`, async () => {
+        try {
+          const base64Data = previewFile.content.includes(',') ? previewFile.content.split(',')[1] : previewFile.content;
+          const byteCharacters = atob(base64Data);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          const blob = new Blob([byteArray], { type: previewFile.type });
+          const nextUrl = URL.createObjectURL(blob);
+          if (cancelled) {
+            URL.revokeObjectURL(nextUrl);
+            return;
+          }
+          setPreviewUrl(previousUrl => {
+            if (previousUrl) URL.revokeObjectURL(previousUrl);
+            return nextUrl;
+          });
+        } catch (error) {
+          console.error('Failed to generate preview URL', error);
+        }
+      });
+    }, 300);
+
     return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      cancelled = true;
+      cancelIdleTask();
     };
+  }, [previewFile]);
+
+  useEffect(() => () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
 
   return {

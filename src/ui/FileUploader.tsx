@@ -8,6 +8,8 @@ import {
   readSliceAsBase64,
   readSliceAsText,
 } from './fileUploader/fileReaders';
+import { hashStringSha256 } from '../utils/hash';
+import { measureAsync, yieldToMain } from '../utils/performance';
 import UploadDropZone from './fileUploader/UploadDropZone';
 import UploadedFileList from './fileUploader/UploadedFileList';
 import { prepareDocxUpload } from './fileUploader/docxUploadPreparation';
@@ -28,7 +30,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
     }));
   }, [setFiles]);
 
-  const processFile = useCallback(async (file: File) => {
+  const processFile = useCallback(async (file: File) => measureAsync(`upload.processFile(${file.name})`, async () => {
     // Prevent duplicate processing
     if (files.some(f => f.name === file.name)) return;
 
@@ -69,8 +71,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
           const progress = Math.min(99, Math.round((offset / totalSize) * 100));
           updateFileProgress(file.name, progress);
 
-          // Yield to main thread
-          await new Promise(r => setTimeout(r, 0));
+          await yieldToMain();
         }
         content = chunks.join('');
         if (file.type === 'application/pdf') {
@@ -93,8 +94,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
           const progress = Math.min(90, Math.round((offset / totalSize) * 100)); // Reserve last 10% for parsing
           updateFileProgress(file.name, progress);
 
-          // Yield to main thread
-          await new Promise(r => setTimeout(r, 0));
+          await yieldToMain();
         }
 
         // Combine chunks
@@ -128,15 +128,16 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
           const progress = Math.min(99, Math.round((offset / totalSize) * 100));
           updateFileProgress(file.name, progress);
 
-          // Yield to main thread
-          await new Promise(r => setTimeout(r, 0));
+          await yieldToMain();
         }
       }
+
+      const contentHash = await measureAsync(`upload.hash(${file.name})`, () => hashStringSha256(content));
 
       // Update the file content and remove processing flag
       setFiles(prev => prev.map(f => {
         if (f.name === file.name) {
-          return { ...f, content, ...fileEnhancements, isProcessing: false, progress: 100 };
+          return { ...f, content, contentHash, ...fileEnhancements, isProcessing: false, progress: 100 };
         }
         return f;
       }));
@@ -147,7 +148,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
       setFiles(prev => prev.filter(f => f.name !== file.name));
       toast.error(`Lỗi khi đọc file ${file.name}: ${error instanceof Error ? error.message : "Định dạng không hỗ trợ"}`);
     }
-  }, [files, setFiles, updateFileProgress]);
+  }), [files, setFiles, updateFileProgress]);
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();

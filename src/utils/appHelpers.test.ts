@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanText, formatSessionPhase, getPersistableFiles, normalizePersistedSettings, sortMcqsByQuestionNumber, summarizeBatchFailures } from './appHelpers';
+import { cleanText, formatSessionPhase, getPersistableFiles, mergeSortedMcqs, normalizePersistedSettings, sortMcqsByQuestionNumber, summarizeBatchFailures } from './appHelpers';
 import { MCQ } from '../types';
 
 const mcq = (question: string): MCQ => ({
@@ -17,6 +17,15 @@ describe('app helpers', () => {
   it('keeps question sorting behavior numeric and stable for unnumbered items', () => {
     expect(sortMcqsByQuestionNumber([mcq('Câu 10'), mcq('Câu 2'), mcq('Không số')]).map(item => item.question))
       .toEqual(['Câu 2', 'Câu 10', 'Không số']);
+  });
+
+  it('merges incoming sorted MCQs without resorting the existing list from scratch', () => {
+    const merged = mergeSortedMcqs(
+      [mcq('Câu 1'), mcq('Câu 5'), mcq('Không số')],
+      [mcq('Câu 3'), mcq('Câu 2')]
+    );
+
+    expect(merged.map(item => item.question)).toEqual(['Câu 1', 'Câu 2', 'Câu 3', 'Câu 5', 'Không số']);
   });
 
   it('cleans question and option labels for export', () => {
@@ -64,8 +73,22 @@ describe('app helpers', () => {
 
     expect(normalized.provider).toBe('google');
     expect(normalized.model).toBe('gemini-3.1-flash-lite-preview');
+    expect(normalized.projectLibraryEnabled).toBe(true);
     expect(`${retiredPrefix}ProjectId` in normalized).toBe(false);
     expect(`${retiredPrefix}Location` in normalized).toBe(false);
     expect(`${retiredPrefix}AccessToken` in normalized).toBe(false);
+  });
+
+  it('defaults project library on while preserving an explicit off preference', () => {
+    expect(normalizePersistedSettings({
+      provider: 'google',
+      model: 'gemini-3.1-flash-lite-preview',
+    }).projectLibraryEnabled).toBe(true);
+
+    expect(normalizePersistedSettings({
+      provider: 'google',
+      model: 'gemini-3.1-flash-lite-preview',
+      projectLibraryEnabled: false,
+    }).projectLibraryEnabled).toBe(false);
   });
 });

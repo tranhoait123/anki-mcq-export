@@ -150,6 +150,24 @@ export const getModelGroups = (provider: AIProvider): ModelGroup[] => MODEL_GROU
 export const getModelValues = (provider: AIProvider): string[] =>
   getModelGroups(provider).flatMap(group => group.options.map(option => option.value));
 
+export const getShopAIKeyVerifiedModelGroups = (modelIds: string[]): ModelGroup[] => {
+  const knownLabels = new Map(
+    MODEL_GROUPS.shopaikey
+      .flatMap(group => group.options)
+      .map(option => [normalizeModelForProvider('shopaikey', option.value), option.label])
+  );
+  const options = Array.from(new Set(modelIds.map(model => normalizeModelForProvider('shopaikey', model)).filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b))
+    .map(model => ({
+      value: model,
+      label: knownLabels.get(model) || model,
+    }));
+
+  return options.length > 0
+    ? [{ label: 'ShopAIKey models đã xác minh từ API', options }]
+    : MODEL_GROUPS.shopaikey;
+};
+
 const LEGACY_GEMINI_MODEL_PATTERNS = [
   /^gemini-1(?:\.|$|-)/,
   /^gemini-2\.0(?:-|$)/,

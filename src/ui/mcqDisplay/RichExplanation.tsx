@@ -1,4 +1,5 @@
 import { AlertTriangle, Lightbulb, Quote, Target } from 'lucide-react';
+import React from 'react';
 import { Explanation } from '../../types';
 import { formatRichText } from '../../core/anki';
 
@@ -7,9 +8,13 @@ interface RichExplanationProps {
   exp: Explanation;
 }
 
-const RichExplanation: React.FC<RichExplanationProps> = ({ exp, compact = false }) => {
+const RichExplanation: React.FC<RichExplanationProps> = React.memo(({ exp, compact = false }) => {
   const spacingClass = compact ? 'space-y-3 mt-4' : 'space-y-4 mt-6';
   const blockPaddingClass = compact ? 'p-3' : 'p-4';
+  const coreHtml = React.useMemo(() => formatRichText(exp.core), [exp.core]);
+  const analysisHtml = React.useMemo(() => formatRichText(exp.analysis), [exp.analysis]);
+  const evidenceHtml = React.useMemo(() => formatRichText(exp.evidence), [exp.evidence]);
+  const warningHtml = React.useMemo(() => formatRichText(exp.warning), [exp.warning]);
 
   return (
     <div className={`${spacingClass} text-sm`}>
@@ -22,7 +27,7 @@ const RichExplanation: React.FC<RichExplanationProps> = ({ exp, compact = false 
             <span className="font-bold text-rose-900 dark:text-rose-200 block text-[10px] uppercase tracking-wider mb-1">Đáp án cốt lõi</span>
             <div
               className="anki-html text-slate-700 dark:text-slate-300 leading-relaxed font-medium prose-sm dark:prose-invert max-w-none"
-              dangerouslySetInnerHTML={{ __html: formatRichText(exp.core) }}
+              dangerouslySetInnerHTML={{ __html: coreHtml }}
             />
           </div>
         </div>
@@ -37,7 +42,7 @@ const RichExplanation: React.FC<RichExplanationProps> = ({ exp, compact = false 
             <span className="font-bold text-indigo-900 dark:text-indigo-200 block text-[10px] uppercase tracking-wider mb-1">Phân tích chuyên sâu</span>
             <div
               className="anki-html text-slate-700 dark:text-slate-300 leading-relaxed prose-sm dark:prose-invert max-w-none"
-              dangerouslySetInnerHTML={{ __html: formatRichText(exp.analysis) }}
+              dangerouslySetInnerHTML={{ __html: analysisHtml }}
             />
           </div>
         </div>
@@ -52,7 +57,7 @@ const RichExplanation: React.FC<RichExplanationProps> = ({ exp, compact = false 
             <span className="font-bold text-slate-900 dark:text-slate-200 block text-[10px] uppercase tracking-wider mb-1 not-italic">Bằng chứng y khoa</span>
             <div
               className="anki-html text-slate-600 dark:text-slate-400 leading-relaxed prose-sm dark:prose-invert max-w-none"
-              dangerouslySetInnerHTML={{ __html: formatRichText(exp.evidence) }}
+              dangerouslySetInnerHTML={{ __html: evidenceHtml }}
             />
           </div>
         </div>
@@ -68,7 +73,7 @@ const RichExplanation: React.FC<RichExplanationProps> = ({ exp, compact = false 
               <span className="font-bold text-amber-900 dark:text-amber-200 block text-[10px] uppercase tracking-wider mb-1">Lưu ý lâm sàng</span>
               <div
                 className="anki-html text-slate-700 dark:text-slate-300 leading-relaxed prose-sm dark:prose-invert max-w-none"
-                dangerouslySetInnerHTML={{ __html: formatRichText(exp.warning) }}
+                dangerouslySetInnerHTML={{ __html: warningHtml }}
               />
             </div>
           </div>
@@ -76,6 +81,6 @@ const RichExplanation: React.FC<RichExplanationProps> = ({ exp, compact = false 
       )}
     </div>
   );
-};
+});
 
 export default RichExplanation;

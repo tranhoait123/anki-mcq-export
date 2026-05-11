@@ -21,6 +21,7 @@ export {
   buildOpenAICompatibleProviderRequest,
   callOpenAICompatibleProvider,
   extractProviderMessageContent,
+  validateShopAIKeyConnection,
 } from './openAiProvider';
 
 export {

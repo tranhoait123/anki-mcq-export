@@ -9,7 +9,7 @@ import {
   UploadedFile,
 } from '../types';
 import { hashFiles } from '../core/brain';
-import { findDuplicate } from './dedupe';
+import { createDuplicateLookup, findDuplicate } from './dedupe';
 import { getPersistableFiles } from './appHelpers';
 import { isOptionCorrect } from './text';
 
@@ -66,6 +66,7 @@ export const buildSettingsSummary = (settings: AppSettings) => ({
   skipAnalysis: settings.skipAnalysis,
   concurrencyLimit: settings.concurrencyLimit,
   adaptiveBatching: settings.adaptiveBatching,
+  projectLibraryEnabled: settings.projectLibraryEnabled,
   hasCustomPrompt: Boolean(settings.customPrompt?.trim()),
 });
 
@@ -135,11 +136,12 @@ export const compareProjectToCurrent = (
   }, []);
 
   const skippedLikelyDuplicateScan = currentMcqs.length * project.mcqs.length > LIKELY_DUPLICATE_SCAN_PAIR_LIMIT;
+  const projectDuplicateLookup = skippedLikelyDuplicateScan ? null : createDuplicateLookup(project.mcqs);
   const likelyDuplicates = skippedLikelyDuplicateScan
     ? []
     : currentMcqs.reduce<ProjectComparison['likelyDuplicates']>((items, current) => {
       if (projectByQuestion.has(normalizeQuestion(current.question))) return items;
-      const match = findDuplicate(current, project.mcqs);
+      const match = projectDuplicateLookup?.find(current) || findDuplicate(current, project.mcqs);
       if (!match.isDup || !match.matchedData) return items;
       items.push({
         id: current.id,

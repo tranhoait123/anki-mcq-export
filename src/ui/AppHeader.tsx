@@ -6,6 +6,7 @@ interface AppHeaderProps {
   filesCount: number;
   handleInstallApp: () => void;
   isSplitView: boolean;
+  projectLibraryEnabled: boolean;
   setDarkMode: (value: boolean) => void;
   setIsSplitView: (value: boolean) => void;
   setShowLibrary: (value: boolean) => void;
@@ -18,6 +19,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
   filesCount,
   handleInstallApp,
   isSplitView,
+  projectLibraryEnabled,
   setDarkMode,
   setIsSplitView,
   setShowLibrary,
@@ -57,13 +59,15 @@ const AppHeader: React.FC<AppHeaderProps> = ({
         </button>
       </div>
 
-      <button
-        onClick={() => setShowLibrary(true)}
-        className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-700 hover:shadow-sm transition-all border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
-        title="Thư viện bộ đề"
-      >
-        <Archive size={20} />
-      </button>
+      {projectLibraryEnabled && (
+        <button
+          onClick={() => setShowLibrary(true)}
+          className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-700 hover:shadow-sm transition-all border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
+          title="Thư viện bộ đề"
+        >
+          <Archive size={20} />
+        </button>
+      )}
 
       <button
         onClick={() => setShowSettings(true)}

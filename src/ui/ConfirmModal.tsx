@@ -45,6 +45,7 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({ state, onCancel, onConfirm 
           </button>
           <button
             onClick={onConfirm}
+            data-testid="confirm-submit-button"
             disabled={state.busy}
             className={`inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-black text-white transition disabled:opacity-60 ${isDanger ? 'bg-rose-600 hover:bg-rose-500' : 'bg-indigo-600 hover:bg-indigo-500'}`}
           >

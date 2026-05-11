@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { MCQ, UploadedFile } from '../types';
 import { buildAnkiHtml, formatRichText } from '../core/anki';
-import { buildStudyDocxBlob } from '../core/docxExport';
 import { isOptionCorrect } from '../utils/text';
 import { cleanText } from '../utils/appHelpers';
+import { measureAsync, yieldToMain } from '../utils/performance';
 
 export type ExportAction = 'downloadCsv' | 'downloadDocx' | null;
 
@@ -67,10 +67,10 @@ export const useExportActions = (mcqs: MCQ[], files: UploadedFile[]) => {
   const downloadCSV = async () => {
     setExportAction('downloadCsv');
     try {
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await yieldToMain();
       let csv: string | null = '';
       try {
-        csv = generateCSVData(mcqs);
+        csv = await measureAsync(`export.csv(${mcqs.length})`, async () => generateCSVData(mcqs));
       } catch (e: any) {
         toast.error(`📄 Lỗi tạo file CSV: ${e.message}. Hãy thử xuất lại hoặc đổi sang định dạng khác.`);
         csv = null;
@@ -103,11 +103,12 @@ export const useExportActions = (mcqs: MCQ[], files: UploadedFile[]) => {
 
     setExportAction('downloadDocx');
     try {
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await yieldToMain();
       const filename = getExportBaseName(files, 'DOCX');
       const sourceName = getExportSourceName(files);
 
-      const blob = await buildStudyDocxBlob(mcqs, sourceName);
+      const { buildStudyDocxBlob } = await import('../core/docxExport');
+      const blob = await measureAsync(`export.docx(${mcqs.length})`, () => buildStudyDocxBlob(mcqs, sourceName));
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
       link.href = url;

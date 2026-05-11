@@ -39,6 +39,21 @@ const makeMockQuestion = (files: UploadedFile[], id = 1): MCQ => {
   };
 };
 
+const makeLargeMockQuestions = (files: UploadedFile[], count = 350): MCQ[] =>
+  Array.from({ length: count }, (_, index) => {
+    const id = index + 1;
+    const question = makeMockQuestion(files, id);
+    return {
+      ...question,
+      question: `Câu ${id}: Large list smoke item ${id} cần review mượt?`,
+      difficulty: id % 3 === 0 ? 'Hard' : id % 2 === 0 ? 'Medium' : 'Easy',
+      explanation: {
+        ...question.explanation,
+        analysis: `Large list mock explanation ${id}.`,
+      },
+    };
+  });
+
 const makeSharedCaseQuestion = (files: UploadedFile[]): MCQ => {
   const file = files[0] || {
     id: 'e2e-shared-case',
@@ -104,6 +119,14 @@ export const auditMissingQuestions = async (_files: UploadedFile[], _count: numb
   reasons: [],
   problematicSections: [],
   advice: 'Mock audit passed.',
+});
+
+export const validateShopAIKeyConnection = async () => ({
+  ok: true,
+  message: 'Mock ShopAIKey connection passed.',
+  models: ['gemini-3.1-flash-lite-preview'],
+  selectedModel: 'gemini-3.1-flash-lite-preview',
+  selectedModelAvailable: true,
 });
 
 export const generateQuestions = async (
@@ -177,6 +200,23 @@ export const generateQuestions = async (
     await new Promise(resolve => setTimeout(resolve, 10));
     return {
       questions: [mockQuestion],
+      duplicates: [],
+      failedBatches: [],
+      failedBatchDetails: [],
+      autoSkippedCount: 0,
+    };
+  }
+
+  if (files[0]?.name === 'e2e-large.txt') {
+    const questions = makeLargeMockQuestions(files);
+    for (let index = 0; index < questions.length; index += 50) {
+      const batch = questions.slice(index, index + 50);
+      onProgress?.('Mock e2e đang trích xuất danh sách lớn...', index + batch.length);
+      onBatch?.(batch);
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    return {
+      questions,
       duplicates: [],
       failedBatches: [],
       failedBatchDetails: [],

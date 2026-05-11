@@ -1,4 +1,5 @@
 import { MCQ, AppSettings, ProcessingSession, StudyProject, StudyProjectSummary, UploadedFile } from '../types';
+import { measureAsync } from '../utils/performance';
 
 const DB_NAME = 'AnkiGenProDB';
 const DB_VERSION = 7;
@@ -83,8 +84,12 @@ export class AppDB {
     }
 
     async saveMCQs(mcqs: MCQ[]): Promise<void> {
+        return this.replaceMCQs(mcqs);
+    }
+
+    async replaceMCQs(mcqs: MCQ[]): Promise<void> {
         if (!this.db) await this.init();
-        return new Promise((resolve, reject) => {
+        return measureAsync(`idb.replaceMCQs(${mcqs.length})`, () => new Promise((resolve, reject) => {
             const transaction = this.db!.transaction([STORES.MCQS], 'readwrite');
             const store = transaction.objectStore(STORES.MCQS);
 
@@ -101,7 +106,34 @@ export class AppDB {
 
             transaction.oncomplete = () => resolve();
             transaction.onerror = (e: any) => reject(e.target.error);
-        });
+        }));
+    }
+
+    async upsertMCQs(mcqs: MCQ[]): Promise<void> {
+        if (!this.db) await this.init();
+        if (mcqs.length === 0) return;
+        return measureAsync(`idb.upsertMCQs(${mcqs.length})`, () => new Promise((resolve, reject) => {
+            const transaction = this.db!.transaction([STORES.MCQS], 'readwrite');
+            const store = transaction.objectStore(STORES.MCQS);
+            mcqs.forEach(mcq => {
+                if (!mcq.id) {
+                    mcq.id = `mcq-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+                }
+                store.put(mcq);
+            });
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = (e: any) => reject(e.target.error);
+        }));
+    }
+
+    async deleteMCQ(id: string): Promise<void> {
+        if (!this.db) await this.init();
+        return measureAsync(`idb.deleteMCQ(${id})`, () => new Promise((resolve, reject) => {
+            const transaction = this.db!.transaction([STORES.MCQS], 'readwrite');
+            transaction.objectStore(STORES.MCQS).delete(id);
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = (e: any) => reject(e.target.error);
+        }));
     }
 
     async getAllMCQs(): Promise<MCQ[]> {
@@ -142,14 +174,14 @@ export class AppDB {
 
     async saveFiles(files: UploadedFile[]): Promise<void> {
         if (!this.db) await this.init();
-        return new Promise((resolve, reject) => {
+        return measureAsync(`idb.saveFiles(${files.length})`, () => new Promise((resolve, reject) => {
             const transaction = this.db!.transaction([STORES.FILES], 'readwrite');
             const store = transaction.objectStore(STORES.FILES);
             store.clear();
             files.forEach(file => store.put(file));
             transaction.oncomplete = () => resolve();
             transaction.onerror = (e: any) => reject(e.target.error);
-        });
+        }));
     }
 
     async getFiles(): Promise<UploadedFile[]> {
@@ -175,13 +207,13 @@ export class AppDB {
 
     async saveSession(session: ProcessingSession): Promise<void> {
         if (!this.db) await this.init();
-        return new Promise((resolve, reject) => {
+        return measureAsync(`idb.saveSession(${session.currentCount})`, () => new Promise((resolve, reject) => {
             const transaction = this.db!.transaction([STORES.SESSIONS], 'readwrite');
             const store = transaction.objectStore(STORES.SESSIONS);
             store.put(session);
             transaction.oncomplete = () => resolve();
             transaction.onerror = (e: any) => reject(e.target.error);
-        });
+        }));
     }
 
     async getSession(): Promise<ProcessingSession | null> {
@@ -221,13 +253,13 @@ export class AppDB {
 
     async saveProject(project: StudyProject): Promise<void> {
         if (!this.db) await this.init();
-        return new Promise((resolve, reject) => {
+        return measureAsync(`idb.saveProject(${project.stats.questionCount})`, () => new Promise((resolve, reject) => {
             const transaction = this.db!.transaction([STORES.PROJECTS, STORES.PROJECT_SUMMARIES], 'readwrite');
             transaction.objectStore(STORES.PROJECTS).put(project);
             transaction.objectStore(STORES.PROJECT_SUMMARIES).put(toProjectSummary(project));
             transaction.oncomplete = () => resolve();
             transaction.onerror = (e: any) => reject(e.target.error);
-        });
+        }));
     }
 
     async getProject(id: string): Promise<StudyProject | null> {

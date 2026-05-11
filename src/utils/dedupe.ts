@@ -654,3 +654,36 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
     isAutoSkip: false,
   };
 };
+
+export interface DuplicateLookup<T extends MCQLike = MCQLike> {
+  add: (question: T) => void;
+  addMany: (questions: T[]) => void;
+  find: (candidate: MCQLike) => DuplicateMatch<T>;
+  getPool: () => T[];
+}
+
+export const createDuplicateLookup = <T extends MCQLike>(existingQuestions: T[] = []): DuplicateLookup<T> => {
+  const pool = [...existingQuestions];
+  const resultCache = new Map<string, DuplicateMatch<T>>();
+
+  const getCacheKey = (candidate: MCQLike) =>
+    `${pool.length}:${buildMCQFingerprint(candidate)}:${normalizeAnswer(candidate.correctAnswer || '')}`;
+
+  return {
+    add: (question: T) => {
+      pool.push(question);
+    },
+    addMany: (questions: T[]) => {
+      pool.push(...questions);
+    },
+    find: (candidate: MCQLike) => {
+      const cacheKey = getCacheKey(candidate);
+      const cached = resultCache.get(cacheKey);
+      if (cached) return cached;
+      const result = findDuplicate(candidate, pool);
+      resultCache.set(cacheKey, result);
+      return result;
+    },
+    getPool: () => pool,
+  };
+};

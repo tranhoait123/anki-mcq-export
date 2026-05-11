@@ -1,5 +1,5 @@
 import { AppSettings, UploadedFile } from '../../types';
-import { getModelTokenProfile } from '../../utils/models';
+import { getModelTokenProfile, normalizeModelForProvider } from '../../utils/models';
 import { getFileTextContent } from './batching';
 import { createProviderApiError } from './providerErrors';
 
@@ -14,6 +14,15 @@ export interface ProviderRequestConfig {
   body: Record<string, any>;
 }
 
+export interface ShopAIKeyValidationResult {
+  ok: boolean;
+  models: string[];
+  selectedModel: string;
+  selectedModelAvailable: boolean;
+  message: string;
+  status?: number;
+}
+
 const JSON_MODE_FALLBACK_INSTRUCTION = 'QUAN TRỌNG: Endpoint hiện tại không hỗ trợ response_format. Bạn vẫn PHẢI trả về JSON hợp lệ duy nhất, không markdown, không giải thích ngoài JSON.';
 
 export const isOpenAICompatibleProvider = (provider: AppSettings['provider']): provider is OpenAICompatibleProvider =>
@@ -25,6 +34,7 @@ const getProviderName = (provider: OpenAICompatibleProvider): string => {
 };
 
 const normalizeProviderModel = (provider: OpenAICompatibleProvider, model: string): string => {
+  if (provider === 'shopaikey') return normalizeModelForProvider(provider, model);
   return model;
 };
 
@@ -84,6 +94,102 @@ export const buildOpenAICompatibleProviderRequest = (
     headers: buildProviderHeaders(settings, apiKey),
     body,
   };
+};
+
+const extractProviderErrorDetail = async (response: Response): Promise<string> => {
+  try {
+    const raw = await response.text();
+    if (!raw) return '';
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed?.error?.message || parsed?.message || parsed?.detail || raw;
+    } catch {
+      return raw;
+    }
+  } catch {
+    return '';
+  }
+};
+
+const extractShopAIKeyModelIds = (data: any): string[] => {
+  const items = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+  const modelIds = items
+    .map((item: any) => String(item?.id || item?.name || item || '').trim())
+    .filter(Boolean);
+  return Array.from(new Set<string>(modelIds))
+    .sort((a, b) => a.localeCompare(b));
+};
+
+const getShopAIKeyValidationErrorMessage = (status: number, detail: string): string => {
+  const cleanDetail = detail.replace(/\s+/g, ' ').slice(0, 180);
+  const suffix = cleanDetail ? ` Chi tiết: ${cleanDetail}` : '';
+  if (status === 401) return `ShopAIKey API key không hợp lệ hoặc đã hết hạn.${suffix}`;
+  if (status === 402) return `Tài khoản ShopAIKey hết số dư. Vui lòng nạp thêm credit.${suffix}`;
+  if (status === 403) return `ShopAIKey API key không có quyền truy cập model/API này.${suffix}`;
+  if (status === 429) return `ShopAIKey đang giới hạn tốc độ. Chờ 1-2 phút rồi thử lại.${suffix}`;
+  return `Không kiểm tra được ShopAIKey (mã ${status}).${suffix}`;
+};
+
+export const validateShopAIKeyConnection = async (
+  apiKey: string,
+  selectedModel: string
+): Promise<ShopAIKeyValidationResult> => {
+  const token = apiKey.trim();
+  const normalizedSelectedModel = normalizeModelForProvider('shopaikey', selectedModel || '');
+  if (!token) {
+    return {
+      ok: false,
+      models: [],
+      selectedModel: normalizedSelectedModel,
+      selectedModelAvailable: false,
+      message: 'Vui lòng nhập ShopAIKey API key trước khi kiểm tra.',
+    };
+  }
+
+  try {
+    const response = await fetch('https://api.shopaikey.com/v1/models', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const detail = await extractProviderErrorDetail(response);
+      return {
+        ok: false,
+        models: [],
+        selectedModel: normalizedSelectedModel,
+        selectedModelAvailable: false,
+        status: response.status,
+        message: getShopAIKeyValidationErrorMessage(response.status, detail),
+      };
+    }
+
+    const data = await response.json();
+    const models = extractShopAIKeyModelIds(data);
+    const selectedModelAvailable = Boolean(normalizedSelectedModel && models.includes(normalizedSelectedModel));
+
+    return {
+      ok: selectedModelAvailable,
+      models,
+      selectedModel: normalizedSelectedModel,
+      selectedModelAvailable,
+      message: selectedModelAvailable
+        ? `ShopAIKey kết nối OK. Model "${normalizedSelectedModel}" dùng được.`
+        : `ShopAIKey key hợp lệ, nhưng model "${normalizedSelectedModel || '(trống)'}" không có trong danh sách model của key này. Hãy chọn model khả dụng từ danh sách đã xác minh.`,
+    };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      models: [],
+      selectedModel: normalizedSelectedModel,
+      selectedModelAvailable: false,
+      message: `Không kết nối được tới ShopAIKey. Kiểm tra mạng/CORS rồi thử lại. Chi tiết: ${detail.slice(0, 180)}`,
+    };
+  }
 };
 
 const isResponseFormatUnsupportedError = (error: Error): boolean => {

@@ -18,6 +18,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   concurrencyLimit: 1,
   adaptiveBatching: true,
   batchingMode: 'safe',
+  projectLibraryEnabled: true,
 };
 
 export const isDocxFile = (file?: UploadedFile | null) =>
@@ -32,11 +33,40 @@ export const getPersistableFiles = (files: UploadedFile[]): UploadedFile[] =>
     .map((file) => ({ ...file, isProcessing: false, progress: 100 }));
 
 export const sortMcqsByQuestionNumber = (items: MCQ[]): MCQ[] => {
-  const getNum = (str: string) => {
-    const m = str.match(/(\d+)/);
-    return m ? parseInt(m[1]) : 999999;
-  };
-  return [...items].sort((a, b) => getNum(a.question) - getNum(b.question));
+  return [...items].sort((a, b) => getQuestionSortNumber(a.question) - getQuestionSortNumber(b.question));
+};
+
+export const getQuestionSortNumber = (str: string): number => {
+  const match = str.match(/(\d+)/);
+  return match ? parseInt(match[1], 10) : 999999;
+};
+
+export const mergeSortedMcqs = (existing: MCQ[], incoming: MCQ[]): MCQ[] => {
+  if (incoming.length === 0) return existing;
+  if (existing.length === 0) return sortMcqsByQuestionNumber(incoming);
+
+  const sortedIncoming = sortMcqsByQuestionNumber(incoming);
+  const merged: MCQ[] = [];
+  let existingIndex = 0;
+  let incomingIndex = 0;
+
+  while (existingIndex < existing.length && incomingIndex < sortedIncoming.length) {
+    const existingItem = existing[existingIndex];
+    const incomingItem = sortedIncoming[incomingIndex];
+    if (getQuestionSortNumber(existingItem.question) <= getQuestionSortNumber(incomingItem.question)) {
+      merged.push(existingItem);
+      existingIndex++;
+    } else {
+      merged.push(incomingItem);
+      incomingIndex++;
+    }
+  }
+
+  return [
+    ...merged,
+    ...existing.slice(existingIndex),
+    ...sortedIncoming.slice(incomingIndex),
+  ];
 };
 
 export const isResumableStatus = (status: ProcessingSessionStatus) =>
@@ -98,6 +128,7 @@ export const normalizePersistedSettings = (settings: LegacyPersistedSettings): A
   if (persistedSettings.concurrencyLimit === undefined) persistedSettings.concurrencyLimit = 1;
   if (persistedSettings.adaptiveBatching === undefined) persistedSettings.adaptiveBatching = true;
   if (persistedSettings.batchingMode === undefined) persistedSettings.batchingMode = 'safe';
+  if (persistedSettings.projectLibraryEnabled === undefined) persistedSettings.projectLibraryEnabled = true;
 
   return persistedSettings;
 };

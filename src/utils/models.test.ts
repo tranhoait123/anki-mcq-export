@@ -4,6 +4,7 @@ import {
   getModelValues,
   getProviderFallbackModel,
   getModelTokenProfile,
+  getShopAIKeyVerifiedModelGroups,
   coerceModelForProvider,
   coerceModelForProviderInput,
   getModelLifecycleWarning,
@@ -149,6 +150,21 @@ describe('AI model registry', () => {
     expect(normalizeModelForProvider('shopaikey', 'deepseek/deepseek-v4-pro')).toBe('deepseek-v4-pro');
     expect(normalizeModelForProvider('shopaikey', 'qwen/qwen3.6-35b-a3b')).toBe('qwen3.6-35b-a3b');
     expect(normalizeModelForProvider('openrouter', 'openai/gpt-5.4-mini')).toBe('openai/gpt-5.4-mini');
+  });
+
+  it('builds ShopAIKey model groups only from verified API model ids', () => {
+    const groups = getShopAIKeyVerifiedModelGroups([
+      'openai/gpt-5.4-mini',
+      'deepseek-v3.2',
+      'not-in-static-list',
+      'gpt-5.4-mini',
+    ]);
+    const values = groups.flatMap(group => group.options.map(option => option.value));
+
+    expect(groups[0].label).toBe('ShopAIKey models đã xác minh từ API');
+    expect(values).toEqual(['deepseek-v3.2', 'gpt-5.4-mini', 'not-in-static-list']);
+    expect(groups[0].options.find(option => option.value === 'gpt-5.4-mini')?.label).toContain('GPT-5.4 Mini');
+    expect(groups[0].options.find(option => option.value === 'not-in-static-list')?.label).toBe('not-in-static-list');
   });
 
   it('returns token profiles for adaptive batching by model family', () => {

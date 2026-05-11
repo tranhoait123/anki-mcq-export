@@ -1,8 +1,9 @@
 import React from 'react';
 import { MCQ } from '../types';
 import { db } from '../core/db';
-import { findDuplicate } from '../utils/dedupe';
-import { sortMcqsByQuestionNumber } from '../utils/appHelpers';
+import { createDuplicateLookup } from '../utils/dedupe';
+import { mergeSortedMcqs, sortMcqsByQuestionNumber } from '../utils/appHelpers';
+import { measureAsync, measureSync } from '../utils/performance';
 
 interface UseMcqCollectionOptions {
   activeSessionRef: React.MutableRefObject<unknown>;
@@ -18,12 +19,18 @@ export const useMcqCollection = ({
   const mcqPersistChainRef = React.useRef<Promise<void>>(Promise.resolve());
 
   const uniqueAgainst = React.useCallback((newList: MCQ[], existingList: MCQ[]): MCQ[] => {
-    const uniqueNew: MCQ[] = [];
-    for (const question of newList) {
-      const result = findDuplicate(question, [...existingList, ...uniqueNew]);
-      if (!result.isDup) uniqueNew.push(question);
-    }
-    return uniqueNew;
+    return measureSync(`dedupe.uniqueAgainst(${newList.length}x${existingList.length})`, () => {
+      const lookup = createDuplicateLookup(existingList);
+      const uniqueNew: MCQ[] = [];
+      for (const question of newList) {
+        const result = lookup.find(question);
+        if (!result.isDup) {
+          uniqueNew.push(question);
+          lookup.add(question);
+        }
+      }
+      return uniqueNew;
+    });
   }, []);
 
   const persistMcqs = React.useCallback(async (items: MCQ[]) => {
@@ -43,12 +50,30 @@ export const useMcqCollection = ({
     return sorted;
   }, [activeSessionRef, mcqsRef, persistMcqs, setMcqs]);
 
-  const appendVisibleMcqs = React.useCallback(async (items: MCQ[]) => {
-    const uniqueNew = uniqueAgainst(items, mcqsRef.current);
+  const appendVisibleMcqs = React.useCallback(async (items: MCQ[], options: { persist?: boolean } = {}) => {
+    const uniqueNew = await measureAsync(`dedupe.appendVisibleMcqs(${items.length})`, async () => {
+      const lookup = createDuplicateLookup(mcqsRef.current);
+      const nextUnique: MCQ[] = [];
+      for (const question of items) {
+        const result = lookup.find(question);
+        if (!result.isDup) {
+          nextUnique.push(question);
+          lookup.add(question);
+        }
+      }
+      return nextUnique;
+    });
     if (uniqueNew.length === 0) return [];
-    await setVisibleMcqs([...mcqsRef.current, ...uniqueNew]);
+    const merged = mergeSortedMcqs(mcqsRef.current, uniqueNew);
+    mcqsRef.current = merged;
+    setMcqs(merged);
+    if (activeSessionRef.current) {
+      if (options.persist !== false) await db.upsertMCQs(uniqueNew);
+    } else {
+      await persistMcqs(merged);
+    }
     return uniqueNew;
-  }, [mcqsRef, setVisibleMcqs, uniqueAgainst]);
+  }, [activeSessionRef, mcqsRef, persistMcqs, setMcqs]);
 
   const deduplicateQuestions = React.useCallback((newList: MCQ[], existingList: MCQ[]): MCQ[] => (
     uniqueAgainst(newList, existingList)

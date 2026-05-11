@@ -70,6 +70,9 @@ const VirtualizedMCQList: React.FC<VirtualizedMCQListProps> = ({
   const [showScrollTop, setShowScrollTop] = useState(false);
   const observerRef = useRef<ResizeObserver | null>(null);
   const measuredNodesRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const pendingHeightsRef = useRef<Record<string, number>>({});
+  const resizeFrameRef = useRef<number | null>(null);
+  const viewportFrameRef = useRef<number | null>(null);
 
   const measurements = useMemo(() => {
     const positions: number[] = [];
@@ -87,39 +90,60 @@ const VirtualizedMCQList: React.FC<VirtualizedMCQListProps> = ({
     return { positions, heights, totalHeight };
   }, [editingId, itemHeights, items, viewMode]);
 
+  const queueHeightMeasurements = useCallback((nextHeights: Record<string, number>) => {
+    pendingHeightsRef.current = { ...pendingHeightsRef.current, ...nextHeights };
+    if (resizeFrameRef.current !== null) return;
+    resizeFrameRef.current = window.requestAnimationFrame(() => {
+      resizeFrameRef.current = null;
+      const queued = pendingHeightsRef.current;
+      pendingHeightsRef.current = {};
+      setItemHeights(prev => {
+        let updated = false;
+        const merged = { ...prev };
+        for (const id in queued) {
+          if (!merged[id] || Math.abs(merged[id] - queued[id]) >= 2) {
+            merged[id] = queued[id];
+            updated = true;
+          }
+        }
+        return updated ? merged : prev;
+      });
+    });
+  }, []);
+
   useEffect(() => {
     observerRef.current = new ResizeObserver((entries) => {
-      let changed = false;
       const nextHeights: Record<string, number> = {};
-      
+
       for (const entry of entries) {
         const target = entry.target as HTMLElement;
         const id = target.dataset.id;
         if (!id) continue;
         const height = Math.ceil(entry.borderBoxSize?.[0]?.blockSize || entry.contentRect.height);
         nextHeights[id] = height;
-        changed = true;
       }
 
-      if (changed) {
-        setItemHeights(prev => {
-          let updated = false;
-          const merged = { ...prev };
-          for (const id in nextHeights) {
-            if (!merged[id] || Math.abs(merged[id] - nextHeights[id]) >= 2) {
-              merged[id] = nextHeights[id];
-              updated = true;
-            }
-          }
-          return updated ? merged : prev;
-        });
-      }
+      if (Object.keys(nextHeights).length > 0) queueHeightMeasurements(nextHeights);
     });
 
     return () => {
+      if (resizeFrameRef.current !== null) window.cancelAnimationFrame(resizeFrameRef.current);
       observerRef.current?.disconnect();
     };
-  }, []);
+  }, [queueHeightMeasurements]);
+
+  useEffect(() => {
+    const visibleIds = new Set(items.map(item => item.id));
+    setItemHeights(prev => {
+      let changed = false;
+      const next: Record<string, number> = {};
+      for (const [id, height] of Object.entries(prev)) {
+        if (visibleIds.has(id)) next[id] = height;
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [items]);
 
   const measureItem = useCallback((id: string, node: HTMLDivElement | null) => {
     if (node) {
@@ -131,14 +155,8 @@ const VirtualizedMCQList: React.FC<VirtualizedMCQListProps> = ({
         observerRef.current?.observe(node);
         measuredNodesRef.current.set(id, node);
         
-        // Đo đạc lập tức ở frame đầu tiên để tránh chớp
         const h = Math.ceil(node.getBoundingClientRect().height);
-        setItemHeights(prev => {
-          if (!prev[id] || Math.abs(prev[id] - h) >= 2) {
-            return { ...prev, [id]: h };
-          }
-          return prev;
-        });
+        queueHeightMeasurements({ [id]: h });
       }
     } else {
       const existing = measuredNodesRef.current.get(id);
@@ -147,7 +165,7 @@ const VirtualizedMCQList: React.FC<VirtualizedMCQListProps> = ({
         measuredNodesRef.current.delete(id);
       }
     }
-  }, []);
+  }, [queueHeightMeasurements]);
 
   const scrollToIndex = useCallback((index: number, align: 'start' | 'center' = 'start') => {
     if (index < 0 || index >= items.length || !listRef.current) return;
@@ -182,6 +200,8 @@ const VirtualizedMCQList: React.FC<VirtualizedMCQListProps> = ({
       return;
     }
 
+    let disposed = false;
+
     const updateViewport = () => {
       if (!listRef.current) return;
 
@@ -213,13 +233,23 @@ const VirtualizedMCQList: React.FC<VirtualizedMCQListProps> = ({
 
     updateViewport();
 
+    const scheduleViewportUpdate = () => {
+      if (viewportFrameRef.current !== null) return;
+      viewportFrameRef.current = window.requestAnimationFrame(() => {
+        viewportFrameRef.current = null;
+        if (!disposed) updateViewport();
+      });
+    };
+
     const scrollTarget = useWindowScroll || !scrollContainerRef?.current ? window : scrollContainerRef.current;
-    scrollTarget.addEventListener('scroll', updateViewport, { passive: true });
-    window.addEventListener('resize', updateViewport);
+    scrollTarget.addEventListener('scroll', scheduleViewportUpdate, { passive: true });
+    window.addEventListener('resize', scheduleViewportUpdate);
 
     return () => {
-      scrollTarget.removeEventListener('scroll', updateViewport);
-      window.removeEventListener('resize', updateViewport);
+      disposed = true;
+      if (viewportFrameRef.current !== null) window.cancelAnimationFrame(viewportFrameRef.current);
+      scrollTarget.removeEventListener('scroll', scheduleViewportUpdate);
+      window.removeEventListener('resize', scheduleViewportUpdate);
     };
   }, [items.length, measurements.positions, measurements.totalHeight, scrollContainerRef, useWindowScroll]);
 

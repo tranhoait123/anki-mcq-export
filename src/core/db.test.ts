@@ -326,6 +326,22 @@ describe('AppDB session persistence', () => {
     expect(await appDb.getAllMCQs()).toEqual([baseQuestion]);
   });
 
+  it('supports incremental MCQ upsert, delete, and full replace APIs', async () => {
+    const appDb = new AppDB();
+    await appDb.init();
+    const secondQuestion = { ...baseQuestion, id: 'mcq-2', question: 'Câu 2' };
+
+    await appDb.upsertMCQs([baseQuestion]);
+    await appDb.upsertMCQs([secondQuestion]);
+    expect((await appDb.getAllMCQs()).map(item => item.id).sort()).toEqual(['mcq-1', 'mcq-2']);
+
+    await appDb.deleteMCQ('mcq-1');
+    expect(await appDb.getAllMCQs()).toEqual([secondQuestion]);
+
+    await appDb.replaceMCQs([baseQuestion]);
+    expect(await appDb.getAllMCQs()).toEqual([baseQuestion]);
+  });
+
   it('clears files and sessions together during full reset', async () => {
     const appDb = new AppDB();
     await appDb.init();

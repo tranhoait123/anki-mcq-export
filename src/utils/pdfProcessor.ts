@@ -1,4 +1,6 @@
 import { applySharedCaseContextToBlocks } from './sharedCaseContext';
+import { hashStringSha256 } from './hash';
+import { measureAsync, yieldToMain } from './performance';
 
 // Local Assets Strategy:
 // CMaps and fonts are served locally from public/ for offline stability.
@@ -8,6 +10,9 @@ const getAssetUrl = (path: string) => {
 
 const CMAP_URL = getAssetUrl('/cmaps/');
 const STANDARD_FONT_DATA_URL = getAssetUrl('/standard_fonts/');
+const pdfTextAnalysisCache = new Map<string, Promise<PdfTextAnalysis>>();
+const pdfRasterCache = new Map<string, Promise<string[]>>();
+let pdfWorkerUnavailableForSession = false;
 
 export type PdfPageQuality = 'goodText' | 'suspect' | 'scanOrEmpty';
 
@@ -355,13 +360,13 @@ const openPdf = async (base64OrUrl: string) => {
     return loadingTask.promise;
 };
 
-export const analyzePdfTextLayer = async (base64OrUrl: string, pagesPerChunk = 3, overlap = 1, structuredBatchSize = 10): Promise<PdfTextAnalysis> => {
+const analyzePdfTextLayerUncached = async (base64OrUrl: string, pagesPerChunk = 3, overlap = 1, structuredBatchSize = 10): Promise<PdfTextAnalysis> => {
     const pdf = await openPdf(base64OrUrl);
     const samplePages = Math.min(3, pdf.numPages);
     const sampled: PdfTextPage[] = [];
 
     for (let pageNumber = 1; pageNumber <= samplePages; pageNumber++) {
-        await new Promise(r => setTimeout(r, 0)); // Yield to main thread
+        await yieldToMain();
         const page = await pdf.getPage(pageNumber);
         const content = await page.getTextContent();
         const viewport = page.getViewport({ scale: 1 });
@@ -391,7 +396,7 @@ export const analyzePdfTextLayer = async (base64OrUrl: string, pagesPerChunk = 3
 
     const pages = [...sampled];
     for (let pageNumber = samplePages + 1; pageNumber <= pdf.numPages; pageNumber++) {
-        await new Promise(r => setTimeout(r, 0)); // Yield to main thread
+        await yieldToMain();
         const page = await pdf.getPage(pageNumber);
         const content = await page.getTextContent();
         const viewport = page.getViewport({ scale: 1 });
@@ -410,7 +415,71 @@ export const analyzePdfTextLayer = async (base64OrUrl: string, pagesPerChunk = 3
     return buildPdfTextAnalysisFromPages(pages, pagesPerChunk, overlap, structuredBatchSize);
 };
 
-export const convertPdfToImages = async (base64OrUrl: string, pageRange?: PdfPageRange): Promise<string[]> => {
+export const analyzePdfTextLayer = async (base64OrUrl: string, pagesPerChunk = 3, overlap = 1, structuredBatchSize = 10): Promise<PdfTextAnalysis> => {
+    const baseHash = await hashStringSha256(base64OrUrl);
+    const cacheKey = `${baseHash}:${pagesPerChunk}:${overlap}:${structuredBatchSize}`;
+    const cached = pdfTextAnalysisCache.get(cacheKey);
+    if (cached) return cached;
+
+    const analysisPromise = measureAsync(`pdf.analyzeTextLayer(${pagesPerChunk}/${overlap}/${structuredBatchSize})`, () =>
+        analyzePdfTextLayerUncached(base64OrUrl, pagesPerChunk, overlap, structuredBatchSize)
+    );
+    pdfTextAnalysisCache.set(cacheKey, analysisPromise);
+    try {
+        return await analysisPromise;
+    } catch (error) {
+        pdfTextAnalysisCache.delete(cacheKey);
+        throw error;
+    }
+};
+
+const convertPdfToImagesInWorker = async (base64OrUrl: string, pageRange?: PdfPageRange): Promise<string[]> => {
+    if (pdfWorkerUnavailableForSession || typeof Worker === 'undefined' || typeof window === 'undefined') {
+        throw new Error('PDF worker unavailable');
+    }
+
+    return new Promise((resolve, reject) => {
+        const worker = new Worker(new URL('../workers/pdfWorker.ts', import.meta.url), { type: 'module' });
+        const jobId = `pdf-raster-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const timeoutId = window.setTimeout(() => {
+            worker.terminate();
+            reject(new Error('PDF worker timed out'));
+        }, 120000);
+
+        const cleanup = () => {
+            window.clearTimeout(timeoutId);
+            worker.terminate();
+        };
+
+        worker.onmessage = (event: MessageEvent) => {
+            if (event.data?.jobId !== jobId) return;
+            cleanup();
+            if (event.data.status === 'success') {
+                resolve(event.data.data || []);
+                return;
+            }
+            reject(new Error(event.data.error || 'PDF worker failed'));
+        };
+
+        worker.onerror = (event) => {
+            cleanup();
+            reject(event.error || new Error(event.message || 'PDF worker failed'));
+        };
+
+        worker.postMessage({
+            action: 'convertPdfToImages',
+            jobId,
+            payload: {
+                base64OrUrl,
+                pageRange,
+                cmapUrl: CMAP_URL,
+                standardFontDataUrl: STANDARD_FONT_DATA_URL,
+            },
+        });
+    });
+};
+
+const convertPdfToImagesOnMainThread = async (base64OrUrl: string, pageRange?: PdfPageRange): Promise<string[]> => {
     try {
         const pdf = await openPdf(base64OrUrl);
         const pageCount = pdf.numPages;
@@ -420,7 +489,7 @@ export const convertPdfToImages = async (base64OrUrl: string, pageRange?: PdfPag
 
         for (let i = start; i <= end; i++) {
             try {
-                await new Promise(r => setTimeout(r, 0)); // Yield to main thread
+                await yieldToMain();
                 const page = await pdf.getPage(i);
 
                 // High resolution scale (2.0 = 144-200 DPIish, good for OCR)
@@ -442,14 +511,14 @@ export const convertPdfToImages = async (base64OrUrl: string, pageRange?: PdfPag
                 await page.render(renderContext).promise;
 
                 // Nhường lại UI thread trước khi chạy thao tác nặng toDataURL
-                await new Promise(r => setTimeout(r, 0));
+                await yieldToMain();
                 
                 // Convert to base64 JPEG
                 const imgData = canvas.toDataURL('image/jpeg', 0.85); // 0.85 quality is enough
                 images.push(imgData);
                 
                 // Nhường thêm 1 nhịp sau khi toDataURL xong (rất nặng CPU)
-                await new Promise(r => setTimeout(r, 10));
+                await yieldToMain(10);
             } catch (pageError) {
                 console.error(`Error rendering page ${i}:`, pageError);
                 // Continue to next page if one fails? Or fail all? 
@@ -467,5 +536,35 @@ export const convertPdfToImages = async (base64OrUrl: string, pageRange?: PdfPag
         // Extract meaningful message
         const msg = error?.message || "Unknown error";
         throw new Error(`Lỗi xử lý PDF (${msg}). Vui lòng kiểm tra lại file hoặc kết nối mạng (cần tải Font/CMap).`);
+    }
+};
+
+const convertPdfToImagesUncached = async (base64OrUrl: string, pageRange?: PdfPageRange): Promise<string[]> => {
+    if (!pdfWorkerUnavailableForSession) {
+        try {
+            return await measureAsync('pdf.rasterize.worker', () => convertPdfToImagesInWorker(base64OrUrl, pageRange));
+        } catch (workerError) {
+            pdfWorkerUnavailableForSession = true;
+            console.warn('PDF worker rasterization unavailable, falling back to main thread canvas:', workerError);
+        }
+    }
+
+    return measureAsync('pdf.rasterize.mainThread', () => convertPdfToImagesOnMainThread(base64OrUrl, pageRange));
+};
+
+export const convertPdfToImages = async (base64OrUrl: string, pageRange?: PdfPageRange): Promise<string[]> => {
+    const baseHash = await hashStringSha256(base64OrUrl);
+    const rangeLabel = `${pageRange?.start || 1}-${pageRange?.end || 'all'}`;
+    const cacheKey = `${baseHash}:${rangeLabel}`;
+    const cached = pdfRasterCache.get(cacheKey);
+    if (cached) return cached;
+
+    const rasterPromise = convertPdfToImagesUncached(base64OrUrl, pageRange);
+    pdfRasterCache.set(cacheKey, rasterPromise);
+    try {
+        return await rasterPromise;
+    } catch (error) {
+        pdfRasterCache.delete(cacheKey);
+        throw error;
     }
 };

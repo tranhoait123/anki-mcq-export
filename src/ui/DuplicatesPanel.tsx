@@ -9,6 +9,19 @@ interface DuplicatesPanelProps {
     onRestore: (id: string) => void;
 }
 
+const riskLabel: Record<string, string> = {
+    answer_conflict: 'xung đột đáp án',
+    intent_mismatch: 'khác ý phủ định',
+    intent_review: 'có từ ngoại trừ/không',
+    shared_clinical_stem_different_objective: 'cùng tình huống nhưng ý hỏi khác',
+    same_options_different_question: 'options giống nhưng câu hỏi khác',
+    same_question_number: 'trùng số câu',
+    reordered_options: 'options đổi vị trí',
+    partial_question_match: 'partial match',
+};
+
+const formatPercent = (score?: number) => typeof score === 'number' ? `${Math.round(score * 100)}%` : null;
+
 const DuplicatesPanel: React.FC<DuplicatesPanelProps> = ({ duplicates, showDuplicates, setShowDuplicates, onRestore }) => {
     return (
         <div className="bg-white border border-orange-200 rounded-xl overflow-hidden shadow-sm">
@@ -36,6 +49,23 @@ const DuplicatesPanel: React.FC<DuplicatesPanelProps> = ({ duplicates, showDupli
                                         <div className="text-orange-600 mt-1">
                                             ➜ {d.reason}
                                         </div>
+                                        {d.evidence && (
+                                            <div className="mt-1 flex flex-wrap gap-1 text-[11px] text-slate-600">
+                                                <span className="rounded bg-white px-1.5 py-0.5 border border-orange-100">
+                                                    {d.evidence.decisionLabel}
+                                                </span>
+                                                {formatPercent(d.score) && (
+                                                    <span className="rounded bg-white px-1.5 py-0.5 border border-orange-100">
+                                                        score {formatPercent(d.score)}
+                                                    </span>
+                                                )}
+                                                {d.evidence.riskFlags.slice(0, 3).map(flag => (
+                                                    <span key={flag} className="rounded bg-white px-1.5 py-0.5 border border-orange-100">
+                                                        {riskLabel[flag] || flag}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                     <button
                                         onClick={() => onRestore(d.id)}

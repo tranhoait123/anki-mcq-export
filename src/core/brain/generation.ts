@@ -591,7 +591,8 @@ export const generateQuestions = async (
                   fullData: q,
                   matchedData: result.matchedData,
                   score: result.score,
-                  fieldScores: result.fieldScores
+                  fieldScores: result.fieldScores,
+                  evidence: result.evidence
                 };
                 allDuplicates.push(duplicateInfo);
                 batchNewDuplicates.push(duplicateInfo);

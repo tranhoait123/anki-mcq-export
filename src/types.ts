@@ -81,9 +81,24 @@ export interface DuplicateInfo {
   score?: number;
   fieldScores?: {
     question: number;
+    questionTokenSort?: number;
+    questionPartial?: number;
     optionsBySlot: number;
     optionsAsSet: number;
     composite: number;
+    intentMismatch?: boolean;
+    intentReviewRequired?: boolean;
+    objectiveTail?: number | null;
+    sharedClinicalStem?: number | null;
+    clinicalObjectiveMismatch?: boolean;
+  };
+  evidence?: {
+    decisionLabel: string;
+    riskFlags: string[];
+    answerConflict: boolean;
+    sameQuestionNumber: boolean;
+    optionsScore: number;
+    optionSignatureMatch: boolean;
   };
   // Full question data for restore functionality
   fullData: {

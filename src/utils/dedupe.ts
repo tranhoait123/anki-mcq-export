@@ -9,6 +9,40 @@ export interface DuplicateFieldScores {
   composite: number;
   intentMismatch: boolean;
   intentReviewRequired: boolean;
+  objectiveTail?: number | null;
+  sharedClinicalStem?: number | null;
+  clinicalObjectiveMismatch?: boolean;
+}
+
+export type DedupeRiskFlag =
+  | 'answer_conflict'
+  | 'intent_mismatch'
+  | 'intent_review'
+  | 'shared_clinical_stem_different_objective'
+  | 'same_options_different_question'
+  | 'same_question_number'
+  | 'reordered_options'
+  | 'partial_question_match';
+
+export interface DedupeEvidence {
+  decisionLabel: 'Trùng gần như chắc' | 'Cần review' | 'Không trùng';
+  riskFlags: DedupeRiskFlag[];
+  answerConflict: boolean;
+  sameQuestionNumber: boolean;
+  optionsScore: number;
+  optionSignatureMatch: boolean;
+  questionIntent: {
+    candidate: QuestionIntentProfile;
+    existing: QuestionIntentProfile;
+  };
+  clinicalStem?: {
+    sharedTokenCount: number;
+    sharedRatio: number;
+    tailScore: number | null;
+    candidateObjective: QuestionObjectiveKey;
+    existingObjective: QuestionObjectiveKey;
+    objectiveMismatch: boolean;
+  };
 }
 
 export interface DuplicateMatch<T = Partial<MCQ>> {
@@ -20,6 +54,7 @@ export interface DuplicateMatch<T = Partial<MCQ>> {
   matchedData?: T;
   score?: number;
   fieldScores?: DuplicateFieldScores;
+  evidence?: DedupeEvidence;
 }
 
 type MCQLike = Partial<MCQ> & {
@@ -29,6 +64,7 @@ type MCQLike = Partial<MCQ> & {
 };
 
 type QuestionIntentKey = 'normal' | 'negative' | 'falseChoice' | 'contraindication';
+type QuestionObjectiveKey = 'diagnosis' | 'treatment' | 'complication' | 'investigation' | 'contraindication' | 'prognosis' | 'mechanism' | 'normal';
 
 interface QuestionIntentProfile {
   key: QuestionIntentKey;
@@ -305,9 +341,9 @@ const tokenRatio = (a: string, b: string): number =>
 
 const questionIntentProfile = (text: string): QuestionIntentProfile => {
   const normalized = normalizeMCQField(text);
-  const hasException = /\bngoai\s+tru\b|\bexcept\b/.test(normalized);
+  const hasException = /\bngoai\s+tru\b|\bexcept\b|\bleast\s+likely\b|\bit\s+co\s+kha\s+nang\b/.test(normalized);
   const hasContraindication = /\bchong\s+chi\s+dinh\b|\bkhong\s+nen\b|\bkhong\s+duoc\b|\bkhong\s+duoc\s+dung\b|\bcan\s+tranh\b|\btranh\s+dung\b/.test(normalized);
-  const hasFalseChoice = hasException || /\bkhong\s+(?:dung|chinh\s+xac|phu\s+hop|phai|thuoc|bao\s+gom|goi\s+y)\b|\bnot\s+(?:true|correct|appropriate|indicated)\b|\bsai\b/.test(normalized);
+  const hasFalseChoice = hasException || /\bkhong\s+(?:dung|chinh\s+xac|phu\s+hop|phai|thuoc|bao\s+gom|goi\s+y)\b|\bnot\s+(?:true|correct|appropriate|indicated|likely)\b|\bsai\b/.test(normalized);
   const hasGenericNegative = /\bkhong\b|\bnot\b|\bnone\b|\bwithout\b/.test(normalized);
 
   if (hasContraindication) return { key: 'contraindication', marker: 'contraindication', isRisky: true };
@@ -328,7 +364,30 @@ const needsIntentReview = (a: QuestionIntentProfile, b: QuestionIntentProfile): 
   return a.marker !== b.marker;
 };
 
-const tailAfterSharedStemScore = (a: string, b: string): number | null => {
+interface SharedClinicalStemAnalysis {
+  sharedTokenCount: number;
+  sharedRatio: number;
+  tailScore: number | null;
+  tailA: string;
+  tailB: string;
+  objectiveA: QuestionObjectiveKey;
+  objectiveB: QuestionObjectiveKey;
+  objectiveMismatch: boolean;
+}
+
+const questionObjectiveProfile = (text: string): QuestionObjectiveKey => {
+  const normalized = normalizeSemanticField(text);
+  if (/\bchan\s+doan\b|\bdiagnosis\b|\bdiagnose\b|\bbenh\s+nao\b|\bphu\s+hop\s+nhat\b/.test(normalized)) return 'diagnosis';
+  if (/\bxu\s+tri\b|\bdieu\s+tri\b|\bthuoc\b|\bcan\s+lam\s+gi\b|\btreatment\b|\bmanagement\b|\bmanage\b|\bfirst\s+line\b/.test(normalized)) return 'treatment';
+  if (/\bbien\s+chung\b|\bcomplication\b|\bcomplicate\b/.test(normalized)) return 'complication';
+  if (/\bxet\s+nghiem\b|\bcan\s+lam\s+sang\b|\bsieu\s+am\b|\bct\b|\bmri\b|\btest\b|\binvestigation\b|\bimaging\b/.test(normalized)) return 'investigation';
+  if (/\bchong\s+chi\s+dinh\b|\bkhong\s+nen\b|\bcontraindicat\b|\bavoid\b/.test(normalized)) return 'contraindication';
+  if (/\btien\s+luong\b|\bprognosis\b|\brisk\b|\byeu\s+to\s+nguy\s+co\b/.test(normalized)) return 'prognosis';
+  if (/\bco\s+che\b|\bnguyen\s+nhan\b|\bpathophysiology\b|\bmechanism\b|\bcause\b/.test(normalized)) return 'mechanism';
+  return 'normal';
+};
+
+const analyzeSharedClinicalStem = (a: string, b: string): SharedClinicalStemAnalysis | null => {
   const tokensA = tokenize(a);
   const tokensB = tokenize(b);
   const maxLen = Math.max(tokensA.length, tokensB.length);
@@ -342,9 +401,29 @@ const tailAfterSharedStemScore = (a: string, b: string): number | null => {
 
   const tailA = tokensA.slice(prefix).join(' ');
   const tailB = tokensB.slice(prefix).join(' ');
-  if (!tailA && !tailB) return 1;
-  if (!tailA || !tailB) return 0.45;
-  return tokenRatio(tailA, tailB);
+  let tailScore: number;
+  if (!tailA && !tailB) tailScore = 1;
+  else if (!tailA || !tailB) tailScore = 0.45;
+  else tailScore = tokenRatio(tailA, tailB);
+
+  const objectiveA = questionObjectiveProfile(tailA || a);
+  const objectiveB = questionObjectiveProfile(tailB || b);
+  const objectiveMismatch =
+    objectiveA !== 'normal' &&
+    objectiveB !== 'normal' &&
+    objectiveA !== objectiveB &&
+    tailScore < 0.86;
+
+  return {
+    sharedTokenCount: prefix,
+    sharedRatio: prefix / maxLen,
+    tailScore,
+    tailA,
+    tailB,
+    objectiveA,
+    objectiveB,
+    objectiveMismatch,
+  };
 };
 
 const scoreQuestionDetailed = (a: string = '', b: string = '') => {
@@ -366,6 +445,9 @@ const scoreQuestionDetailed = (a: string = '', b: string = '') => {
       questionPartial,
       intentMismatch,
       intentReviewRequired,
+      objectiveTail: null,
+      sharedClinicalStem: null,
+      clinicalObjectiveMismatch: false,
     };
   }
 
@@ -377,8 +459,14 @@ const scoreQuestionDetailed = (a: string = '', b: string = '') => {
   const hybridScore = 0.4 * questionTokenSort + 0.35 * diceScore + 0.25 * levenshteinScore;
 
   const base = Math.max(tokenRatioScore, hybridScore, questionPartial * 0.97);
-  const tailScore = tailAfterSharedStemScore(a, b);
-  const score = tailScore === null ? base : Math.min(base, 0.55 + tailScore * 0.45);
+  const clinicalStem = analyzeSharedClinicalStem(a, b);
+  const tailScore = clinicalStem?.tailScore ?? null;
+  const clinicalCeiling = clinicalStem === null
+    ? base
+    : clinicalStem.objectiveMismatch
+      ? 0.69
+      : 0.55 + (tailScore ?? 0) * 0.45;
+  const score = clinicalStem === null ? base : Math.min(base, clinicalCeiling);
 
   return {
     score,
@@ -386,6 +474,9 @@ const scoreQuestionDetailed = (a: string = '', b: string = '') => {
     questionPartial,
     intentMismatch,
     intentReviewRequired,
+    objectiveTail: tailScore,
+    sharedClinicalStem: clinicalStem?.sharedRatio ?? null,
+    clinicalObjectiveMismatch: clinicalStem?.objectiveMismatch ?? false,
   };
 };
 
@@ -470,6 +561,9 @@ export const scoreMCQDuplicate = (a: MCQLike, b: MCQLike): DuplicateFieldScores 
     composite,
     intentMismatch: questionDetails.intentMismatch,
     intentReviewRequired: questionDetails.intentReviewRequired,
+    objectiveTail: questionDetails.objectiveTail,
+    sharedClinicalStem: questionDetails.sharedClinicalStem,
+    clinicalObjectiveMismatch: questionDetails.clinicalObjectiveMismatch,
   };
 };
 
@@ -481,6 +575,96 @@ const formatScoreSummary = (scores: DuplicateFieldScores, optionsScore: number, 
   `partial ${formatPercent(scores.questionPartial)}%, sort ${formatPercent(scores.questionTokenSort)}%, ` +
   `slot ${formatPercent(scores.optionsBySlot)}%, set ${formatPercent(scores.optionsAsSet)}%, ` +
   `A-E ${formatPercent(optionsScore)}%)`;
+
+const EXACT_FIELD_SCORES: DuplicateFieldScores = {
+  question: 1,
+  questionTokenSort: 1,
+  questionPartial: 1,
+  optionsBySlot: 1,
+  optionsAsSet: 1,
+  composite: 1,
+  intentMismatch: false,
+  intentReviewRequired: false,
+  objectiveTail: 1,
+  sharedClinicalStem: null,
+  clinicalObjectiveMismatch: false,
+};
+
+const buildDedupeEvidence = (
+  candidate: MCQLike,
+  existing: MCQLike,
+  scores: DuplicateFieldScores,
+  answerConflict: boolean,
+  exactFingerprint = false
+): DedupeEvidence => {
+  const optionsScore = Math.max(scores.optionsBySlot, scores.optionsAsSet);
+  const numCandidate = extractQuestionNumber(candidate.question || '');
+  const numExisting = extractQuestionNumber(existing.question || '');
+  const sameQuestionNumber = numCandidate !== null && numExisting !== null && numCandidate === numExisting;
+  const optionSignatureMatch = buildOptionsFingerprint(candidate) === buildOptionsFingerprint(existing);
+  const clinicalStem = analyzeSharedClinicalStem(candidate.question || '', existing.question || '');
+  const riskFlags: DedupeRiskFlag[] = [];
+
+  if (answerConflict) riskFlags.push('answer_conflict');
+  if (scores.intentMismatch) riskFlags.push('intent_mismatch');
+  if (scores.intentReviewRequired) riskFlags.push('intent_review');
+  if (sameQuestionNumber && !exactFingerprint) riskFlags.push('same_question_number');
+  if (clinicalStem?.objectiveMismatch || scores.clinicalObjectiveMismatch) {
+    riskFlags.push('shared_clinical_stem_different_objective');
+  }
+  if (optionSignatureMatch && scores.question < 0.78 && !exactFingerprint) {
+    riskFlags.push('same_options_different_question');
+  }
+  if (scores.optionsAsSet >= 0.95 && scores.optionsBySlot < 0.9) {
+    riskFlags.push('reordered_options');
+  }
+  if (scores.questionPartial >= 0.92 && scores.question < 0.78) {
+    riskFlags.push('partial_question_match');
+  }
+
+  return {
+    decisionLabel: 'Không trùng',
+    riskFlags,
+    answerConflict,
+    sameQuestionNumber,
+    optionsScore,
+    optionSignatureMatch,
+    questionIntent: {
+      candidate: questionIntentProfile(candidate.question || ''),
+      existing: questionIntentProfile(existing.question || ''),
+    },
+    clinicalStem: clinicalStem
+      ? {
+          sharedTokenCount: clinicalStem.sharedTokenCount,
+          sharedRatio: clinicalStem.sharedRatio,
+          tailScore: clinicalStem.tailScore,
+          candidateObjective: clinicalStem.objectiveA,
+          existingObjective: clinicalStem.objectiveB,
+          objectiveMismatch: clinicalStem.objectiveMismatch,
+        }
+      : undefined,
+  };
+};
+
+const hasUnsafeAutoSkipRisk = (evidence: DedupeEvidence): boolean =>
+  evidence.riskFlags.some(flag =>
+    flag === 'answer_conflict' ||
+    flag === 'intent_mismatch' ||
+    flag === 'intent_review' ||
+    flag === 'shared_clinical_stem_different_objective' ||
+    flag === 'same_options_different_question' ||
+    flag === 'reordered_options'
+  );
+
+const withDecisionLabel = <T extends MCQLike>(match: DuplicateMatch<T>): DuplicateMatch<T> => {
+  if (!match.evidence) return match;
+  match.evidence.decisionLabel = match.action === 'autoSkip'
+    ? 'Trùng gần như chắc'
+    : match.action === 'review'
+      ? 'Cần review'
+      : 'Không trùng';
+  return match;
+};
 
 const selectCandidatePool = <T extends MCQLike>(candidate: MCQLike, existingQuestions: T[]): T[] => {
   if (existingQuestions.length < GROUPING_MIN_CANDIDATES) return existingQuestions;
@@ -527,10 +711,11 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
     const fieldScores = scoreMCQDuplicate(candidate, existing);
     const optionsScore = Math.max(fieldScores.optionsBySlot, fieldScores.optionsAsSet);
     const answerConflict = answersConflict(candidate, existing);
-    const canAutoSkip = !answerConflict && !fieldScores.intentMismatch && !fieldScores.intentReviewRequired;
+    const evidence = buildDedupeEvidence(candidate, existing, fieldScores, answerConflict, exactFingerprint);
+    const canAutoSkip = !answerConflict && !fieldScores.intentMismatch && !fieldScores.intentReviewRequired && !hasUnsafeAutoSkipRisk(evidence);
 
     if (exactFingerprint && !answerConflict) {
-      const match: DuplicateMatch<T> = {
+      const match: DuplicateMatch<T> = withDecisionLabel({
         action: 'autoSkip',
         isDup: true,
         isAutoSkip: true,
@@ -538,17 +723,9 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
         matchedWith: (existing.question || '').substring(0, 60),
         matchedData: existing,
         score: 1,
-        fieldScores: {
-          question: 1,
-          questionTokenSort: 1,
-          questionPartial: 1,
-          optionsBySlot: 1,
-          optionsAsSet: 1,
-          composite: 1,
-          intentMismatch: false,
-          intentReviewRequired: false,
-        },
-      };
+        fieldScores: EXACT_FIELD_SCORES,
+        evidence: buildDedupeEvidence(candidate, existing, EXACT_FIELD_SCORES, false, true),
+      });
       if (bestAutoSkipPriority < 3) {
         bestAutoSkipPriority = 3;
         bestAutoSkipScore = 1;
@@ -563,7 +740,7 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
         fieldScores.optionsAsSet >= 0.98 &&
         canAutoSkip
       ) {
-      const match: DuplicateMatch<T> = {
+      const match: DuplicateMatch<T> = withDecisionLabel({
         action: 'autoSkip',
         isDup: true,
         isAutoSkip: true,
@@ -572,12 +749,17 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
         matchedData: existing,
         score: fieldScores.composite,
         fieldScores,
-      };
+        evidence,
+      });
       if (bestAutoSkipPriority < 1 || (bestAutoSkipPriority === 1 && fieldScores.composite > bestAutoSkipScore)) {
         bestAutoSkipPriority = 1;
         bestAutoSkipScore = fieldScores.composite;
         bestAutoSkipMatch = match;
       }
+    }
+
+    if (fieldScores.clinicalObjectiveMismatch && fieldScores.question < 0.78) {
+      continue;
     }
 
     const reorderedOptionsReview =
@@ -598,7 +780,6 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
         fieldScores.question >= 0.72 ||
         (fieldScores.questionPartial >= 0.58 && fieldScores.questionTokenSort >= 0.32)
       );
-
     const numCandidate = extractQuestionNumber(candidate.question || '');
     const numExisting = extractQuestionNumber(existing.question || '');
     const sameNumber = numCandidate !== null && numExisting !== null && numCandidate === numExisting;
@@ -627,7 +808,7 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
             : partialReview && fieldScores.question < 0.78
               ? `Nghi trùng do partial match; ${formatScoreSummary(fieldScores, optionsScore, answerConflict)}`
               : formatScoreSummary(fieldScores, optionsScore, answerConflict);
-      const reviewMatch: DuplicateMatch<T> = {
+      const reviewMatch: DuplicateMatch<T> = withDecisionLabel({
         action: 'review',
         isDup: true,
         isAutoSkip: false,
@@ -636,7 +817,8 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
         matchedData: existing,
         score: fieldScores.composite,
         fieldScores,
-      };
+        evidence,
+      });
       const effectiveScore = fieldScores.composite + (answerConflict ? 0.03 : 0);
       if (effectiveScore > bestReviewScore) {
         bestReviewScore = effectiveScore;

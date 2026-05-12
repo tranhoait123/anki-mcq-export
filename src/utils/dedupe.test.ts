@@ -433,6 +433,120 @@ describe('MCQ dedupe utilities', () => {
     expect(result.action).toBe('autoSkip');
   });
 
+  it('keeps one shared clinical case as separate MCQs when diagnosis and treatment objectives differ', () => {
+    const stem = 'Bệnh nhân nữ 58 tuổi đau ngực sau xương ức lan tay trái trong 40 phút, vã mồ hôi, huyết áp 150/90 mmHg, điện tâm đồ có ST chênh lên ở DII DIII aVF.';
+    const diagnosis = makeMCQ({
+      question: `${stem} Chẩn đoán phù hợp nhất là gì?`,
+      options: ['A. Nhồi máu cơ tim cấp', 'B. Viêm màng ngoài tim', 'C. Trào ngược dạ dày', 'D. Cơn đau thắt ngực ổn định', 'E. Bóc tách động mạch chủ'],
+      correctAnswer: 'A',
+    });
+    const treatment = makeMCQ({
+      question: `${stem} Xử trí ban đầu phù hợp nhất là gì?`,
+      options: ['A. Tái tưới máu khẩn cấp', 'B. Nội soi dạ dày', 'C. Kháng sinh phổ rộng', 'D. Theo dõi tại nhà', 'E. Chườm nóng ngực'],
+      correctAnswer: 'A',
+    });
+
+    const result = findDuplicate(treatment, [diagnosis]);
+    expect(result.action).toBe('unique');
+    expect(result.isDup).toBe(false);
+  });
+
+  it('keeps one shared clinical case as separate MCQs when complication and investigation objectives differ', () => {
+    const stem = 'Bệnh nhân nam 70 tuổi sau thay khớp háng ngày thứ ba, khó thở đột ngột, đau ngực kiểu màng phổi, SpO2 88%, mạch nhanh, chân phải sưng đau.';
+    const complication = makeMCQ({
+      question: `${stem} Biến chứng phù hợp nhất là gì?`,
+      options: ['A. Thuyên tắc phổi', 'B. Viêm phổi hít', 'C. Suy tim mạn', 'D. Cơn hen', 'E. Tràn khí màng phổi'],
+      correctAnswer: 'A',
+    });
+    const investigation = makeMCQ({
+      question: `${stem} Cận lâm sàng nên ưu tiên để xác định chẩn đoán là gì?`,
+      options: ['A. CT động mạch phổi', 'B. X-quang bụng', 'C. Nội soi phế quản thường quy', 'D. Siêu âm tuyến giáp', 'E. Điện não đồ'],
+      correctAnswer: 'A',
+    });
+
+    expect(findDuplicate(investigation, [complication]).action).toBe('unique');
+  });
+
+  it('does not treat identical options as duplicate when the clinical objective and correct answer differ', () => {
+    const stem = 'Bệnh nhân nữ 34 tuổi đau hạ vị, trễ kinh 7 tuần, ra huyết âm đạo ít, beta-hCG tăng, siêu âm chưa thấy túi thai trong buồng tử cung.';
+    const diagnosis = makeMCQ({
+      question: `${stem} Chẩn đoán cần nghĩ tới nhất là gì?`,
+      options: ['A. Thai ngoài tử cung', 'B. Sảy thai hoàn toàn', 'C. Viêm ruột thừa', 'D. U nang buồng trứng xoắn', 'E. Viêm cổ tử cung'],
+      correctAnswer: 'A',
+    });
+    const management = makeMCQ({
+      question: `${stem} Xử trí tiếp theo phù hợp nhất là gì?`,
+      options: ['A. Thai ngoài tử cung', 'B. Sảy thai hoàn toàn', 'C. Viêm ruột thừa', 'D. U nang buồng trứng xoắn', 'E. Viêm cổ tử cung'],
+      correctAnswer: 'B',
+    });
+
+    const result = findDuplicate(management, [diagnosis]);
+    expect(result.action).toBe('unique');
+    expect(result.isAutoSkip).toBe(false);
+  });
+
+  it('keeps positive and exception wording separate when one asks for the true statement and the other asks EXCEPT', () => {
+    const positive = makeMCQ({
+      question: 'Điều nào đúng về điều trị viêm phổi cộng đồng?',
+      options: ['A. Cần đánh giá mức độ nặng', 'B. Luôn không dùng kháng sinh', 'C. Không cần theo dõi SpO2', 'D. Chỉ điều trị bằng giảm đau', 'E. Luôn xuất viện ngay'],
+      correctAnswer: 'A',
+    });
+    const except = makeMCQ({
+      question: 'Tất cả đều đúng về điều trị viêm phổi cộng đồng, NGOẠI TRỪ?',
+      options: ['A. Cần đánh giá mức độ nặng', 'B. Luôn không dùng kháng sinh', 'C. Không cần theo dõi SpO2', 'D. Chỉ điều trị bằng giảm đau', 'E. Luôn xuất viện ngay'],
+      correctAnswer: 'B',
+    });
+
+    expect(findDuplicate(except, [positive]).action).toBe('unique');
+  });
+
+  it('detects English least-likely wording as exception intent and avoids unsafe auto-skip', () => {
+    const likely = makeMCQ({
+      question: 'Which finding is most likely in acute bacterial meningitis?',
+      options: ['A. Fever', 'B. Neck stiffness', 'C. Low CSF glucose', 'D. Photophobia', 'E. Normal CSF protein'],
+      correctAnswer: 'C',
+    });
+    const leastLikely = makeMCQ({
+      question: 'Which finding is least likely in acute bacterial meningitis?',
+      options: ['A. Fever', 'B. Neck stiffness', 'C. Low CSF glucose', 'D. Photophobia', 'E. Normal CSF protein'],
+      correctAnswer: 'E',
+    });
+
+    const result = findDuplicate(leastLikely, [likely]);
+    expect(result.action).toBe('unique');
+    expect(result.isAutoSkip).toBe(false);
+  });
+
+  it('does not flag same option sets as duplicates when the question stem is different', () => {
+    const diagnosis = makeMCQ({
+      question: 'Chẩn đoán phù hợp nhất trong bệnh nhân đau ngực cấp là gì?',
+      options: ['A. Nhồi máu cơ tim', 'B. Viêm phổi', 'C. Trào ngược dạ dày', 'D. Cơn hoảng loạn', 'E. Viêm cơ tim'],
+      correctAnswer: 'A',
+    });
+    const riskFactor = makeMCQ({
+      question: 'Yếu tố nguy cơ quan trọng nhất cần khai thác ở bệnh nhân nghi bệnh mạch vành là gì?',
+      options: ['A. Nhồi máu cơ tim', 'B. Viêm phổi', 'C. Trào ngược dạ dày', 'D. Cơn hoảng loạn', 'E. Viêm cơ tim'],
+      correctAnswer: 'E',
+    });
+
+    expect(findDuplicate(riskFactor, [diagnosis]).action).toBe('unique');
+  });
+
+  it('does not dedupe merely because the answer letter is the same when option contents differ', () => {
+    const original = makeMCQ({
+      question: 'Điều trị đầu tay của tăng huyết áp không biến chứng là gì?',
+      options: ['A. ACEi', 'B. Insulin', 'C. Kháng histamin', 'D. Morphin', 'E. Diazepam'],
+      correctAnswer: 'A',
+    });
+    const different = makeMCQ({
+      question: 'Chẩn đoán phù hợp nhất khi bệnh nhân sốt, ho đàm, ran nổ khu trú là gì?',
+      options: ['A. Viêm phổi', 'B. Hen phế quản', 'C. Lao phổi tiềm ẩn', 'D. Suy tim', 'E. Thuyên tắc phổi'],
+      correctAnswer: 'A',
+    });
+
+    expect(findDuplicate(different, [original]).action).toBe('unique');
+  });
+
   it('keeps few-hundred-question dedupe fast enough for interactive review', () => {
     const unique: MCQ[] = [];
     const incoming = Array.from({ length: 300 }, (_, index) => makeMCQ({

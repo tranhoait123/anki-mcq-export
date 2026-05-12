@@ -15,6 +15,7 @@ const pdfRasterCache = new Map<string, Promise<string[]>>();
 let pdfWorkerUnavailableForSession = false;
 
 export type PdfPageQuality = 'goodText' | 'suspect' | 'scanOrEmpty';
+export type PdfRasterQuality = 'standard' | 'high';
 
 export interface PdfTextPage {
     pageNumber: number;
@@ -51,6 +52,15 @@ export interface PdfTextAnalysis {
     mode: 'vision' | 'safeHybrid' | 'textOnlyCandidate';
 }
 
+export interface PdfRasterConfig {
+    scale: number;
+    jpegQuality: number;
+}
+
+export interface PdfRasterOptions {
+    quality?: PdfRasterQuality;
+}
+
 const QUESTION_MARKER_PATTERN = /(?:^|\n)\s*(?:câu|cau|question|q)\s*\d+\s*[:.)-]/gi;
 const OPTION_MARKER_PATTERN = /(?:^|\n)\s*(?:\(?[A-E]\)?\s*[\.:)-])/gi;
 const QUESTION_LINE_PATTERN = /^(?:câu|cau|question|q)\s*\d+\s*[:.)-]/i;
@@ -70,8 +80,13 @@ interface PdfPageGeometryMetrics {
     multiColumnRisk: boolean;
 }
 
+const INLINE_QUESTION_MARKER_PATTERN = /([^\n])(?:[^\S\n]+)((?:Câu|Cau|Question|Q)\s*\d{1,4}\s*[:.)-])/g;
+
+const normalizeInlineQuestionBoundaries = (value: string): string =>
+    value.replace(INLINE_QUESTION_MARKER_PATTERN, '$1\n$2');
+
 const normalizePdfText = (value: string): string =>
-    value
+    normalizeInlineQuestionBoundaries(value)
         .replace(/\u00a0/g, ' ')
         .replace(/[ \t]+/g, ' ')
         .replace(/\n{3,}/g, '\n\n')
@@ -87,6 +102,27 @@ const getWeirdCharRatio = (text: string): number => {
 const countMatches = (text: string, pattern: RegExp): number => {
     pattern.lastIndex = 0;
     return text.match(pattern)?.length || 0;
+};
+
+export const countPdfQuestionMarkers = (text: string): number =>
+    countMatches(normalizePdfText(text), QUESTION_MARKER_PATTERN);
+
+export const getPdfRasterConfig = (quality: PdfRasterQuality = 'standard'): PdfRasterConfig => (
+    quality === 'high'
+        ? { scale: 2.8, jpegQuality: 0.92 }
+        : { scale: 2.0, jpegQuality: 0.85 }
+);
+
+export const splitPdfRangeForVisionRecovery = (range: PdfPageRange): PdfPageRange[] => {
+    const start = Math.max(1, Math.floor(range.start));
+    const end = Math.max(start, Math.floor(range.end));
+    if (end - start + 1 <= 2) return [{ start, end }];
+
+    const ranges: PdfPageRange[] = [];
+    for (let page = start; page < end; page++) {
+        ranges.push({ start: page, end: Math.min(end, page + 1) });
+    }
+    return ranges;
 };
 
 export const scorePdfTextPage = (text: string, pageNumber = 1): PdfTextPage => {
@@ -290,7 +326,7 @@ export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChun
             });
             const sparseBlockRisk = joinedText.length > 2500 && blocks.length < 2;
             if (blocks.length > 0 && !sparseBlockRisk) {
-                const rawQuestionCount = countMatches(joinedText, QUESTION_MARKER_PATTERN);
+                const rawQuestionCount = countPdfQuestionMarkers(joinedText);
                 if (rawQuestionCount > allBlocksOnRange.length) {
                     textBatches.push({
                         text: `[PDF_TEXT_BATCH_COUNT: ${rawQuestionCount}]\n\n${joinedText}`,
@@ -433,7 +469,7 @@ export const analyzePdfTextLayer = async (base64OrUrl: string, pagesPerChunk = 3
     }
 };
 
-const convertPdfToImagesInWorker = async (base64OrUrl: string, pageRange?: PdfPageRange): Promise<string[]> => {
+const convertPdfToImagesInWorker = async (base64OrUrl: string, pageRange?: PdfPageRange, options: PdfRasterOptions = {}): Promise<string[]> => {
     if (pdfWorkerUnavailableForSession || typeof Worker === 'undefined' || typeof window === 'undefined') {
         throw new Error('PDF worker unavailable');
     }
@@ -472,6 +508,7 @@ const convertPdfToImagesInWorker = async (base64OrUrl: string, pageRange?: PdfPa
             payload: {
                 base64OrUrl,
                 pageRange,
+                rasterConfig: getPdfRasterConfig(options.quality),
                 cmapUrl: CMAP_URL,
                 standardFontDataUrl: STANDARD_FONT_DATA_URL,
             },
@@ -479,22 +516,21 @@ const convertPdfToImagesInWorker = async (base64OrUrl: string, pageRange?: PdfPa
     });
 };
 
-const convertPdfToImagesOnMainThread = async (base64OrUrl: string, pageRange?: PdfPageRange): Promise<string[]> => {
+const convertPdfToImagesOnMainThread = async (base64OrUrl: string, pageRange?: PdfPageRange, options: PdfRasterOptions = {}): Promise<string[]> => {
     try {
         const pdf = await openPdf(base64OrUrl);
         const pageCount = pdf.numPages;
         const images: string[] = [];
         const start = Math.max(1, pageRange?.start || 1);
         const end = Math.min(pageCount, pageRange?.end || pageCount);
+        const rasterConfig = getPdfRasterConfig(options.quality);
 
         for (let i = start; i <= end; i++) {
             try {
                 await yieldToMain();
                 const page = await pdf.getPage(i);
 
-                // High resolution scale (2.0 = 144-200 DPIish, good for OCR)
-                const scale = 2.0;
-                const viewport = page.getViewport({ scale });
+                const viewport = page.getViewport({ scale: rasterConfig.scale });
 
                 const canvas = document.createElement('canvas');
                 const context = canvas.getContext('2d');
@@ -514,7 +550,7 @@ const convertPdfToImagesOnMainThread = async (base64OrUrl: string, pageRange?: P
                 await yieldToMain();
                 
                 // Convert to base64 JPEG
-                const imgData = canvas.toDataURL('image/jpeg', 0.85); // 0.85 quality is enough
+                const imgData = canvas.toDataURL('image/jpeg', rasterConfig.jpegQuality);
                 images.push(imgData);
                 
                 // Nhường thêm 1 nhịp sau khi toDataURL xong (rất nặng CPU)
@@ -539,27 +575,28 @@ const convertPdfToImagesOnMainThread = async (base64OrUrl: string, pageRange?: P
     }
 };
 
-const convertPdfToImagesUncached = async (base64OrUrl: string, pageRange?: PdfPageRange): Promise<string[]> => {
+const convertPdfToImagesUncached = async (base64OrUrl: string, pageRange?: PdfPageRange, options: PdfRasterOptions = {}): Promise<string[]> => {
     if (!pdfWorkerUnavailableForSession) {
         try {
-            return await measureAsync('pdf.rasterize.worker', () => convertPdfToImagesInWorker(base64OrUrl, pageRange));
+            return await measureAsync(`pdf.rasterize.worker.${options.quality || 'standard'}`, () => convertPdfToImagesInWorker(base64OrUrl, pageRange, options));
         } catch (workerError) {
             pdfWorkerUnavailableForSession = true;
             console.warn('PDF worker rasterization unavailable, falling back to main thread canvas:', workerError);
         }
     }
 
-    return measureAsync('pdf.rasterize.mainThread', () => convertPdfToImagesOnMainThread(base64OrUrl, pageRange));
+    return measureAsync(`pdf.rasterize.mainThread.${options.quality || 'standard'}`, () => convertPdfToImagesOnMainThread(base64OrUrl, pageRange, options));
 };
 
-export const convertPdfToImages = async (base64OrUrl: string, pageRange?: PdfPageRange): Promise<string[]> => {
+export const convertPdfToImages = async (base64OrUrl: string, pageRange?: PdfPageRange, options: PdfRasterOptions = {}): Promise<string[]> => {
     const baseHash = await hashStringSha256(base64OrUrl);
     const rangeLabel = `${pageRange?.start || 1}-${pageRange?.end || 'all'}`;
-    const cacheKey = `${baseHash}:${rangeLabel}`;
+    const quality = options.quality || 'standard';
+    const cacheKey = `${baseHash}:${rangeLabel}:${quality}`;
     const cached = pdfRasterCache.get(cacheKey);
     if (cached) return cached;
 
-    const rasterPromise = convertPdfToImagesUncached(base64OrUrl, pageRange);
+    const rasterPromise = convertPdfToImagesUncached(base64OrUrl, pageRange, options);
     pdfRasterCache.set(cacheKey, rasterPromise);
     try {
         return await rasterPromise;

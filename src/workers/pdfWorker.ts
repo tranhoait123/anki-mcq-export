@@ -13,7 +13,7 @@ self.onmessage = async (e: MessageEvent) => {
 
   if (action === 'convertPdfToImages') {
     try {
-      const { base64OrUrl, pageRange, cmapUrl, standardFontDataUrl } = payload;
+      const { base64OrUrl, pageRange, cmapUrl, standardFontDataUrl, rasterConfig } = payload;
       
       const loadingTask = pdfjsLib.getDocument({
         url: base64OrUrl,
@@ -31,8 +31,7 @@ self.onmessage = async (e: MessageEvent) => {
       for (let i = start; i <= end; i++) {
         try {
           const page = await pdf.getPage(i);
-          const scale = 2.0;
-          const viewport = page.getViewport({ scale });
+          const viewport = page.getViewport({ scale: rasterConfig?.scale || 2.0 });
 
           // Sử dụng OffscreenCanvas nếu trình duyệt hỗ trợ
           if (typeof OffscreenCanvas !== 'undefined') {
@@ -46,7 +45,7 @@ self.onmessage = async (e: MessageEvent) => {
               };
               await page.render(renderContext).promise;
               
-              const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
+              const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: rasterConfig?.jpegQuality || 0.85 });
               const reader = new FileReaderSync();
               const base64 = reader.readAsDataURL(blob);
               images.push(base64);

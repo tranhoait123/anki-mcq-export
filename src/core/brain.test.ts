@@ -265,6 +265,29 @@ describe('Core Logic', () => {
     expect(recoveryParts.map((item) => item.expectedQuestions)).toEqual([2, 1]);
   });
 
+  it('flags a 9-question PDF vision response as partial when the text-layer hint expects 10', () => {
+    const parsed = parseQuestionsFromModelText(JSON.stringify({
+      questions: Array.from({ length: 9 }, (_, index) => ({
+        question: `Câu ${index + 1}: Nội dung câu hỏi`,
+        options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+        correctAnswer: 'A',
+        explanation: {
+          core: 'Vì A đúng.',
+          evidence: 'Bằng chứng.',
+          analysis: 'Phân tích.',
+          warning: 'Lưu ý.',
+        },
+        source: 'demo.pdf | Trang 1-3',
+        difficulty: 'Medium',
+        depthAnalysis: 'Key point',
+      })),
+    }), 0, 10, { allowEmpty: true });
+
+    expect(parsed).toHaveLength(9);
+    expect((parsed as any).__salvagedPartial).toBe(true);
+    expect((parsed as any).__missingCount).toBe(1);
+  });
+
   it('overrides hallucinated source with the trusted batch source label', () => {
     const questions = applyTrustedSourceLabel([
       { source: '2024 - ĐỀ 1 - ĐÁP ÁN.docx' },

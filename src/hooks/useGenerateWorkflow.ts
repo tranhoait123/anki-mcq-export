@@ -116,6 +116,7 @@ export const useGenerateWorkflow = ({
     try {
       const controller = startProcessingController();
       const settingsSnapshot = { ...requestSettings };
+      const realtimePreviewEnabled = settingsSnapshot.realtimePreviewEnabled === true;
       let activeOcrMode: 'gemini' | 'tesseract' = ocrMode;
 
       // 1. Initial Attempt (Default Mode)
@@ -127,7 +128,7 @@ export const useGenerateWorkflow = ({
         requestSettings: settingsSnapshot,
         expectedQuestionCount,
         controller,
-        liveAppendToVisible: true,
+        liveAppendToVisible: realtimePreviewEnabled,
         forcedOcrMode: activeOcrMode,
       });
 
@@ -211,7 +212,7 @@ export const useGenerateWorkflow = ({
             isAdvancedMode: true,
             retryProfile: 'rescue',
             autoRescue: true,
-            liveAppendToVisible: true,
+            liveAppendToVisible: realtimePreviewEnabled,
             forcedOcrMode: activeOcrMode,
             seedQuestions: res.questions,
             seedDuplicates: res.duplicates || [],

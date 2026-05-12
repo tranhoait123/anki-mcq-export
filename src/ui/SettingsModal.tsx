@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, Trash2, ChevronDown, ChevronUp, ShieldAlert, Gauge, Zap, Database, RefreshCw, CheckCircle2, AlertCircle, Archive } from 'lucide-react';
+import { Settings as SettingsIcon, Trash2, ChevronDown, ChevronUp, ShieldAlert, Gauge, Zap, Database, RefreshCw, CheckCircle2, AlertCircle, Archive, Eye } from 'lucide-react';
 import { AppSettings } from '../types';
 import { db } from '../core/db';
 import { toast } from 'sonner';
@@ -279,6 +279,24 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                         type="checkbox"
                                         checked={settings.projectLibraryEnabled !== false}
                                         onChange={e => setSettings({ ...settings, projectLibraryEnabled: e.target.checked })}
+                                        className="w-5 h-5 text-indigo-600 border-gray-300 rounded-md focus:ring-indigo-500 cursor-pointer"
+                                    />
+                                </div>
+
+                                <div className="flex items-start justify-between gap-4 border-t border-slate-200/70 pt-4 dark:border-slate-700">
+                                    <div className="flex-1">
+                                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                            <Eye size={14} className="text-sky-500" />
+                                            Xem câu hỏi realtime
+                                        </label>
+                                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                            Hiện câu ngay khi AI stream về. Tắt mặc định để giảm lag trên tài liệu lớn hoặc máy yếu.
+                                        </p>
+                                    </div>
+                                    <input
+                                        type="checkbox"
+                                        checked={settings.realtimePreviewEnabled === true}
+                                        onChange={e => setSettings({ ...settings, realtimePreviewEnabled: e.target.checked })}
                                         className="w-5 h-5 text-indigo-600 border-gray-300 rounded-md focus:ring-indigo-500 cursor-pointer"
                                     />
                                 </div>

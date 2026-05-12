@@ -87,6 +87,7 @@ export const useResumeWorkflow = ({
     try {
       const controller = startProcessingController();
       let activeOcrMode: 'gemini' | 'tesseract' = session.forcedOcrMode || 'gemini';
+      const realtimePreviewEnabled = session.settingsSnapshot.realtimePreviewEnabled === true;
       let filesToUse = await prepareFiles(activeOcrMode, controller, session.settingsSnapshot);
       const expectedQuestionCount = session.analysisSnapshot?.estimatedCount || getDetectedDocxMcqCount();
 
@@ -100,7 +101,7 @@ export const useResumeWorkflow = ({
           seedQuestions: mcqsRef.current,
           seedDuplicates: [],
           existingCompletedBatchIndices: session.completedBatchIndices,
-          liveAppendToVisible: true,
+          liveAppendToVisible: realtimePreviewEnabled,
           forcedOcrMode: activeOcrMode,
         });
 
@@ -164,7 +165,7 @@ export const useResumeWorkflow = ({
             isAdvancedMode: true,
             retryProfile: 'rescue',
             autoRescue: true,
-            liveAppendToVisible: true,
+            liveAppendToVisible: realtimePreviewEnabled,
             forcedOcrMode: activeOcrMode,
           });
           const uniqueRescued = deduplicateQuestions(rescuePhase.res.questions, res.questions);
@@ -245,7 +246,7 @@ export const useResumeWorkflow = ({
             isAdvancedMode: true,
             retryProfile: 'rescue',
             autoRescue: true,
-            liveAppendToVisible: true,
+            liveAppendToVisible: realtimePreviewEnabled,
             forcedOcrMode: activeOcrMode,
           });
           const uniqueRescued = deduplicateQuestions(rescuePhase.res.questions, selectedRes.questions);
@@ -276,7 +277,7 @@ export const useResumeWorkflow = ({
           isAdvancedMode: true,
           retryProfile: 'rescue',
           autoRescue: session.phase === 'rescue',
-          liveAppendToVisible: true,
+          liveAppendToVisible: realtimePreviewEnabled,
           existingCompletedBatchIndices: session.completedBatchIndices || [],
           seedQuestions: session.phaseQuestionsSnapshot || [],
           seedDuplicates: session.phaseDuplicatesSnapshot || [],

@@ -134,14 +134,14 @@ export const useGenerationPhase = ({
 
     const queuePartialQuestions = (partialQuestions: MCQ[]) => {
       pendingPartialQuestions.push(...partialQuestions);
-      if (pendingPartialQuestions.length >= 5) {
+      if (pendingPartialQuestions.length >= 10) {
         void flushPartialQuestions();
         return;
       }
       if (partialFlushTimer !== null) return;
       partialFlushTimer = setTimeout(() => {
         void flushPartialQuestions();
-      }, 350);
+      }, 1000);
     };
 
     const res = await generateQuestions(
@@ -192,9 +192,11 @@ export const useGenerationPhase = ({
           });
           if (!liveAppendToVisible) void persistMcqs(checkpoint.questionsSnapshot);
         },
-        onPartialQuestions: (partialQs, _batchIndex) => {
-          if (liveAppendToVisible && partialQs.length > 0) queuePartialQuestions(partialQs);
-        },
+        onPartialQuestions: liveAppendToVisible
+          ? (partialQs, _batchIndex) => {
+              if (partialQs.length > 0) queuePartialQuestions(partialQs);
+            }
+          : undefined,
       }
     );
 

@@ -17,6 +17,7 @@ const settings: AppSettings = {
   adaptiveBatching: true,
   batchingMode: 'safe',
   projectLibraryEnabled: true,
+  realtimePreviewEnabled: false,
 };
 
 const makeMcq = (id: string, question: string, answer = 'A'): MCQ => ({
@@ -83,6 +84,7 @@ describe('project library helpers', () => {
       concurrencyLimit: 2,
       adaptiveBatching: true,
       projectLibraryEnabled: true,
+      realtimePreviewEnabled: false,
       hasCustomPrompt: true,
     });
     expect(JSON.stringify(project)).not.toContain('secret');

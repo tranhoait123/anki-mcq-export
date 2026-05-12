@@ -74,6 +74,7 @@ describe('app helpers', () => {
     expect(normalized.provider).toBe('google');
     expect(normalized.model).toBe('gemini-3.1-flash-lite-preview');
     expect(normalized.projectLibraryEnabled).toBe(true);
+    expect(normalized.realtimePreviewEnabled).toBe(false);
     expect(`${retiredPrefix}ProjectId` in normalized).toBe(false);
     expect(`${retiredPrefix}Location` in normalized).toBe(false);
     expect(`${retiredPrefix}AccessToken` in normalized).toBe(false);
@@ -90,5 +91,18 @@ describe('app helpers', () => {
       model: 'gemini-3.1-flash-lite-preview',
       projectLibraryEnabled: false,
     }).projectLibraryEnabled).toBe(false);
+  });
+
+  it('defaults realtime preview off while preserving an explicit on preference', () => {
+    expect(normalizePersistedSettings({
+      provider: 'google',
+      model: 'gemini-3.1-flash-lite-preview',
+    }).realtimePreviewEnabled).toBe(false);
+
+    expect(normalizePersistedSettings({
+      provider: 'google',
+      model: 'gemini-3.1-flash-lite-preview',
+      realtimePreviewEnabled: true,
+    }).realtimePreviewEnabled).toBe(true);
   });
 });

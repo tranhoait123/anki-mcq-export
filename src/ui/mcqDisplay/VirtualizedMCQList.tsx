@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp } from 'lucide-react';
 import { MCQ } from '../../types';
 import { MCQViewMode } from './types';
+import { measureSync } from '../../utils/performance';
 
 const OVERSCAN_COUNT = 6;
 const CARD_GAP = 32;
@@ -75,19 +76,21 @@ const VirtualizedMCQList: React.FC<VirtualizedMCQListProps> = ({
   const viewportFrameRef = useRef<number | null>(null);
 
   const measurements = useMemo(() => {
-    const positions: number[] = [];
-    const heights: number[] = [];
-    let totalHeight = 0;
+    return measureSync(`virtualList.measurements(${items.length})`, () => {
+      const positions: number[] = [];
+      const heights: number[] = [];
+      let totalHeight = 0;
 
-    for (const item of items) {
-      positions.push(totalHeight);
-      const estimated = itemHeights[item.id] ?? getEstimatedHeight(viewMode, editingId === item.id);
-      const heightWithGap = estimated + CARD_GAP;
-      heights.push(heightWithGap);
-      totalHeight += heightWithGap;
-    }
+      for (const item of items) {
+        positions.push(totalHeight);
+        const estimated = itemHeights[item.id] ?? getEstimatedHeight(viewMode, editingId === item.id);
+        const heightWithGap = estimated + CARD_GAP;
+        heights.push(heightWithGap);
+        totalHeight += heightWithGap;
+      }
 
-    return { positions, heights, totalHeight };
+      return { positions, heights, totalHeight };
+    });
   }, [editingId, itemHeights, items, viewMode]);
 
   const queueHeightMeasurements = useCallback((nextHeights: Record<string, number>) => {

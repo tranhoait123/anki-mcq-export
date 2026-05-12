@@ -13,6 +13,11 @@ import {
 import { generateQuestions } from '../core/brain';
 import { sortMcqsByQuestionNumber } from '../utils/appHelpers';
 
+const COMPLETED_BATCH_VISIBLE_FLUSH_COUNT = 40;
+const COMPLETED_BATCH_VISIBLE_FLUSH_MS = 2500;
+const CHECKPOINT_BATCH_INTERVAL = 5;
+const CHECKPOINT_INTERVAL_MS = 10000;
+
 export interface RunGenerationPhaseParams {
   phase: ProcessingPhase;
   filesToUse: UploadedFile[];
@@ -58,7 +63,7 @@ interface UseGenerationPhaseParams {
   persistSession: (session: ProcessingSession) => Promise<void>;
   setCurrentCount: React.Dispatch<React.SetStateAction<number>>;
   setProgressStatus: React.Dispatch<React.SetStateAction<string>>;
-  updateActiveSession: (partial: Partial<ProcessingSession>) => Promise<ProcessingSession | null>;
+  updateActiveSession: (partial: Partial<ProcessingSession>, options?: { persist?: boolean }) => Promise<ProcessingSession | null>;
 }
 
 export const useGenerationPhase = ({
@@ -122,6 +127,8 @@ export const useGenerationPhase = ({
 
     let partialFlushTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingPartialQuestions: MCQ[] = [];
+    let completedBatchFlushTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingCompletedBatchQuestions: MCQ[] = [];
 
     const flushPartialQuestions = async () => {
       if (partialFlushTimer !== null) {
@@ -146,63 +153,88 @@ export const useGenerationPhase = ({
       }, 1000);
     };
 
-    const res = await generateQuestions(
-      filesToUse,
-      requestSettings,
-      0,
-      (status, count) => {
-        setProgressStatus(progressPrefix ? `${progressPrefix}${status}` : status);
-        setCurrentCount(count);
-      },
-      expectedQuestionCount,
-      (newBatch) => {
-        const persistBatch = async () => {
-          if (renderCompletedBatchesToVisible) {
-            await appendVisibleMcqs(newBatch, { persist: liveAppendToVisible });
-          }
-          phaseQuestions = sortMcqsByQuestionNumber([...phaseQuestions, ...newBatch]);
-        };
-        void persistBatch();
-      },
-      retryIndices,
-      isAdvancedMode,
-      {
-        controller,
-        retryProfile,
-        autoRescue,
-        resumeMode: existingCompletedBatchIndices.length > 0 || seedQuestions.length > 0,
-        skipInferredCompletedBatches,
-        completedBatchIndices: existingCompletedBatchIndices,
-        existingQuestions: phaseQuestions,
-        existingDuplicates: phaseDuplicates,
-        existingAutoSkippedCount: phaseAutoSkippedCount,
-        sessionPhase: phase,
-        onCheckpoint: (checkpoint: ProcessingCheckpoint) => {
-          void updateActiveSession({
-            totalTopLevelBatches: checkpoint.totalTopLevelBatches,
-            completedBatchIndices: checkpoint.completedBatchIndices,
-            failedBatchIndices: checkpoint.failedBatchIndices,
-            failedBatchDetails: checkpoint.failedBatchDetails,
-            currentCount: checkpoint.currentCount,
-            mcqsSnapshot: checkpoint.questionsSnapshot,
-            duplicatesSnapshot: checkpoint.duplicatesSnapshot,
-            autoSkippedCount: checkpoint.autoSkippedCount,
-            phaseQuestionsSnapshot: checkpoint.questionsSnapshot,
-            phaseDuplicatesSnapshot: checkpoint.duplicatesSnapshot,
-            phaseAutoSkippedCount: checkpoint.autoSkippedCount,
-            phaseCurrentCount: checkpoint.questionsSnapshot.length,
-          });
-          if (!liveAppendToVisible) void persistMcqs(checkpoint.questionsSnapshot);
-        },
-        onPartialQuestions: liveAppendToVisible
-          ? (partialQs, _batchIndex) => {
-              if (partialQs.length > 0) queuePartialQuestions(partialQs);
-            }
-          : undefined,
+    const flushVisibleQuestions = async () => {
+      if (completedBatchFlushTimer !== null) {
+        clearTimeout(completedBatchFlushTimer);
+        completedBatchFlushTimer = null;
       }
-    );
+      if (pendingCompletedBatchQuestions.length === 0) return;
+      const batch = pendingCompletedBatchQuestions;
+      pendingCompletedBatchQuestions = [];
+      await appendVisibleMcqs(batch, { persist: true });
+    };
 
-    await flushPartialQuestions();
+    const queueCompletedBatchQuestions = (questions: MCQ[]) => {
+      if (!renderCompletedBatchesToVisible || questions.length === 0) return;
+      pendingCompletedBatchQuestions.push(...questions);
+      if (pendingCompletedBatchQuestions.length >= COMPLETED_BATCH_VISIBLE_FLUSH_COUNT) {
+        void flushVisibleQuestions();
+        return;
+      }
+      if (completedBatchFlushTimer !== null) return;
+      completedBatchFlushTimer = setTimeout(() => {
+        void flushVisibleQuestions();
+      }, COMPLETED_BATCH_VISIBLE_FLUSH_MS);
+    };
+
+    let res: Awaited<ReturnType<typeof generateQuestions>>;
+    try {
+      res = await generateQuestions(
+        filesToUse,
+        requestSettings,
+        0,
+        (status, count) => {
+          setProgressStatus(progressPrefix ? `${progressPrefix}${status}` : status);
+          setCurrentCount(count);
+        },
+        expectedQuestionCount,
+        (newBatch) => {
+          phaseQuestions = sortMcqsByQuestionNumber([...phaseQuestions, ...newBatch]);
+          queueCompletedBatchQuestions(newBatch);
+        },
+        retryIndices,
+        isAdvancedMode,
+        {
+          controller,
+          retryProfile,
+          autoRescue,
+          resumeMode: existingCompletedBatchIndices.length > 0 || seedQuestions.length > 0,
+          skipInferredCompletedBatches,
+          completedBatchIndices: existingCompletedBatchIndices,
+          existingQuestions: phaseQuestions,
+          existingDuplicates: phaseDuplicates,
+          existingAutoSkippedCount: phaseAutoSkippedCount,
+          sessionPhase: phase,
+          checkpointBatchInterval: CHECKPOINT_BATCH_INTERVAL,
+          checkpointIntervalMs: CHECKPOINT_INTERVAL_MS,
+          onCheckpoint: (checkpoint: ProcessingCheckpoint) => {
+            void updateActiveSession({
+              totalTopLevelBatches: checkpoint.totalTopLevelBatches,
+              completedBatchIndices: checkpoint.completedBatchIndices,
+              failedBatchIndices: checkpoint.failedBatchIndices,
+              failedBatchDetails: checkpoint.failedBatchDetails,
+              currentCount: checkpoint.currentCount,
+              mcqsSnapshot: checkpoint.questionsSnapshot,
+              duplicatesSnapshot: checkpoint.duplicatesSnapshot,
+              autoSkippedCount: checkpoint.autoSkippedCount,
+              phaseQuestionsSnapshot: checkpoint.questionsSnapshot,
+              phaseDuplicatesSnapshot: checkpoint.duplicatesSnapshot,
+              phaseAutoSkippedCount: checkpoint.autoSkippedCount,
+              phaseCurrentCount: checkpoint.questionsSnapshot.length,
+            });
+            if (!renderCompletedBatchesToVisible) void persistMcqs(checkpoint.questionsSnapshot);
+          },
+          onPartialQuestions: liveAppendToVisible
+            ? (partialQs, _batchIndex) => {
+                if (partialQs.length > 0) queuePartialQuestions(partialQs);
+              }
+            : undefined,
+        }
+      );
+    } finally {
+      await flushPartialQuestions();
+      await flushVisibleQuestions();
+    }
 
     phaseQuestions = sortMcqsByQuestionNumber(res.questions);
     phaseDuplicates = [...(res.duplicates || [])];

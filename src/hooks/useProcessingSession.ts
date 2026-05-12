@@ -3,6 +3,7 @@ import { AnalysisResult, AppSettings, DuplicateInfo, MCQ, ProcessingPhase, Proce
 import { db } from '../core/db';
 import { hashFiles } from '../core/brain';
 import { getPersistableFiles } from '../utils/appHelpers';
+import { measureAsync } from '../utils/performance';
 
 interface ProcessingSessionRefs {
   filesRef: React.RefObject<UploadedFile[]>;
@@ -21,22 +22,26 @@ export const useProcessingSession = ({
   const activeSessionRef = useRef<ProcessingSession | null>(null);
   const sessionPersistChainRef = useRef<Promise<void>>(Promise.resolve());
 
+  const saveSession = (session: ProcessingSession) => (
+    measureAsync(`session.save(${session.currentCount})`, () => db.saveSession(session))
+  );
+
   const persistSession = async (session: ProcessingSession) => {
     activeSessionRef.current = session;
     setResumeSession(session);
     sessionPersistChainRef.current = sessionPersistChainRef.current
       .catch(() => undefined)
-      .then(() => db.saveSession(session));
+      .then(() => saveSession(session));
     await sessionPersistChainRef.current;
   };
 
   const persistSessionSnapshot = (session: ProcessingSession) => {
     sessionPersistChainRef.current = sessionPersistChainRef.current
       .catch(() => undefined)
-      .then(() => db.saveSession(session));
+      .then(() => saveSession(session));
   };
 
-  const updateActiveSession = async (partial: Partial<ProcessingSession>) => {
+  const updateActiveSession = async (partial: Partial<ProcessingSession>, options: { persist?: boolean } = {}) => {
     const current = activeSessionRef.current || await db.getSession();
     if (!current) return null;
     const next: ProcessingSession = {
@@ -47,9 +52,10 @@ export const useProcessingSession = ({
     };
     activeSessionRef.current = next;
     setResumeSession(next);
+    if (options.persist === false) return next;
     sessionPersistChainRef.current = sessionPersistChainRef.current
       .catch(() => undefined)
-      .then(() => db.saveSession(next));
+      .then(() => saveSession(next));
     await sessionPersistChainRef.current;
     return next;
   };

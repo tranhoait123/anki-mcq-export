@@ -72,6 +72,7 @@ import {
   waitWithController,
 } from './generationHelpers';
 import { SYSTEM_INSTRUCTION_EXTRACT } from './prompts';
+import { measureSync } from '../../utils/performance';
 
 export const generateQuestions = async (
   files: UploadedFile[],
@@ -346,6 +347,14 @@ export const generateQuestions = async (
     const batchQuestions = new Map<number, MCQ[]>();
     const batchDuplicates = new Map<number, DuplicateInfo[]>();
     const batchAutoSkipped = new Map<number, number>();
+    const checkpointBatchInterval = Math.max(1, options.checkpointBatchInterval || 1);
+    const checkpointIntervalMs = Math.max(0, options.checkpointIntervalMs || 0);
+    const getPhaseCompletedCount = (completedBatchNumbers: number[]) => {
+      const completedSet = new Set(completedBatchNumbers);
+      return phaseBatchNumbers.filter(batchNumber => completedSet.has(batchNumber)).length;
+    };
+    let lastCheckpointCompletedCount = getPhaseCompletedCount(Array.from(skippedBatchSet));
+    let lastCheckpointAt = Date.now();
 
     const appendBatchQuestions = (batchNumber: number, questions: MCQ[]) => {
       if (questions.length === 0) return;
@@ -369,31 +378,51 @@ export const generateQuestions = async (
       batchAutoSkipped.set(batchNumber, (batchAutoSkipped.get(batchNumber) || 0) + count);
     };
 
-    const buildCheckpointSnapshot = (completedBatchNumbers: number[]) => {
-      const questionList = [...(options.existingQuestions || [])];
-      const duplicateList = [...(options.existingDuplicates || [])];
-      let safeAutoSkippedCount = options.existingAutoSkippedCount || 0;
+    const buildCheckpointSnapshot = (completedBatchNumbers: number[]) => (
+      measureSync(`generation.buildCheckpointSnapshot(${completedBatchNumbers.length}/${totalTopLevelBatches})`, () => {
+        const questionList = [...(options.existingQuestions || [])];
+        const duplicateList = [...(options.existingDuplicates || [])];
+        let safeAutoSkippedCount = options.existingAutoSkippedCount || 0;
 
-      completedBatchNumbers
-        .slice()
-        .sort((a, b) => a - b)
-        .forEach((batchNumber) => {
-          questionList.push(...(batchQuestions.get(batchNumber) || []));
-          duplicateList.push(...(batchDuplicates.get(batchNumber) || []));
-          safeAutoSkippedCount += batchAutoSkipped.get(batchNumber) || 0;
+        completedBatchNumbers
+          .slice()
+          .sort((a, b) => a - b)
+          .forEach((batchNumber) => {
+            questionList.push(...(batchQuestions.get(batchNumber) || []));
+            duplicateList.push(...(batchDuplicates.get(batchNumber) || []));
+            safeAutoSkippedCount += batchAutoSkipped.get(batchNumber) || 0;
+          });
+
+        questionList.sort((a, b) => {
+          const numA = extractQuestionNumber(a.question) || 999999;
+          const numB = extractQuestionNumber(b.question) || 999999;
+          return numA - numB;
         });
 
-      questionList.sort((a, b) => {
-        const numA = extractQuestionNumber(a.question) || 999999;
-        const numB = extractQuestionNumber(b.question) || 999999;
-        return numA - numB;
-      });
+        return {
+          questionsSnapshot: questionList,
+          duplicatesSnapshot: duplicateList,
+          autoSkippedCount: safeAutoSkippedCount,
+        };
+      })
+    );
 
-      return {
-        questionsSnapshot: questionList,
-        duplicatesSnapshot: duplicateList,
-        autoSkippedCount: safeAutoSkippedCount,
-      };
+    const emitCheckpoint = (batchIndex: number, completedBatchIndices: number[]) => {
+      if (!options.onCheckpoint) return;
+      const checkpointSnapshot = buildCheckpointSnapshot(completedBatchIndices);
+      lastCheckpointCompletedCount = getPhaseCompletedCount(completedBatchIndices);
+      lastCheckpointAt = Date.now();
+      options.onCheckpoint({
+        batchIndex,
+        totalTopLevelBatches,
+        completedBatchIndices,
+        failedBatchIndices: Array.from(new Set(failedBatches)).sort((a, b) => a - b),
+        failedBatchDetails: [...failedBatchDetails].sort((a, b) => a.index - b.index || a.label.localeCompare(b.label)),
+        questionsSnapshot: checkpointSnapshot.questionsSnapshot,
+        duplicatesSnapshot: checkpointSnapshot.duplicatesSnapshot,
+        autoSkippedCount: checkpointSnapshot.autoSkippedCount,
+        currentCount: checkpointSnapshot.questionsSnapshot.length,
+      });
     };
 
     const recordBatchFailure = (index: number, label: string, error: any, stage: BatchFailureInfo['stage']) => {
@@ -686,18 +715,15 @@ export const generateQuestions = async (
             skippedBatchSet.add(index + 1);
           }
           const completedBatchIndices = Array.from(skippedBatchSet).sort((a, b) => a - b);
-          const checkpointSnapshot = buildCheckpointSnapshot(completedBatchIndices);
-          options.onCheckpoint?.({
-            batchIndex: index + 1,
-            totalTopLevelBatches,
-            completedBatchIndices,
-            failedBatchIndices: Array.from(new Set(failedBatches)).sort((a, b) => a - b),
-            failedBatchDetails: [...failedBatchDetails].sort((a, b) => a.index - b.index || a.label.localeCompare(b.label)),
-            questionsSnapshot: checkpointSnapshot.questionsSnapshot,
-            duplicatesSnapshot: checkpointSnapshot.duplicatesSnapshot,
-            autoSkippedCount: checkpointSnapshot.autoSkippedCount,
-            currentCount: checkpointSnapshot.questionsSnapshot.length,
-          });
+          const phaseCompletedCount = getPhaseCompletedCount(completedBatchIndices);
+          const now = Date.now();
+          const shouldEmitCheckpoint = (
+            phaseCompletedCount >= totalBatches ||
+            phaseCompletedCount - lastCheckpointCompletedCount >= checkpointBatchInterval ||
+            (checkpointIntervalMs > 0 && now - lastCheckpointAt >= checkpointIntervalMs) ||
+            failedBatches.includes(index + 1)
+          );
+          if (shouldEmitCheckpoint) emitCheckpoint(index + 1, completedBatchIndices);
         }
         if (isRescueMode && depth === 0 && !failedBatches.includes(index + 1)) rescueCompleted++;
       }
@@ -721,6 +747,13 @@ export const generateQuestions = async (
       }
     }
     await Promise.all(activePromises);
+
+    if (options.onCheckpoint) {
+      const completedBatchIndices = Array.from(skippedBatchSet).sort((a, b) => a - b);
+      if (getPhaseCompletedCount(completedBatchIndices) !== lastCheckpointCompletedCount) {
+        emitCheckpoint(completedBatchIndices[completedBatchIndices.length - 1] || totalBatches, completedBatchIndices);
+      }
+    }
 
     allQuestions.sort((a, b) => {
       const numA = extractQuestionNumber(a.question) || 999999;

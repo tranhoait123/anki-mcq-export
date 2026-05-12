@@ -19,6 +19,8 @@ export interface GenerateQuestionsOptions {
   existingAutoSkippedCount?: number;
   sessionPhase?: ProcessingPhase;
   onCheckpoint?: (checkpoint: ProcessingCheckpoint) => void;
+  checkpointBatchInterval?: number;
+  checkpointIntervalMs?: number;
   onPartialQuestions?: (questions: MCQ[], batchIndex: number) => void;
 }
 

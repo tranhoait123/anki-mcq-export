@@ -39,12 +39,13 @@ describe('release hardening configuration', () => {
       const installIndex = workflow.indexOf('npm ci');
       const browserIndex = workflow.indexOf('npx playwright install --with-deps chromium');
       const gateIndex = workflow.indexOf('npm run test:all');
-      const deployIndex = workflow.indexOf('FirebaseExtended/action-hosting-deploy@v0');
+      const deployIndex = workflow.indexOf('firebase-tools@latest');
 
       expect(installIndex).toBeGreaterThan(-1);
       expect(browserIndex).toBeGreaterThan(installIndex);
       expect(workflow).toContain('actions/checkout@v6');
       expect(workflow).toContain('actions/setup-node@v6');
+      expect(workflow).toContain('GOOGLE_APPLICATION_CREDENTIALS');
       expect(gateIndex).toBeGreaterThan(browserIndex);
       expect(deployIndex).toBeGreaterThan(gateIndex);
     }

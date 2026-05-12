@@ -113,6 +113,10 @@ export class UserKeyRotator {
 
   markKeyCooldown(key: string, kind: KeyCooldownKind, durationMs?: number): void {
     if (!key || this.hardFailedKeys.has(key)) return;
+    if (kind === 'serverBusy') {
+      this.markProviderPressure(durationMs);
+      return;
+    }
     const defaultDurationMs = kind === 'rateLimit' ? 3 * 60 * 1000 : 45 * 1000;
     const boundedDurationMs = Math.max(
       1000,
@@ -123,6 +127,16 @@ export class UserKeyRotator {
     this.cooldownUntil.set(key, Math.max(previous, until));
     this.registerPressure(kind, boundedDurationMs);
     console.warn(`⏸️ API Key #${this.getKeyNumber(key)} cooling down for ${Math.round(boundedDurationMs / 1000)}s (${kind}). ${this.availableKeyCount} keys available now.`);
+  }
+
+  markProviderPressure(durationMs?: number): void {
+    const now = this.now();
+    const nextStreak = now - this.lastPressureAt <= 45 * 1000 ? this.pressureStreak + 1 : 1;
+    const escalatedMs = Math.min(30 * 1000, 3000 + Math.max(0, nextStreak - 1) * 5000);
+    const boundedDurationMs = Math.max(1000, Math.min(durationMs ?? escalatedMs, 30 * 1000));
+    this.registerPressure('serverBusy', boundedDurationMs);
+    this.globalCooldownUntil = Math.max(this.globalCooldownUntil, now + boundedDurationMs);
+    console.warn(`🌐 Provider pressure cooldown for ${Math.round(boundedDurationMs / 1000)}s. Keys stay available; concurrency is ${this.recommendedConcurrency}/${this.getMaxUsefulConcurrency()}.`);
   }
 
   getKeyForBatch(): string {
@@ -183,6 +197,11 @@ export class UserKeyRotator {
     return this.currentIndex;
   }
 
+  hasRecentProviderPressure(windowMs: number = 30 * 1000): boolean {
+    const now = this.now();
+    return this.globalCooldownUntil > now || (this.lastPressureAt > 0 && now - this.lastPressureAt <= windowMs && this.pressureStreak > 0);
+  }
+
   private getAvailableKeys(): string[] {
     return this.keys.filter(key => this.isKeyAvailable(key));
   }
@@ -203,7 +222,7 @@ export class UserKeyRotator {
       console.warn(`🐢 Adaptive concurrency reduced to ${this.recommendedConcurrency}/${this.getMaxUsefulConcurrency()} after ${kind}.`);
     }
 
-    if (this.pressureStreak >= 2 && this.getAvailableKeys().length === 0) {
+    if (kind === 'rateLimit' && this.pressureStreak >= 2 && this.getAvailableKeys().length === 0) {
       const poolCooldownMs = Math.min(durationMs, kind === 'rateLimit' ? 20 * 1000 : 8 * 1000);
       this.globalCooldownUntil = Math.max(this.globalCooldownUntil, now + poolCooldownMs);
     }

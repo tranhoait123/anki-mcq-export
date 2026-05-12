@@ -25,6 +25,7 @@ import {
   formatPageRangeLabel,
   getAdaptiveTextCharBudget,
   getAdaptiveVisionPagesPerChunk,
+  buildPartialSalvageRecoveryParts,
   getFileTextContent,
   getNativeBatchExpectedCount,
   getNativePartBatches,
@@ -425,7 +426,7 @@ export const generateQuestions = async (
       });
     };
 
-    const recordBatchFailure = (index: number, label: string, error: any, stage: BatchFailureInfo['stage']) => {
+    const recordBatchFailure = (index: number, label: string, error: any, stage: BatchFailureInfo['stage'], extras: Partial<Pick<BatchFailureInfo, 'missingCount' | 'recoveredCount'>> = {}) => {
       const batchNumber = index + 1;
       if (!failedBatches.includes(batchNumber)) failedBatches.push(batchNumber);
       if (failedBatchDetails.some(item => item.index === batchNumber && item.label === label && item.stage === stage)) return;
@@ -437,6 +438,7 @@ export const generateQuestions = async (
         stage,
         message: detail.message,
         advice: detail.advice,
+        ...extras,
       });
     };
 
@@ -451,6 +453,31 @@ export const generateQuestions = async (
     const stableFallbackModel = getProviderFallbackModel(runtimeSettings.provider);
     const extractionModel = isAdvancedMode || isRescueMode ? stableFallbackModel : runtimeSettings.model;
 
+    const runPartsWithLimit = async <T,>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> => {
+      const active: Promise<void>[] = [];
+      for (const item of items) {
+        await controller?.waitIfPaused();
+        const p = worker(item);
+        active.push(p);
+        while (active.length >= Math.max(1, limit)) {
+          const finishedIndex = await Promise.race(active.map((promise, idx) => promise.then(() => idx)));
+          active.splice(finishedIndex, 1);
+        }
+      }
+      await Promise.all(active);
+    };
+
+    const getSplitConcurrencyLimit = () => {
+      if (isRescueMode || userKeyRotator.hasRecentProviderPressure()) return 1;
+      return Math.max(1, Math.min(getConcurrencyLimit(), 2));
+    };
+
+    const buildSeenQuestionFingerprints = (questions: Array<{ question?: string }>): string =>
+      questions
+        .map((question, idx) => `${idx + 1}. ${String(question.question || '').replace(/\s+/g, ' ').trim().slice(0, 140)}`)
+        .filter(line => line.length > 3)
+        .join('\n');
+
     // Hàm xử lý Batch chính có khả năng Đệ quy (Subdivision)
     const processBatch = async (part: any, index: number, depth: number = 0, forceJsonRepair: boolean = false, topLevelIndex: number = index) => {
       const batchLabel = depth === 0 ? `${index + 1}` : `${index + 1}${String.fromCharCode(96 + depth)}`;
@@ -462,7 +489,7 @@ export const generateQuestions = async (
         if (adaptiveBatching && depth === 0 && part.nativeMcqBatch && expectedAtStart > adaptiveQuestionCap) {
           const cappedParts = splitStructuredPartByBatchSize(part, adaptiveQuestionCap);
           if (cappedParts.length > 1) {
-            await Promise.all(cappedParts.map((p) => processBatch(p, index, depth + 1, forceJsonRepair, topLevelIndex)));
+            await runPartsWithLimit(cappedParts, getSplitConcurrencyLimit(), (p) => processBatch(p, index, depth + 1, forceJsonRepair, topLevelIndex));
             return;
           }
         }
@@ -485,6 +512,9 @@ export const generateQuestions = async (
         const repairInstruction = forceJsonRepair
           ? 'LƯU Ý SỬA JSON: Lần trước batch này bị lỗi định dạng hoặc thiếu câu. Hãy trả về JSON hợp lệ tuyệt đối, đóng đủ mọi ngoặc, không markdown, không giải thích ngoài JSON.'
           : '';
+        const partialRecoveryInstruction = part.partialRecovery
+          ? `LƯU Ý CỨU PHẦN THIẾU: Đây là lượt quét lại có chọn lọc. Chỉ trả về những câu còn thiếu/chưa có trong danh sách đã lưu. Nếu nội dung dưới đây trùng với câu đã lưu, bỏ qua và không tạo bản sao.${part.existingQuestionFingerprints ? `\nCác câu đã lưu để tránh lặp:\n${part.existingQuestionFingerprints}` : ''}`
+          : '';
         const nativePrompt = expectedQuestions > 0
           ? `NỘI DUNG ${structuredSourceLabel} ĐÃ ĐƯỢC TÁCH SẴN THÀNH ${expectedQuestions} BLOCK CÂU. Mỗi block <<<MCQ n>>> là đúng 1 câu hoặc 1 mục câu hỏi trong tài liệu. Option có ký hiệu ✅ là đáp án đúng lấy từ marker trong tài liệu; TUYỆT ĐỐI không đổi đáp án này. Nếu block có A/B/C/D thì trích đúng các lựa chọn đó. Nếu block chỉ có Question và Answer/Notes, hãy giữ nguyên câu hỏi, dùng Answer/Notes làm đáp án/giải thích, và chỉ tạo lựa chọn nhiễu khi tài liệu không cung cấp đủ options. Hãy trả về ĐÚNG ${expectedQuestions} câu theo cùng thứ tự, không bỏ câu nào.`
           : '';
@@ -494,7 +524,7 @@ export const generateQuestions = async (
         const visionPrompt = (part.sourceMode === 'pdfVision' || part.inlineData || (Array.isArray(part.inlineDataParts) && part.inlineDataParts.length > 0))
           ? `[CHỈ THỊ QUAN TRỌNG CHO PHẦN ẢNH/VISION]: Tài liệu hiện tại đang được xử lý ở chế độ quét Vision (ảnh chụp/PDF scan). Hãy đọc cực kỳ chậm và tỉ mỉ từng dòng, từng góc của trang ảnh này. Hãy đếm thầm xem có chính xác bao nhiêu câu hỏi trắc nghiệm (MCQ) xuất hiện trên trang. Bạn phải trích xuất ĐẦY ĐỦ TRĂM PHẦN TRĂM câu hỏi, không được bỏ sót bất kỳ câu nào dù là câu ngắn, câu tình huống hay câu ở cuối trang.`
           : '';
-        const scanPrompt = `${repairInstruction ? `${repairInstruction}\n\n` : ''}${sourceInstruction}\n\n${nativePrompt ? `${nativePrompt}\n\n` : ''}${imagePrompt ? `${imagePrompt}\n\n` : ''}${visionPrompt ? `${visionPrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
+        const scanPrompt = `${repairInstruction ? `${repairInstruction}\n\n` : ''}${partialRecoveryInstruction ? `${partialRecoveryInstruction}\n\n` : ''}${sourceInstruction}\n\n${nativePrompt ? `${nativePrompt}\n\n` : ''}${imagePrompt ? `${imagePrompt}\n\n` : ''}${visionPrompt ? `${visionPrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
 
         const rawNewQs = await (isOpenAICompatibleProvider(runtimeSettings.provider)
           ? executeWithUserRotation(
@@ -647,12 +677,42 @@ export const generateQuestions = async (
             const missingRatio = expectedQuestions > 0 ? missingCount / expectedQuestions : 0;
             if (missingRatio > 0.4) {
               throw new Error(`AI_FORMAT_ERROR_PARTIAL_SALVAGE: Đã cứu ${rawNewQs.length} câu hợp lệ nhưng còn thiếu khoảng ${missingCount} câu (>${Math.round(missingRatio * 100)}%).`);
-            } else {
-              // Giữ câu đã có nhưng ghi partial failure để rescue mode retry lấy nốt câu thiếu
-              console.warn(`⚠️ Batch ${batchLabel}: Salvage lấy được ${rawNewQs.length}/${expectedQuestions} câu (thiếu ${missingCount}). Giữ kết quả + đánh dấu để quét lại.`);
-              if (depth === 0) {
-                recordBatchFailure(index, batchLabel, new Error(`Thiếu ${missingCount}/${expectedQuestions} câu`), 'normal');
+            } else if (!part.partialRecovery) {
+              console.warn(`⚠️ Batch ${batchLabel}: Salvage lấy được ${rawNewQs.length}/${expectedQuestions} câu (thiếu ${missingCount}). Đang cứu chọn lọc phần thiếu.`);
+              const beforeRecoveryCount = allQuestions.length;
+              const recoveryParts = part.nativeMcqBatch
+                ? buildPartialSalvageRecoveryParts(part, rawNewQs, missingCount <= 2 ? 1 : 2)
+                : [{
+                    ...part,
+                    partialRecovery: true,
+                    recoveryAttemptedFromPartial: true,
+                    forceMissingOnly: true,
+                    expectedQuestions: missingCount,
+                    existingQuestionFingerprints: buildSeenQuestionFingerprints(rawNewQs),
+                  }];
+
+              if (recoveryParts.length > 0) {
+                await runPartsWithLimit(
+                  recoveryParts,
+                  getSplitConcurrencyLimit(),
+                  (recoveryPart) => processBatch(recoveryPart, index, depth + 1, true, topLevelIndex)
+                );
               }
+
+              const recoveredCount = Math.max(0, allQuestions.length - beforeRecoveryCount);
+              if (depth === 0 && recoveredCount < missingCount) {
+                recordBatchFailure(index, batchLabel, new Error(`Thiếu ${missingCount - recoveredCount}/${expectedQuestions} câu`), 'partial', {
+                  missingCount,
+                  recoveredCount,
+                });
+              } else if (recoveredCount > 0) {
+                console.log(`✅ Batch ${batchLabel}: Recovered ${recoveredCount}/${missingCount} missing question(s) from partial salvage.`);
+              }
+            } else if (depth === 0) {
+              recordBatchFailure(index, batchLabel, new Error(`Thiếu ${missingCount}/${expectedQuestions} câu`), 'partial', {
+                missingCount,
+                recoveredCount: 0,
+              });
             }
           }
         }
@@ -694,8 +754,7 @@ export const generateQuestions = async (
               .map(text => ({ ...part, text }))
           ).filter(p => p.text.trim().length > 0);
 
-          // Chạy song song cả 4 phần để tối ưu thời gian
-          await Promise.all(parts.map((p) => processBatch(p, index, depth + 1, false, topLevelIndex)));
+          await runPartsWithLimit(parts, getSplitConcurrencyLimit(), (p) => processBatch(p, index, depth + 1, false, topLevelIndex));
           const progressAfterSplit = allQuestions.length + allDuplicates.length + autoSkippedCount;
           if (depth === 0 && progressAfterSplit === progressBeforeSplit && !failedBatches.includes(index + 1)) {
             recordBatchFailure(index, batchLabel, e, 'split');

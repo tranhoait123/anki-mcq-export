@@ -102,6 +102,87 @@ export const getNativePartBatches = (text: string, targetParts: number): string[
   return batches;
 };
 
+const normalizeRecoveryText = (value: string = ''): string =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/^(?:cau|question|q)?\s*\d+\s*[:.)-]?\s*/i, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const extractLeadingQuestionNumber = (value: string = ''): number | null => {
+  const match = String(value || '').match(/^\s*(?:câu|cau|question|q)?\s*(\d{1,4})\s*[:.)-]?/i);
+  return match ? Number(match[1]) : null;
+};
+
+const getBlockQuestionText = (block: string): string => {
+  const questionLine = String(block || '').split('\n').find(line => /^question\s*:/i.test(line.trim()));
+  return (questionLine || block).replace(/^question\s*:\s*/i, '').trim();
+};
+
+const tokenOverlap = (left: string, right: string): number => {
+  const leftTokens = new Set(normalizeRecoveryText(left).split(' ').filter(token => token.length > 2));
+  const rightTokens = new Set(normalizeRecoveryText(right).split(' ').filter(token => token.length > 2));
+  if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
+  let shared = 0;
+  leftTokens.forEach(token => {
+    if (rightTokens.has(token)) shared++;
+  });
+  return shared / Math.min(leftTokens.size, rightTokens.size);
+};
+
+export const buildPartialSalvageRecoveryParts = (
+  part: any,
+  salvagedQuestions: Array<{ question?: string }>,
+  chunkSize = 2
+): any[] => {
+  const blocks = getNativeMcqBlocks(part.text || '');
+  if (blocks.length <= 1 || salvagedQuestions.length === 0) return [];
+
+  const matchedBlockIndexes = new Set<number>();
+  const blockQuestions = blocks.map(getBlockQuestionText);
+  salvagedQuestions.forEach((question) => {
+    const questionText = question?.question || '';
+    const questionNumber = extractLeadingQuestionNumber(questionText);
+    let bestIndex = -1;
+    let bestScore = 0;
+
+    blockQuestions.forEach((blockQuestion, index) => {
+      if (matchedBlockIndexes.has(index)) return;
+      const blockNumber = extractLeadingQuestionNumber(blockQuestion);
+      const numberScore = questionNumber !== null && blockNumber !== null && questionNumber === blockNumber ? 1 : 0;
+      const textScore = tokenOverlap(questionText, blockQuestion);
+      const score = Math.max(numberScore, textScore);
+      if (score > bestScore) {
+        bestIndex = index;
+        bestScore = score;
+      }
+    });
+
+    if (bestIndex >= 0 && bestScore >= 0.55) matchedBlockIndexes.add(bestIndex);
+  });
+
+  const lowConfidence = matchedBlockIndexes.size < Math.max(1, Math.floor(salvagedQuestions.length * 0.6));
+  const targetBlocks = lowConfidence
+    ? blocks
+    : blocks.filter((_block, index) => !matchedBlockIndexes.has(index));
+
+  const recoveryParts: any[] = [];
+  for (let i = 0; i < targetBlocks.length; i += chunkSize) {
+    const chunk = targetBlocks.slice(i, i + chunkSize);
+    recoveryParts.push({
+      ...part,
+      text: buildNativeMcqBatchText(chunk),
+      expectedQuestions: chunk.length,
+      partialRecovery: true,
+      recoveryAttemptedFromPartial: true,
+    });
+  }
+  return recoveryParts;
+};
+
 export const splitStructuredPartByBatchSize = (part: any, batchSize: number): any[] => {
   const blocks = getNativeMcqBlocks(part.text || '');
   if (blocks.length <= batchSize) return [part];

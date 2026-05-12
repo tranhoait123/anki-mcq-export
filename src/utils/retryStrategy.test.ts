@@ -24,6 +24,7 @@ describe('batch retry strategy', () => {
     expect(classifyBatchError(new Error('Gemini overloaded 503'))).toBe('serverBusy');
     expect(getRetryProfile('rescue').minAttempts).toBeLessThan(getRetryProfile('normal').minAttempts);
     expect(getRetryProfile('rescue').backoffCapMs).toBeLessThan(getRetryProfile('normal').backoffCapMs);
+    expect(getRetryProfile('rescue').maxElapsedMs).toBeGreaterThan(45_000);
   });
 
   it('separates hard quota from soft throttling decisions', () => {
@@ -52,6 +53,7 @@ describe('batch retry strategy', () => {
 
     expect(first.kind).toBe('serverBusy');
     expect(first.action).toBe('retry');
+    expect(first.cooldownKind).toBeUndefined();
     expect(first.shouldTryFallbackModel).toBe(false);
     expect(later.shouldTryFallbackModel).toBe(true);
   });

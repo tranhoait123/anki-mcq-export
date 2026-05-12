@@ -2,6 +2,7 @@ export {
   applyTrustedSourceLabel,
   applyTrustedSourceMetadata,
   buildSourceSnippet,
+  buildPartialSalvageRecoveryParts,
   estimateOutputTokensForQuestions,
   estimateTextTokens,
   getAdaptiveQuestionBatchSize,

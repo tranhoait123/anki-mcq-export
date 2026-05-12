@@ -49,7 +49,7 @@ describe('UserKeyRotator safety patch', () => {
     const rotator = new UserKeyRotator(() => now);
     rotator.init('key-one-valid,key-two-valid');
     rotator.markKeyFailed('key-one-valid');
-    rotator.markKeyCooldown('key-two-valid', 'serverBusy');
+    rotator.markKeyCooldown('key-two-valid', 'rateLimit');
 
     expect(rotator.availableKeyCount).toBe(0);
     expect(rotator.getKeyForBatch()).toBe('');
@@ -57,18 +57,38 @@ describe('UserKeyRotator safety patch', () => {
     expect(rotator.getNextCooldownDelayMs()).toBeGreaterThan(0);
   });
 
-  it('uses shorter cooldowns for server busy than rate limits', () => {
+  it('treats server busy as provider pressure without cooling down individual keys', () => {
+    let now = 1_000;
+    const rotator = new UserKeyRotator(() => now);
+    rotator.init('key-one-valid,key-two-valid', 2);
+
+    rotator.markKeyCooldown('key-one-valid', 'serverBusy');
+    const serverBusyWait = rotator.getNextCooldownDelayMs();
+
+    expect(rotator.availableKeyCount).toBe(2);
+    expect(rotator.getKeyForBatch()).toBe('key-one-valid');
+    expect(rotator.hasRecentProviderPressure()).toBe(true);
+    expect(serverBusyWait).toBeGreaterThanOrEqual(1000);
+    expect(serverBusyWait).toBeLessThanOrEqual(30 * 1000);
+
+    now += serverBusyWait + 1;
+    expect(rotator.hasRecentProviderPressure()).toBe(true);
+  });
+
+  it('keeps rate limits key-specific even after provider pressure', () => {
     let now = 1_000;
     const rotator = new UserKeyRotator(() => now);
     rotator.init('key-one-valid,key-two-valid');
 
-    rotator.markKeyCooldown('key-one-valid', 'serverBusy');
-    const serverBusyWait = rotator.getNextCooldownDelayMs();
+    rotator.markProviderPressure(3_000);
+    expect(rotator.availableKeyCount).toBe(2);
+
     rotator.markKeyCooldown('key-two-valid', 'rateLimit');
     const shortestWait = rotator.getNextCooldownDelayMs();
 
-    expect(serverBusyWait).toBeLessThan(3 * 60 * 1000);
-    expect(shortestWait).toBeLessThanOrEqual(serverBusyWait);
+    expect(rotator.availableKeyCount).toBe(1);
+    expect(rotator.getKeyForBatch()).toBe('key-one-valid');
+    expect(shortestWait).toBeLessThanOrEqual(3 * 60 * 1000);
   });
 
   it('caps recommended concurrency to the number of healthy keys after permanent failures', () => {

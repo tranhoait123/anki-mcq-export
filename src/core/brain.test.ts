@@ -1,6 +1,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   buildGoogleBatchMessage,
+  buildPartialSalvageRecoveryParts,
   callOpenAICompatibleProvider,
   extractProviderMessageContent,
   getAdaptiveQuestionBatchSize,
@@ -200,6 +201,68 @@ describe('Core Logic', () => {
 
     expect(questions).toHaveLength(2);
     expect(questions.map((q) => q.question)).toEqual(['Nội dung câu hỏi', 'Nội dung câu hỏi']);
+  });
+
+  it('builds targeted recovery chunks for missing structured MCQ blocks', () => {
+    const part = {
+      nativeMcqBatch: true,
+      text: [
+        '[DOCX_NATIVE_BATCH_COUNT: 4]',
+        '',
+        '<<<MCQ 1>>>',
+        'Question: 101. Câu alpha',
+        'A. Một',
+        '',
+        '<<<MCQ 2>>>',
+        'Question: 102. Câu beta',
+        'A. Hai',
+        '',
+        '<<<MCQ 3>>>',
+        'Question: 103. Câu gamma còn thiếu',
+        'A. Ba',
+        '',
+        '<<<MCQ 4>>>',
+        'Question: 104. Câu delta',
+        'A. Bốn',
+      ].join('\n'),
+    };
+
+    const recoveryParts = buildPartialSalvageRecoveryParts(part, [
+      { question: '101. Câu alpha' },
+      { question: '102. Câu beta' },
+      { question: '104. Câu delta' },
+    ], 1);
+
+    expect(recoveryParts).toHaveLength(1);
+    expect(recoveryParts[0].expectedQuestions).toBe(1);
+    expect(recoveryParts[0].partialRecovery).toBe(true);
+    expect(recoveryParts[0].text).toContain('103. Câu gamma còn thiếu');
+    expect(recoveryParts[0].text).not.toContain('101. Câu alpha');
+  });
+
+  it('falls back to two-question recovery chunks when partial salvage mapping is low confidence', () => {
+    const part = {
+      nativeMcqBatch: true,
+      text: [
+        '[DOCX_NATIVE_BATCH_COUNT: 3]',
+        '',
+        '<<<MCQ 1>>>',
+        'Question: Alpha',
+        '',
+        '<<<MCQ 2>>>',
+        'Question: Beta',
+        '',
+        '<<<MCQ 3>>>',
+        'Question: Gamma',
+      ].join('\n'),
+    };
+
+    const recoveryParts = buildPartialSalvageRecoveryParts(part, [
+      { question: 'Completely unrelated text' },
+    ], 2);
+
+    expect(recoveryParts).toHaveLength(2);
+    expect(recoveryParts.map((item) => item.expectedQuestions)).toEqual([2, 1]);
   });
 
   it('overrides hallucinated source with the trusted batch source label', () => {

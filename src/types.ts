@@ -68,9 +68,11 @@ export interface BatchFailureInfo {
   index: number;
   label: string;
   kind: BatchFailureKind;
-  stage: 'normal' | 'rescue' | 'split';
+  stage: 'normal' | 'rescue' | 'split' | 'partial';
   message: string;
   advice: string;
+  missingCount?: number;
+  recoveredCount?: number;
 }
 
 export interface DuplicateInfo {

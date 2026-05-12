@@ -236,6 +236,7 @@ export const isModelAllowedForProvider = (provider: AIProvider, model: string): 
 
 export const getProviderFallbackModel = (provider: AIProvider): string => {
   if (provider === 'openrouter') return OPENROUTER_VISION_FALLBACK_MODEL;
+  if (provider === 'google') return 'gemini-2.5-flash';
   return DEFAULT_GEMINI_MODEL;
 };
 

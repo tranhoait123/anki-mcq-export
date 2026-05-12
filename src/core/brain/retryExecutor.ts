@@ -146,6 +146,9 @@ export async function executeWithUserRotation<T>(
         if (decision.cooldownKind) {
           const boundedHint = retryHintMs ? Math.min(retryHintMs, Math.max(1000, getRemainingBudgetMs())) : undefined;
           userKeyRotator.markKeyCooldown(currentKey, decision.cooldownKind, boundedHint);
+        } else if (decision.cause === 'serverBusy') {
+          const boundedHint = retryHintMs ? Math.min(retryHintMs, Math.max(1000, getRemainingBudgetMs())) : undefined;
+          userKeyRotator.markProviderPressure(boundedHint);
         }
 
         if (userKeyRotator.availableKeyCount > 0) {

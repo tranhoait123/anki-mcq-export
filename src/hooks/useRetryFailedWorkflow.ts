@@ -102,6 +102,7 @@ export const useRetryFailedWorkflow = ({
         seedQuestions: baselineQuestions,
         seedDuplicates: duplicatesRef.current,
         liveAppendToVisible: realtimePreviewEnabled,
+        renderCompletedBatchesToVisible: true,
         skipInferredCompletedBatches: true,
         forcedOcrMode: ocrMode,
       });

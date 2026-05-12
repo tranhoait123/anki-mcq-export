@@ -102,6 +102,7 @@ export const useResumeWorkflow = ({
           seedDuplicates: [],
           existingCompletedBatchIndices: session.completedBatchIndices,
           liveAppendToVisible: realtimePreviewEnabled,
+          renderCompletedBatchesToVisible: true,
           forcedOcrMode: activeOcrMode,
         });
 
@@ -166,6 +167,7 @@ export const useResumeWorkflow = ({
             retryProfile: 'rescue',
             autoRescue: true,
             liveAppendToVisible: realtimePreviewEnabled,
+            renderCompletedBatchesToVisible: true,
             forcedOcrMode: activeOcrMode,
           });
           const uniqueRescued = deduplicateQuestions(rescuePhase.res.questions, res.questions);
@@ -247,6 +249,7 @@ export const useResumeWorkflow = ({
             retryProfile: 'rescue',
             autoRescue: true,
             liveAppendToVisible: realtimePreviewEnabled,
+            renderCompletedBatchesToVisible: true,
             forcedOcrMode: activeOcrMode,
           });
           const uniqueRescued = deduplicateQuestions(rescuePhase.res.questions, selectedRes.questions);
@@ -278,6 +281,7 @@ export const useResumeWorkflow = ({
           retryProfile: 'rescue',
           autoRescue: session.phase === 'rescue',
           liveAppendToVisible: realtimePreviewEnabled,
+          renderCompletedBatchesToVisible: true,
           existingCompletedBatchIndices: session.completedBatchIndices || [],
           seedQuestions: session.phaseQuestionsSnapshot || [],
           seedDuplicates: session.phaseDuplicatesSnapshot || [],

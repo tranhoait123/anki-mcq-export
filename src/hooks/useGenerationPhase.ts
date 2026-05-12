@@ -28,6 +28,7 @@ export interface RunGenerationPhaseParams {
   seedDuplicates?: DuplicateInfo[];
   seedAutoSkippedCount?: number;
   liveAppendToVisible?: boolean;
+  renderCompletedBatchesToVisible?: boolean;
   comparisonBaselineCount?: number;
   comparisonFailedBatchIndices?: number[];
   comparisonFailedBatchDetails?: GeneratedResponse['failedBatchDetails'];
@@ -87,6 +88,7 @@ export const useGenerationPhase = ({
     seedDuplicates = [],
     seedAutoSkippedCount = 0,
     liveAppendToVisible = false,
+    renderCompletedBatchesToVisible = liveAppendToVisible,
     comparisonBaselineCount,
     comparisonFailedBatchIndices = [],
     comparisonFailedBatchDetails = [],
@@ -104,8 +106,8 @@ export const useGenerationPhase = ({
       failedBatchIndices: [],
       failedBatchDetails: [],
       forcedOcrMode,
-      autoSkippedCount: liveAppendToVisible ? 0 : phaseAutoSkippedCount,
-      currentCount: liveAppendToVisible ? mcqsRef.current.length : phaseQuestions.length,
+      autoSkippedCount: renderCompletedBatchesToVisible ? 0 : phaseAutoSkippedCount,
+      currentCount: renderCompletedBatchesToVisible ? mcqsRef.current.length : phaseQuestions.length,
       resumeRetryIndices: retryIndices,
       mcqsSnapshot: mcqsRef.current,
       duplicatesSnapshot: duplicatesRef.current,
@@ -155,8 +157,8 @@ export const useGenerationPhase = ({
       expectedQuestionCount,
       (newBatch) => {
         const persistBatch = async () => {
-          if (liveAppendToVisible) {
-            await appendVisibleMcqs(newBatch, { persist: true });
+          if (renderCompletedBatchesToVisible) {
+            await appendVisibleMcqs(newBatch, { persist: liveAppendToVisible });
           }
           phaseQuestions = sortMcqsByQuestionNumber([...phaseQuestions, ...newBatch]);
         };
@@ -210,10 +212,10 @@ export const useGenerationPhase = ({
       totalTopLevelBatches: retryIndices?.length || activeSessionRef.current?.totalTopLevelBatches || 0,
       failedBatchIndices: res.failedBatches || [],
       failedBatchDetails: res.failedBatchDetails || [],
-      currentCount: liveAppendToVisible ? mcqsRef.current.length : phaseQuestions.length,
+      currentCount: renderCompletedBatchesToVisible ? mcqsRef.current.length : phaseQuestions.length,
       mcqsSnapshot: mcqsRef.current,
       duplicatesSnapshot: phaseDuplicates,
-      autoSkippedCount: liveAppendToVisible ? phaseAutoSkippedCount : (activeSessionRef.current?.autoSkippedCount || phaseAutoSkippedCount),
+      autoSkippedCount: renderCompletedBatchesToVisible ? phaseAutoSkippedCount : (activeSessionRef.current?.autoSkippedCount || phaseAutoSkippedCount),
       phaseQuestionsSnapshot: phaseQuestions,
       phaseDuplicatesSnapshot: phaseDuplicates,
       phaseAutoSkippedCount: phaseAutoSkippedCount,

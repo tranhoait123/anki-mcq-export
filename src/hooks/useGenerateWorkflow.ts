@@ -129,6 +129,7 @@ export const useGenerateWorkflow = ({
         expectedQuestionCount,
         controller,
         liveAppendToVisible: realtimePreviewEnabled,
+        renderCompletedBatchesToVisible: true,
         forcedOcrMode: activeOcrMode,
       });
 
@@ -213,6 +214,7 @@ export const useGenerateWorkflow = ({
             retryProfile: 'rescue',
             autoRescue: true,
             liveAppendToVisible: realtimePreviewEnabled,
+            renderCompletedBatchesToVisible: true,
             forcedOcrMode: activeOcrMode,
             seedQuestions: res.questions,
             seedDuplicates: res.duplicates || [],

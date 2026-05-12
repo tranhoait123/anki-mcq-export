@@ -81,6 +81,35 @@ export const getRecoveredMissingQuestionCount = (
   missingCount: number
 ): number => Math.min(Math.max(0, missingCount), Math.max(0, afterBatchCount - beforeBatchCount));
 
+export const buildCompletedBatchSnapshot = <Question, Duplicate>(
+  existingQuestions: Question[] = [],
+  existingDuplicates: Duplicate[] = [],
+  existingAutoSkippedCount = 0,
+  batchQuestions: Map<number, Question[]>,
+  batchDuplicates: Map<number, Duplicate[]>,
+  batchAutoSkipped: Map<number, number>,
+  completedBatchNumbers: number[]
+) => {
+  const questionList = [...existingQuestions];
+  const duplicateList = [...existingDuplicates];
+  let safeAutoSkippedCount = existingAutoSkippedCount;
+
+  completedBatchNumbers
+    .slice()
+    .sort((a, b) => a - b)
+    .forEach((batchNumber) => {
+      questionList.push(...(batchQuestions.get(batchNumber) || []));
+      duplicateList.push(...(batchDuplicates.get(batchNumber) || []));
+      safeAutoSkippedCount += batchAutoSkipped.get(batchNumber) || 0;
+    });
+
+  return {
+    questionsSnapshot: questionList,
+    duplicatesSnapshot: duplicateList,
+    autoSkippedCount: safeAutoSkippedCount,
+  };
+};
+
 export const generateQuestions = async (
   files: UploadedFile[],
   settings: AppSettings,
@@ -410,18 +439,16 @@ export const generateQuestions = async (
 
     const buildCheckpointSnapshot = (completedBatchNumbers: number[]) => (
       measureSync(`generation.buildCheckpointSnapshot(${completedBatchNumbers.length}/${totalTopLevelBatches})`, () => {
-        const questionList = [...(options.existingQuestions || [])];
-        const duplicateList = [...(options.existingDuplicates || [])];
-        let safeAutoSkippedCount = options.existingAutoSkippedCount || 0;
-
-        completedBatchNumbers
-          .slice()
-          .sort((a, b) => a - b)
-          .forEach((batchNumber) => {
-            questionList.push(...(batchQuestions.get(batchNumber) || []));
-            duplicateList.push(...(batchDuplicates.get(batchNumber) || []));
-            safeAutoSkippedCount += batchAutoSkipped.get(batchNumber) || 0;
-          });
+        const snapshot = buildCompletedBatchSnapshot(
+          options.existingQuestions || [],
+          options.existingDuplicates || [],
+          options.existingAutoSkippedCount || 0,
+          batchQuestions,
+          batchDuplicates,
+          batchAutoSkipped,
+          completedBatchNumbers
+        );
+        const questionList = snapshot.questionsSnapshot;
 
         questionList.sort((a, b) => {
           const numA = extractQuestionNumber(a.question) || 999999;
@@ -431,8 +458,8 @@ export const generateQuestions = async (
 
         return {
           questionsSnapshot: questionList,
-          duplicatesSnapshot: duplicateList,
-          autoSkippedCount: safeAutoSkippedCount,
+          duplicatesSnapshot: snapshot.duplicatesSnapshot,
+          autoSkippedCount: snapshot.autoSkippedCount,
         };
       })
     );
@@ -933,7 +960,13 @@ export const generateQuestions = async (
       }
     }
 
-    allQuestions.sort((a, b) => {
+    const finalCompletedBatchIndices = Array.from(skippedBatchSet).sort((a, b) => a - b);
+    const finalSnapshot = buildCheckpointSnapshot(finalCompletedBatchIndices);
+    const finalQuestions = finalSnapshot.questionsSnapshot;
+    const finalDuplicates = finalSnapshot.duplicatesSnapshot;
+    const finalAutoSkippedCount = finalSnapshot.autoSkippedCount;
+
+    finalQuestions.sort((a, b) => {
       const numA = extractQuestionNumber(a.question) || 999999;
       const numB = extractQuestionNumber(b.question) || 999999;
       return numA - numB;
@@ -942,8 +975,8 @@ export const generateQuestions = async (
     failedBatches = Array.from(new Set(failedBatches)).sort((a, b) => a - b);
     failedBatchDetails = failedBatchDetails.sort((a, b) => a.index - b.index || a.label.localeCompare(b.label));
 
-    console.log(`\n📊 FINAL: ${allQuestions.length} questions. Auto-skipped: ${autoSkippedCount}. Failed Batches: ${failedBatches.join(', ') || 'None'}`, failedBatchDetails);
-    return { questions: allQuestions, duplicates: allDuplicates, failedBatches, failedBatchDetails, autoSkippedCount };
+    console.log(`\n📊 FINAL: ${finalQuestions.length} questions. Auto-skipped: ${finalAutoSkippedCount}. Failed Batches: ${failedBatches.join(', ') || 'None'}`, failedBatchDetails);
+    return { questions: finalQuestions, duplicates: finalDuplicates, failedBatches, failedBatchDetails, autoSkippedCount: finalAutoSkippedCount };
 
   } catch (error: any) {
     throw new Error(translateErrorForUser(error, 'Trích xuất'));

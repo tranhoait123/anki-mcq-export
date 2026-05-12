@@ -19,7 +19,7 @@ import {
   translateErrorForUser,
 } from './brain';
 import { executeWithUserRotation, userKeyRotator } from './brain/retryExecutor';
-import { getRecoveredMissingQuestionCount } from './brain/generation';
+import { buildCompletedBatchSnapshot, getRecoveredMissingQuestionCount } from './brain/generation';
 import type { RetryProfile } from '../utils/retryStrategy';
 import { AppSettings } from '../types';
 
@@ -257,6 +257,37 @@ describe('Core Logic', () => {
     expect(getRecoveredMissingQuestionCount(8, 22, 2)).toBe(2);
     expect(getRecoveredMissingQuestionCount(8, 9, 2)).toBe(1);
     expect(getRecoveredMissingQuestionCount(10, 9, 2)).toBe(0);
+  });
+
+  it('excludes partial questions from failed batches in final snapshots', () => {
+    const snapshot = buildCompletedBatchSnapshot(
+      [{ question: 'Existing' }],
+      [{ id: 'existing-dup' }],
+      1,
+      new Map([
+        [1, [{ question: 'Completed batch 1' }]],
+        [2, [{ question: 'Failed partial batch 2' }]],
+        [3, [{ question: 'Completed batch 3' }]],
+      ]),
+      new Map([
+        [1, [{ id: 'dup-1' }]],
+        [2, [{ id: 'failed-dup' }]],
+      ]),
+      new Map([
+        [1, 2],
+        [2, 9],
+        [3, 1],
+      ]),
+      [1, 3]
+    );
+
+    expect(snapshot.questionsSnapshot.map((item) => item.question)).toEqual([
+      'Existing',
+      'Completed batch 1',
+      'Completed batch 3',
+    ]);
+    expect(snapshot.duplicatesSnapshot.map((item) => item.id)).toEqual(['existing-dup', 'dup-1']);
+    expect(snapshot.autoSkippedCount).toBe(4);
   });
 
   it('computes safe adaptive question batch sizes from output budgets', () => {

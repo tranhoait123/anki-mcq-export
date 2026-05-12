@@ -7,8 +7,6 @@ permissions:
   checks: write
   contents: read
   pull-requests: write
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 jobs:
   build_and_preview:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
@@ -22,8 +20,10 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:all
-      - uses: FirebaseExtended/action-hosting-deploy@v0.10.0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANKI_MCQ_EXPORT_APP }}
-          projectId: anki-mcq-export-app
+      - name: Deploy Firebase Hosting preview
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANKI_MCQ_EXPORT_APP }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx firebase-tools@latest hosting:channel:deploy "pr-${{ github.event.number }}" --expires 7d --project anki-mcq-export-app --non-interactive

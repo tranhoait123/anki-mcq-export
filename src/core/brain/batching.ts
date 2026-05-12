@@ -165,8 +165,9 @@ export const buildPartialSalvageRecoveryParts = (
   });
 
   const lowConfidence = matchedBlockIndexes.size < Math.max(1, Math.floor(salvagedQuestions.length * 0.6));
+  const highCoveragePartial = salvagedQuestions.length >= Math.ceil(blocks.length * 0.5) && salvagedQuestions.length < blocks.length;
   const targetBlocks = lowConfidence
-    ? blocks
+    ? (highCoveragePartial ? blocks.slice(salvagedQuestions.length) : blocks)
     : blocks.filter((_block, index) => !matchedBlockIndexes.has(index));
 
   const recoveryParts: any[] = [];

@@ -75,6 +75,12 @@ import {
 import { SYSTEM_INSTRUCTION_EXTRACT } from './prompts';
 import { measureSync } from '../../utils/performance';
 
+export const getRecoveredMissingQuestionCount = (
+  beforeBatchCount: number,
+  afterBatchCount: number,
+  missingCount: number
+): number => Math.min(Math.max(0, missingCount), Math.max(0, afterBatchCount - beforeBatchCount));
+
 export const generateQuestions = async (
   files: UploadedFile[],
   settings: AppSettings,
@@ -370,6 +376,7 @@ export const generateQuestions = async (
     const batchQuestions = new Map<number, MCQ[]>();
     const batchDuplicates = new Map<number, DuplicateInfo[]>();
     const batchAutoSkipped = new Map<number, number>();
+    const recoveryBudgets = new Map<string, number>();
     const checkpointBatchInterval = Math.max(1, options.checkpointBatchInterval || 1);
     const checkpointIntervalMs = Math.max(0, options.checkpointIntervalMs || 0);
     const getPhaseCompletedCount = (completedBatchNumbers: number[]) => {
@@ -605,7 +612,10 @@ export const generateQuestions = async (
         const visionPrompt = (part.sourceMode === 'pdfVision' || part.inlineData || (Array.isArray(part.inlineDataParts) && part.inlineDataParts.length > 0))
           ? `[CHỈ THỊ QUAN TRỌNG CHO PHẦN ẢNH/VISION]: Tài liệu hiện tại đang được xử lý ở chế độ quét Vision (ảnh chụp/PDF scan). Hãy đọc cực kỳ chậm và tỉ mỉ từng dòng, từng góc của trang ảnh này. Hãy đếm thầm xem có chính xác bao nhiêu câu hỏi trắc nghiệm (MCQ) xuất hiện trên trang. Bạn phải trích xuất ĐẦY ĐỦ TRĂM PHẦN TRĂM câu hỏi, không được bỏ sót bất kỳ câu nào dù là câu ngắn, câu tình huống hay câu ở cuối trang. Đọc theo thứ tự trang từ trên xuống dưới; chú ý câu ở cuối trang, bảng, layout 2 cột và lựa chọn nằm sát mép.${part.sourceMode === 'pdfVision' && expectedQuestions > 0 ? ` Text layer gợi ý có khoảng ${expectedQuestions} câu trong phạm vi này; nếu thấy khác, hãy ưu tiên đọc ảnh thật kỹ nhưng không được bỏ sót câu đã có marker.` : ''}${part.pdfVisionQuality === 'high' ? ' Đây là lượt cứu thiếu với ảnh nét hơn và phạm vi nhỏ hơn; chỉ trả các câu còn thiếu/chưa có trong danh sách đã lưu.' : ''}`
           : '';
-        const scanPrompt = `${repairInstruction ? `${repairInstruction}\n\n` : ''}${partialRecoveryInstruction ? `${partialRecoveryInstruction}\n\n` : ''}${sourceInstruction}\n\n${nativePrompt ? `${nativePrompt}\n\n` : ''}${imagePrompt ? `${imagePrompt}\n\n` : ''}${visionPrompt ? `${visionPrompt}\n\n` : ''}HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
+        const extractionCommand = part.partialRecovery
+          ? `CHỈ TRÍCH XUẤT CÁC CÂU CÒN THIẾU trong phần cứu này. Không trả lại câu đã có, không mở rộng ra ngoài block/trang được cung cấp (Phần ${batchLabel}).`
+          : `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
+        const scanPrompt = `${repairInstruction ? `${repairInstruction}\n\n` : ''}${partialRecoveryInstruction ? `${partialRecoveryInstruction}\n\n` : ''}${sourceInstruction}\n\n${nativePrompt ? `${nativePrompt}\n\n` : ''}${imagePrompt ? `${imagePrompt}\n\n` : ''}${visionPrompt ? `${visionPrompt}\n\n` : ''}${extractionCommand}`;
 
         const rawNewQs = await (isOpenAICompatibleProvider(runtimeSettings.provider)
           ? executeWithUserRotation(
@@ -712,12 +722,17 @@ export const generateQuestions = async (
           const batchNewDuplicates: DuplicateInfo[] = [];
           let batchNewAutoSkipped = 0;
           const duplicateLookup = createDuplicateLookup<MCQ>(allQuestions);
+          const recoveryBudgetKey = typeof part.recoveryBudgetKey === 'string' ? part.recoveryBudgetKey : '';
           for (const q of rawNewQs) {
+            if (recoveryBudgetKey && (recoveryBudgets.get(recoveryBudgetKey) || 0) <= 0) break;
             const result = duplicateLookup.find(q);
             if (!result.isDup) {
               q.id = `mcq-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
               newQs.push(q);
               duplicateLookup.add(q);
+              if (recoveryBudgetKey) {
+                recoveryBudgets.set(recoveryBudgetKey, Math.max(0, (recoveryBudgets.get(recoveryBudgetKey) || 0) - 1));
+              }
             } else {
               duplicateCounter++;
               const sameTopLevelBatchDuplicate = isSameTopLevelBatchDuplicate(topLevelIndex + 1, result.matchedData);
@@ -762,7 +777,8 @@ export const generateQuestions = async (
               throw new Error(`AI_FORMAT_ERROR_PARTIAL_SALVAGE: Đã cứu ${rawNewQs.length} câu hợp lệ nhưng còn thiếu khoảng ${missingCount} câu (>${Math.round(missingRatio * 100)}%).`);
             } else if (!part.partialRecovery) {
               console.warn(`⚠️ Batch ${batchLabel}: Salvage lấy được ${rawNewQs.length}/${expectedQuestions} câu (thiếu ${missingCount}). Đang cứu chọn lọc phần thiếu.`);
-              const beforeRecoveryCount = allQuestions.length;
+              const topLevelBatchNumber = topLevelIndex + 1;
+              const beforeRecoveryCount = (batchQuestions.get(topLevelBatchNumber) || []).length;
               const recoveryParts = canRecoverPdfVision
                 ? await buildPdfVisionRecoveryParts(part, rawNewQs, missingCount)
                 : part.nativeMcqBatch
@@ -777,14 +793,18 @@ export const generateQuestions = async (
                   }];
 
               if (recoveryParts.length > 0) {
+                const recoveryBudgetKey = `batch-${topLevelBatchNumber}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                recoveryBudgets.set(recoveryBudgetKey, missingCount);
                 await runPartsWithLimit(
-                  recoveryParts,
+                  recoveryParts.map((recoveryPart) => ({ ...recoveryPart, recoveryBudgetKey })),
                   getSplitConcurrencyLimit(),
                   (recoveryPart) => processBatch(recoveryPart, index, depth + 1, true, topLevelIndex)
                 );
+                recoveryBudgets.delete(recoveryBudgetKey);
               }
 
-              const recoveredCount = Math.max(0, allQuestions.length - beforeRecoveryCount);
+              const afterRecoveryCount = (batchQuestions.get(topLevelBatchNumber) || []).length;
+              const recoveredCount = getRecoveredMissingQuestionCount(beforeRecoveryCount, afterRecoveryCount, missingCount);
               if (depth === 0 && recoveredCount < missingCount) {
                 recordBatchFailure(index, batchLabel, new Error(`Thiếu ${missingCount - recoveredCount}/${expectedQuestions} câu`), 'partial', {
                   missingCount,

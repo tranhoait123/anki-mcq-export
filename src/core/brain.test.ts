@@ -18,6 +18,9 @@ import {
   salvageCompleteQuestionsFromJson,
   translateErrorForUser,
 } from './brain';
+import { executeWithUserRotation, userKeyRotator } from './brain/retryExecutor';
+import { getRecoveredMissingQuestionCount } from './brain/generation';
+import type { RetryProfile } from '../utils/retryStrategy';
 import { AppSettings } from '../types';
 
 const baseSettings: AppSettings = {
@@ -27,6 +30,21 @@ const baseSettings: AppSettings = {
   provider: 'openrouter',
   model: 'google/gemini-2.5-flash',
   customPrompt: '',
+};
+
+const tinyRetryProfile: RetryProfile = {
+  name: 'normal',
+  attemptBuffer: 0,
+  minAttempts: 4,
+  fallbackAfterAttempt: 3,
+  formatFastFailAttempt: 2,
+  backoffCapMs: 1,
+  singleKeyBackoffCapMs: 1,
+  maxElapsedMs: 1000,
+  splitThresholdChars: 500,
+  maxDepth: 1,
+  targetSplitParts: 2,
+  initialJitterMs: [1, 1],
 };
 
 describe('Core Logic', () => {
@@ -124,6 +142,121 @@ describe('Core Logic', () => {
     expect(getRetryDelayMsFromError(new Error('RESOURCE_EXHAUSTED. Please retry in 21.5s.'))).toBe(21500);
     expect(getRetryDelayMsFromError({ message: 'RetryDelay: 1500ms' })).toBe(1500);
     expect(getRetryDelayMsFromError({ retryAfterMs: 12000, message: '429' })).toBe(12000);
+    expect(getRetryDelayMsFromError({
+      details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '12s' }],
+    })).toBe(12000);
+    expect(getRetryDelayMsFromError({
+      message: '{"details":[{"retryDelay":{"seconds":"7"}}]}',
+    })).toBe(7000);
+  });
+
+  it('keeps 503 provider pressure on the same key and leaves keys available', async () => {
+    userKeyRotator.init('key-one-valid,key-two-valid,key-three-valid', 3);
+    const calls: string[] = [];
+
+    const result = await executeWithUserRotation(
+      'gemini-test',
+      async (apiKey) => {
+        calls.push(apiKey);
+        if (calls.length < 3) {
+          const error: any = new Error('503 UNAVAILABLE: model overloaded');
+          error.statusCode = 503;
+          throw error;
+        }
+        return 'ok';
+      },
+      'key-one-valid',
+      'gemini-fallback',
+      tinyRetryProfile
+    );
+
+    expect(result).toBe('ok');
+    expect(calls).toEqual(['key-one-valid', 'key-one-valid', 'key-one-valid']);
+    expect(userKeyRotator.availableKeyCount).toBe(3);
+    expect(userKeyRotator.getRecommendedConcurrency()).toBeLessThan(3);
+  });
+
+  it('honors soft 429 delay by retrying the same key before rotating', async () => {
+    userKeyRotator.init('key-one-valid,key-two-valid,key-three-valid', 3);
+    const calls: string[] = [];
+
+    const result = await executeWithUserRotation(
+      'gemini-test',
+      async (apiKey) => {
+        calls.push(apiKey);
+        if (calls.length === 1) {
+          const error: any = new Error('429 RESOURCE_EXHAUSTED: too many requests');
+          error.statusCode = 429;
+          error.retryAfterMs = 1;
+          throw error;
+        }
+        return 'ok';
+      },
+      'key-one-valid',
+      'gemini-fallback',
+      tinyRetryProfile
+    );
+
+    expect(result).toBe('ok');
+    expect(calls).toEqual(['key-one-valid', 'key-one-valid']);
+    expect(userKeyRotator.availableKeyCount).toBe(3);
+    expect(userKeyRotator.hardFailedKeyCount).toBe(0);
+  });
+
+  it('marks only invalid keys failed and rotates to a healthy key', async () => {
+    userKeyRotator.init('key-one-valid,key-two-valid,key-three-valid', 3);
+    const calls: string[] = [];
+
+    const result = await executeWithUserRotation(
+      'gemini-test',
+      async (apiKey) => {
+        calls.push(apiKey);
+        if (apiKey === 'key-one-valid') {
+          const error: any = new Error('403 permission denied: API key not valid');
+          error.statusCode = 403;
+          throw error;
+        }
+        return 'ok';
+      },
+      'key-one-valid',
+      'gemini-fallback',
+      tinyRetryProfile
+    );
+
+    expect(result).toBe('ok');
+    expect(calls).toEqual(['key-one-valid', 'key-two-valid']);
+    expect(userKeyRotator.hardFailedKeyCount).toBe(1);
+    expect(userKeyRotator.availableKeyCount).toBe(2);
+  });
+
+  it('caps soft-rate-limit key visits per logical batch', async () => {
+    userKeyRotator.init('key-one-valid,key-two-valid,key-three-valid,key-four-valid,key-five-valid', 5);
+    const calls: string[] = [];
+    const profile: RetryProfile = { ...tinyRetryProfile, minAttempts: 7, attemptBuffer: 0 };
+
+    await expect(executeWithUserRotation(
+      'gemini-test',
+      async (apiKey) => {
+        calls.push(apiKey);
+        const error: any = new Error('429 RESOURCE_EXHAUSTED: too many requests');
+        error.statusCode = 429;
+        error.retryAfterMs = 1;
+        throw error;
+      },
+      'key-one-valid',
+      'gemini-fallback',
+      profile
+    )).rejects.toThrow(/quá tải|bận|RETRY_BUDGET/i);
+
+    expect(new Set(calls).size).toBeLessThanOrEqual(3);
+    expect(new Set(calls)).not.toContain('key-four-valid');
+    expect(userKeyRotator.availableKeyCount).toBe(5);
+  });
+
+  it('caps PDF recovery accounting to questions added by the same batch', () => {
+    expect(getRecoveredMissingQuestionCount(8, 22, 2)).toBe(2);
+    expect(getRecoveredMissingQuestionCount(8, 9, 2)).toBe(1);
+    expect(getRecoveredMissingQuestionCount(10, 9, 2)).toBe(0);
   });
 
   it('computes safe adaptive question batch sizes from output budgets', () => {
@@ -263,6 +396,29 @@ describe('Core Logic', () => {
 
     expect(recoveryParts).toHaveLength(2);
     expect(recoveryParts.map((item) => item.expectedQuestions)).toEqual([2, 1]);
+  });
+
+  it('targets only tail blocks when high-coverage partial salvage cannot be text-matched', () => {
+    const blocks = Array.from({ length: 10 }, (_, index) => [
+      `<<<MCQ ${index + 1}>>>`,
+      `Question: ${601 + index}. Nội dung gốc câu ${index + 1}`,
+      'A. Một',
+      'B. Hai',
+    ].join('\n'));
+    const part = {
+      nativeMcqBatch: true,
+      text: `[PDF_TEXT_MCQ_COUNT: 10]\n\n${blocks.join('\n\n')}`,
+    };
+
+    const recoveryParts = buildPartialSalvageRecoveryParts(part, Array.from({ length: 8 }, (_, index) => ({
+      question: `Model đã bỏ số và diễn đạt lại câu ${index + 1}`,
+    })), 1);
+
+    expect(recoveryParts).toHaveLength(2);
+    expect(recoveryParts.every((item) => item.expectedQuestions === 1)).toBe(true);
+    expect(recoveryParts[0].text).toContain('609. Nội dung gốc câu 9');
+    expect(recoveryParts[1].text).toContain('610. Nội dung gốc câu 10');
+    expect(recoveryParts.map((item) => item.text).join('\n')).not.toContain('601. Nội dung gốc câu 1');
   });
 
   it('flags a 9-question PDF vision response as partial when the text-layer hint expects 10', () => {

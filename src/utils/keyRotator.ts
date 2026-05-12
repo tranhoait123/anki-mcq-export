@@ -95,7 +95,7 @@ export class UserKeyRotator {
 
     this.successStreak++;
     const maxUsefulConcurrency = this.getMaxUsefulConcurrency();
-    const recoveryThreshold = Math.max(2, this.recommendedConcurrency * 2);
+    const recoveryThreshold = Math.max(4, this.recommendedConcurrency * 3);
     if (this.successStreak >= recoveryThreshold && this.recommendedConcurrency < maxUsefulConcurrency) {
       this.recommendedConcurrency++;
       this.successStreak = 0;
@@ -127,6 +127,14 @@ export class UserKeyRotator {
     this.cooldownUntil.set(key, Math.max(previous, until));
     this.registerPressure(kind, boundedDurationMs);
     console.warn(`⏸️ API Key #${this.getKeyNumber(key)} cooling down for ${Math.round(boundedDurationMs / 1000)}s (${kind}). ${this.availableKeyCount} keys available now.`);
+  }
+
+  markSoftRateLimit(durationMs?: number): void {
+    const now = this.now();
+    const boundedDurationMs = Math.max(1000, Math.min(durationMs ?? 8000, 60 * 1000));
+    this.registerPressure('rateLimit', boundedDurationMs, true);
+    this.globalCooldownUntil = Math.max(this.globalCooldownUntil, now + boundedDurationMs);
+    console.warn(`🌐 Provider rate-limit cooldown for ${Math.round(boundedDurationMs / 1000)}s. Keys stay available; concurrency is ${this.recommendedConcurrency}/${this.getMaxUsefulConcurrency()}.`);
   }
 
   markProviderPressure(durationMs?: number): void {
@@ -197,6 +205,12 @@ export class UserKeyRotator {
     return this.currentIndex;
   }
 
+  getMaxKeysPerOperation(): number {
+    const usableKeyCount = this.getAvailableKeys().length || this.getHealthyKeyCount();
+    if (usableKeyCount <= 0) return 0;
+    return Math.max(1, Math.min(3, usableKeyCount));
+  }
+
   hasRecentProviderPressure(windowMs: number = 30 * 1000): boolean {
     const now = this.now();
     return this.globalCooldownUntil > now || (this.lastPressureAt > 0 && now - this.lastPressureAt <= windowMs && this.pressureStreak > 0);
@@ -210,7 +224,7 @@ export class UserKeyRotator {
     return Math.max(1, Math.min(this.desiredConcurrency, this.getHealthyKeyCount() || this.desiredConcurrency));
   }
 
-  private registerPressure(kind: KeyCooldownKind, durationMs: number): void {
+  private registerPressure(kind: KeyCooldownKind, durationMs: number, forceSingleConcurrency: boolean = false): void {
     const now = this.now();
     this.pressureStreak = now - this.lastPressureAt <= 45 * 1000 ? this.pressureStreak + 1 : 1;
     this.lastPressureAt = now;
@@ -218,7 +232,7 @@ export class UserKeyRotator {
 
     const shouldReduceNow = kind === 'rateLimit' || this.pressureStreak >= 2;
     if (shouldReduceNow && this.recommendedConcurrency > 1) {
-      this.recommendedConcurrency = Math.max(1, this.recommendedConcurrency - 1);
+      this.recommendedConcurrency = forceSingleConcurrency ? 1 : Math.max(1, this.recommendedConcurrency - 1);
       console.warn(`🐢 Adaptive concurrency reduced to ${this.recommendedConcurrency}/${this.getMaxUsefulConcurrency()} after ${kind}.`);
     }
 

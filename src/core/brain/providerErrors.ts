@@ -130,9 +130,54 @@ const normalizeRetryDelayMs = (value: number, unit: string): number => {
   return Math.round(value * 1000);
 };
 
+const parseRetryDelayValueMs = (value: any): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.round(value * 1000);
+  if (typeof value === 'string') {
+    const match = value.trim().match(/^(\d+(?:\.\d+)?)(ms|milliseconds?|s|sec(?:onds?)?|m|minutes?)?$/i);
+    if (!match) return undefined;
+    const amount = Number(match[1]);
+    if (!Number.isFinite(amount) || amount <= 0) return undefined;
+    return normalizeRetryDelayMs(amount, match[2] || 's');
+  }
+  if (value && typeof value === 'object') {
+    const seconds = Number(value.seconds || value.sec || 0);
+    const nanos = Number(value.nanos || value.nanoseconds || 0);
+    if ((Number.isFinite(seconds) && seconds > 0) || (Number.isFinite(nanos) && nanos > 0)) {
+      return Math.round(Math.max(0, seconds) * 1000 + Math.max(0, nanos) / 1_000_000);
+    }
+  }
+  return undefined;
+};
+
+const findStructuredRetryDelayMs = (value: any, depth = 0): number | undefined => {
+  if (!value || depth > 6) return undefined;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findStructuredRetryDelayMs(item, depth + 1);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  if (typeof value !== 'object') return undefined;
+
+  for (const [key, child] of Object.entries(value)) {
+    const normalizedKey = key.toLowerCase();
+    if (normalizedKey === 'retrydelay' || normalizedKey === 'retry_delay' || normalizedKey === 'retryafter' || normalizedKey === 'retry_after') {
+      const parsed = parseRetryDelayValueMs(child);
+      if (parsed) return parsed;
+    }
+    const nested = findStructuredRetryDelayMs(child, depth + 1);
+    if (nested) return nested;
+  }
+  return undefined;
+};
+
 export const getRetryDelayMsFromError = (error: any): number | undefined => {
   const hintedDelay = Number(error?.retryAfterMs || error?.providerRetryDelayMs || 0);
   if (Number.isFinite(hintedDelay) && hintedDelay > 0) return hintedDelay;
+
+  const structuredDelay = findStructuredRetryDelayMs(error);
+  if (structuredDelay) return structuredDelay;
 
   const text = String(error?.message || error || '');
   if (!text) return undefined;
@@ -157,17 +202,36 @@ export const getRetryDelayMsFromError = (error: any): number | undefined => {
     if (Number.isFinite(value) && value > 0) return Math.round(value * 1000);
   }
 
+  const jsonRetryDelayMatch = text.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?s)"/i);
+  if (jsonRetryDelayMatch) {
+    const parsed = parseRetryDelayValueMs(jsonRetryDelayMatch[1]);
+    if (parsed) return parsed;
+  }
+
+  const jsonRetrySecondsMatch = text.match(/"retryDelay"\s*:\s*\{[^}]*"seconds"\s*:\s*"?(\d+(?:\.\d+)?)"?/i);
+  if (jsonRetrySecondsMatch) {
+    const value = Number(jsonRetrySecondsMatch[1]);
+    if (Number.isFinite(value) && value > 0) return Math.round(value * 1000);
+  }
+
   return undefined;
 };
 
 export const createProviderApiError = async (providerName: string, response: Response, modelName: string): Promise<Error> => {
   let detail = '';
+  let structuredDetails: any;
   try {
     const raw = await response.text();
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
-        detail = parsed?.error?.message || parsed?.message || parsed?.detail || raw;
+        const payload = parsed?.error || parsed;
+        structuredDetails = payload?.details;
+        const detailParts = [
+          payload?.message || parsed?.message || parsed?.detail,
+          structuredDetails ? JSON.stringify(structuredDetails) : '',
+        ].filter(Boolean);
+        detail = detailParts.length > 0 ? detailParts.join(' | ') : raw;
       } catch {
         detail = raw;
       }
@@ -177,12 +241,13 @@ export const createProviderApiError = async (providerName: string, response: Res
   }
 
   const cleanDetail = detail.replace(/\s+/g, ' ').slice(0, 260);
-  const error: Error & { status?: number; statusCode?: number; retryAfterMs?: number } = new Error(
+  const error: Error & { status?: number; statusCode?: number; retryAfterMs?: number; details?: any } = new Error(
     `${providerName} API Error: ${response.status} | model=${modelName}${cleanDetail ? ` | ${cleanDetail}` : ''}`
   );
   error.status = response.status;
   error.statusCode = response.status;
-  const retryAfterMs = parseRetryAfterHeaderMs(response.headers) ?? getRetryDelayMsFromError({ message: detail });
+  if (structuredDetails) error.details = structuredDetails;
+  const retryAfterMs = parseRetryAfterHeaderMs(response.headers) ?? getRetryDelayMsFromError({ message: detail, details: structuredDetails });
   if (retryAfterMs) error.retryAfterMs = retryAfterMs;
   return error;
 };

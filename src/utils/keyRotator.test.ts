@@ -75,6 +75,23 @@ describe('UserKeyRotator safety patch', () => {
     expect(rotator.hasRecentProviderPressure()).toBe(true);
   });
 
+  it('treats soft 429 as provider pressure without cooling down or sweeping keys', () => {
+    let now = 1_000;
+    const rotator = new UserKeyRotator(() => now);
+    rotator.init('key-one-valid,key-two-valid,key-three-valid,key-four-valid', 4);
+
+    rotator.markSoftRateLimit(12_000);
+
+    expect(rotator.availableKeyCount).toBe(4);
+    expect(rotator.hardFailedKeyCount).toBe(0);
+    expect(rotator.getMaxKeysPerOperation()).toBe(3);
+    expect(rotator.getRecommendedConcurrency()).toBe(1);
+    expect(rotator.getNextCooldownDelayMs()).toBe(12_000);
+
+    now += 12_001;
+    expect(rotator.availableKeyCount).toBe(4);
+  });
+
   it('keeps rate limits key-specific even after provider pressure', () => {
     let now = 1_000;
     const rotator = new UserKeyRotator(() => now);
@@ -133,14 +150,10 @@ describe('UserKeyRotator safety patch', () => {
     expect(rotator.getRecommendedConcurrency()).toBe(1);
 
     now += 25_000;
-    rotator.reportSuccess('key-three-valid');
-    rotator.reportSuccess('key-three-valid');
+    for (let i = 0; i < 4; i++) rotator.reportSuccess('key-three-valid');
     expect(rotator.getRecommendedConcurrency()).toBe(2);
 
-    rotator.reportSuccess('key-three-valid');
-    rotator.reportSuccess('key-three-valid');
-    rotator.reportSuccess('key-three-valid');
-    rotator.reportSuccess('key-three-valid');
+    for (let i = 0; i < 6; i++) rotator.reportSuccess('key-three-valid');
     expect(rotator.getRecommendedConcurrency()).toBe(3);
   });
 });

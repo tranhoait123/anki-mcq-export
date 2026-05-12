@@ -166,7 +166,7 @@ export const getRetryDecision = (
       shouldTryFallbackModel: false,
       message: hardQuota
         ? 'Hard quota/billing limit detected; try another key or stop this batch.'
-        : 'Transient throttle detected; honor retry delay/cooldown and rotate if possible.',
+        : 'Transient throttle detected; honor provider delay before trying backup keys.',
     };
   }
 

@@ -55,12 +55,12 @@ export async function executeWithUserRotation<T>(
   retryProfile: RetryProfile = getRetryProfile('normal'),
   controller?: ProcessingController
 ): Promise<T> {
-  const ATTEMPTS_LIMIT = Math.max(retryProfile.minAttempts, userKeyRotator.keyCount + retryProfile.attemptBuffer);
+  const ATTEMPTS_LIMIT = Math.max(retryProfile.minAttempts, retryProfile.minAttempts + retryProfile.attemptBuffer);
   let attempts = 0;
-  let distinctKeysTried = 0;
-  let lastTriedKey = '';
   let currentModel = initialModel;
   let currentKey = startingKey || userKeyRotator.getCurrentKey();
+  const keysTried = new Set<string>();
+  const sameKeySoftRateLimitRetries = new Map<string, number>();
   const startedAt = Date.now();
 
   const getRemainingBudgetMs = () => retryProfile.maxElapsedMs - (Date.now() - startedAt);
@@ -84,6 +84,7 @@ export async function executeWithUserRotation<T>(
     }
 
     attempts++;
+    if (currentKey) keysTried.add(currentKey);
 
     try {
       const result = await operation(currentKey, currentModel);
@@ -94,6 +95,11 @@ export async function executeWithUserRotation<T>(
       const retryHintMs = getRetryDelayMsFromError(error);
       if (retryHintMs && !error.retryAfterMs) error.retryAfterMs = retryHintMs;
       const decision = getRetryDecision(error, retryProfile, attempts);
+      const getBoundedRetryHint = () => (
+        retryHintMs
+          ? Math.min(retryHintMs, retryProfile.singleKeyBackoffCapMs, Math.max(1000, getRemainingBudgetMs()))
+          : undefined
+      );
 
       if (decision.action === 'split') {
         if (decision.cause === 'requestTooLarge') {
@@ -142,32 +148,38 @@ export async function executeWithUserRotation<T>(
           : (decision.cause === 'serverBusy' ? "Server quá tải/timeout" : "Lỗi định dạng AI");
         console.warn(`⚠️ ${reason} (Lần thử ${attempts}/${ATTEMPTS_LIMIT}). ${decision.message}`);
 
-        let backoffMs = 0;
-        if (decision.cooldownKind) {
-          const boundedHint = retryHintMs ? Math.min(retryHintMs, Math.max(1000, getRemainingBudgetMs())) : undefined;
-          userKeyRotator.markKeyCooldown(currentKey, decision.cooldownKind, boundedHint);
-        } else if (decision.cause === 'serverBusy') {
-          const boundedHint = retryHintMs ? Math.min(retryHintMs, Math.max(1000, getRemainingBudgetMs())) : undefined;
-          userKeyRotator.markProviderPressure(boundedHint);
-        }
+        const boundedHint = getBoundedRetryHint();
+        const isServerBusyRetry = decision.cause === 'serverBusy';
+        const isSoftRateLimitRetry = decision.cause === 'softRateLimit';
+        const isFormatRetry = decision.cause === 'format';
+        const shouldHonorProviderDelay = isSoftRateLimitRetry || isServerBusyRetry;
+        let backoffMs = boundedHint && shouldHonorProviderDelay
+          ? boundedHint
+          : getBackoffDelayMs(
+              retryProfile,
+              attempts,
+              Math.max(0, attempts - 1),
+              isServerBusyRetry,
+              isSoftRateLimitRetry,
+              isFormatRetry,
+              false
+            );
 
-        if (userKeyRotator.availableKeyCount > 0) {
-          currentKey = userKeyRotator.rotate();
-          let hasFreshKey = false;
-
-          if (currentKey !== lastTriedKey) {
-            distinctKeysTried++;
-            lastTriedKey = currentKey;
-            hasFreshKey = true;
+        if (isSoftRateLimitRetry) {
+          userKeyRotator.markSoftRateLimit(backoffMs);
+          const sameKeyRetries = sameKeySoftRateLimitRetries.get(currentKey) || 0;
+          sameKeySoftRateLimitRetries.set(currentKey, sameKeyRetries + 1);
+          const canTryBackupKey = (
+            sameKeyRetries >= 1 &&
+            userKeyRotator.availableKeyCount > 1 &&
+            keysTried.size < userKeyRotator.getMaxKeysPerOperation()
+          );
+          if (canTryBackupKey) {
+            const nextKey = userKeyRotator.rotate();
+            if (nextKey) currentKey = nextKey;
           }
-
-          const availableCount = userKeyRotator.availableKeyCount;
-          if (distinctKeysTried >= availableCount) {
-            const cycles = Math.floor(distinctKeysTried / Math.max(1, availableCount));
-            backoffMs = getBackoffDelayMs(retryProfile, attempts, cycles, decision.cause === 'serverBusy', decision.cause === 'softRateLimit', decision.cause === 'format', false);
-          } else {
-            backoffMs = getBackoffDelayMs(retryProfile, attempts, 0, decision.cause === 'serverBusy', decision.cause === 'softRateLimit', decision.cause === 'format', hasFreshKey);
-          }
+        } else if (isServerBusyRetry) {
+          userKeyRotator.markProviderPressure(backoffMs);
         } else {
           const cooldownDelay = userKeyRotator.getNextCooldownDelayMs();
           if (cooldownDelay > 0) {
@@ -178,13 +190,13 @@ export async function executeWithUserRotation<T>(
           } else {
             backoffMs = Math.min(
               retryProfile.singleKeyBackoffCapMs,
-              getBackoffDelayMs(retryProfile, attempts, attempts - 1, decision.cause === 'serverBusy', decision.cause === 'softRateLimit', decision.cause === 'format', false)
+              getBackoffDelayMs(retryProfile, attempts, attempts - 1, isServerBusyRetry, isSoftRateLimitRetry, isFormatRetry, false)
             );
           }
         }
 
         backoffMs = Math.min(backoffMs, Math.max(250, getRemainingBudgetMs()));
-        console.log(`⏳ Backoff: ${Math.round(backoffMs / 1000)}s (Key #${userKeyRotator.getKeyNumber(currentKey)}/${userKeyRotator.keyCount}, Distinct tried: ${distinctKeysTried})`);
+        console.log(`⏳ Backoff: ${Math.round(backoffMs / 1000)}s (Key #${userKeyRotator.getKeyNumber(currentKey)}/${userKeyRotator.keyCount}, Distinct tried: ${keysTried.size}/${userKeyRotator.getMaxKeysPerOperation() || 1})`);
         await waitWithController(backoffMs, controller);
         continue;
       }

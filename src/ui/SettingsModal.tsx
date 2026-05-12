@@ -290,12 +290,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                             Xem câu hỏi realtime
                                         </label>
                                         <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                            Hiện câu ngay khi AI stream về. Tắt mặc định để giảm lag trên tài liệu lớn hoặc máy yếu.
+                                            Hiện câu ngay khi AI stream về. Có thể tắt nếu tài liệu lớn hoặc máy yếu bị lag.
                                         </p>
                                     </div>
                                     <input
                                         type="checkbox"
-                                        checked={settings.realtimePreviewEnabled === true}
+                                        checked={settings.realtimePreviewEnabled !== false}
                                         onChange={e => setSettings({ ...settings, realtimePreviewEnabled: e.target.checked })}
                                         className="w-5 h-5 text-indigo-600 border-gray-300 rounded-md focus:ring-indigo-500 cursor-pointer"
                                     />

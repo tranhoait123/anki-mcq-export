@@ -19,7 +19,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   adaptiveBatching: true,
   batchingMode: 'safe',
   projectLibraryEnabled: true,
-  realtimePreviewEnabled: false,
+  realtimePreviewEnabled: true,
 };
 
 export const isDocxFile = (file?: UploadedFile | null) =>
@@ -130,7 +130,7 @@ export const normalizePersistedSettings = (settings: LegacyPersistedSettings): A
   if (persistedSettings.adaptiveBatching === undefined) persistedSettings.adaptiveBatching = true;
   if (persistedSettings.batchingMode === undefined) persistedSettings.batchingMode = 'safe';
   if (persistedSettings.projectLibraryEnabled === undefined) persistedSettings.projectLibraryEnabled = true;
-  if (persistedSettings.realtimePreviewEnabled === undefined) persistedSettings.realtimePreviewEnabled = false;
+  if (persistedSettings.realtimePreviewEnabled === undefined) persistedSettings.realtimePreviewEnabled = true;
 
   return persistedSettings;
 };

@@ -36,8 +36,8 @@ import {
   splitStructuredPartByBatchSize,
 } from './batching';
 import {
+  createStreamingQuestionBuffer,
   parseQuestionsFromModelText,
-  salvageCompleteQuestionsFromJson,
 } from './parsing';
 import {
   translateErrorForUser,
@@ -74,6 +74,16 @@ import {
 } from './generationHelpers';
 import { SYSTEM_INSTRUCTION_EXTRACT } from './prompts';
 import { measureSync } from '../../utils/performance';
+
+const STREAM_PREVIEW_PARSE_INTERVAL_MS = 400;
+const STREAM_PREVIEW_LONG_TASK_MS = 80;
+const STREAM_PREVIEW_MAX_BATCH_EMITS = 120;
+
+const getNowMs = () => (
+  typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now()
+);
 
 export const getRecoveredMissingQuestionCount = (
   beforeBatchCount: number,
@@ -687,25 +697,47 @@ export const generateQuestions = async (
                   const resultStream = await chat.sendMessageStream({ message: buildGoogleBatchMessage(part, batchPrompt, kCacheName || undefined) });
                   
                   let fullText = '';
-                  let reportedCount = 0;
                   const currentBatchIndex = topLevelIndex + 1;
+                  const streamingBuffer = createStreamingQuestionBuffer();
+                  let lastPreviewParseAt = -STREAM_PREVIEW_PARSE_INTERVAL_MS;
+                  let emittedPreviewCount = 0;
+                  let disablePreviewForBatch = false;
+
+                  const emitPreviewQuestions = (previewQuestions: any[]) => {
+                      if (!options.onPartialQuestions || previewQuestions.length === 0) return;
+                      applyTrustedSourceMetadata(previewQuestions, part);
+                      previewQuestions.forEach((q) => {
+                         if (!q.id) q.id = `mcq-stream-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+                      });
+                      emittedPreviewCount += previewQuestions.length;
+                      options.onPartialQuestions(previewQuestions, currentBatchIndex);
+                  };
 
                   for await (const chunk of resultStream) {
-                      fullText += chunk.text;
+                      const chunkText = chunk.text || '';
+                      fullText += chunkText;
                       
-                      if (options.onPartialQuestions) {
-                          const partialQs = salvageCompleteQuestionsFromJson(fullText, false);
-                          if (partialQs.length > reportedCount) {
-                              const newPartialQs = partialQs.slice(reportedCount);
-                              reportedCount = partialQs.length;
-                              applyTrustedSourceMetadata(newPartialQs, part);
-                              newPartialQs.forEach((q, _i) => {
-                                 if (!q.id) q.id = `mcq-stream-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-                              });
-                              // Báo cáo các câu hỏi vừa bóc tách được từ luồng dữ liệu (chưa lọc trùng ở bước này để UI có thể hiển thị nhanh nhất)
-                              options.onPartialQuestions(newPartialQs, currentBatchIndex);
+                      if (options.onPartialQuestions && !disablePreviewForBatch) {
+                          streamingBuffer.append(chunkText);
+                          const now = getNowMs();
+                          if (now - lastPreviewParseAt >= STREAM_PREVIEW_PARSE_INTERVAL_MS) {
+                              lastPreviewParseAt = now;
+                              const startedAt = getNowMs();
+                              const previewQuestions = streamingBuffer.drain();
+                              const elapsed = getNowMs() - startedAt;
+                              emitPreviewQuestions(previewQuestions);
+                              if (
+                                elapsed > STREAM_PREVIEW_LONG_TASK_MS ||
+                                emittedPreviewCount >= STREAM_PREVIEW_MAX_BATCH_EMITS
+                              ) {
+                                disablePreviewForBatch = true;
+                              }
                           }
                       }
+                  }
+
+                  if (options.onPartialQuestions && !disablePreviewForBatch) {
+                      emitPreviewQuestions(streamingBuffer.drain());
                   }
 
                   return parseQuestionsFromModelText(fullText, index, expectedQuestions, { allowEmpty: !isDocxImageBatch });

@@ -50,22 +50,22 @@ export const useAppStateEffects = ({
   React.useEffect(() => {
     if (!isLoaded) return;
     if (activeSessionRef.current) return;
-    const signature = `${mcqs.length}:${mcqs.map(mcq => [
-      mcq.id,
-      mcq.question,
-      (mcq.options || []).join('\u0001'),
-      mcq.correctAnswer,
-      mcq.source,
-      mcq.difficulty,
-      mcq.depthAnalysis,
-      mcq.explanation?.core,
-      mcq.explanation?.evidence,
-      mcq.explanation?.analysis,
-      mcq.explanation?.warning,
-    ].join('\u0002')).join('|')}`;
-    if (signature === previousPersistedMcqsSignatureRef.current) return;
 
     const timeoutId = window.setTimeout(() => {
+      const signature = `${mcqs.length}:${mcqs.map(mcq => [
+        mcq.id,
+        mcq.question,
+        (mcq.options || []).join('\u0001'),
+        mcq.correctAnswer,
+        mcq.source,
+        mcq.difficulty,
+        mcq.depthAnalysis,
+        mcq.explanation?.core,
+        mcq.explanation?.evidence,
+        mcq.explanation?.analysis,
+        mcq.explanation?.warning,
+      ].join('\u0002')).join('|')}`;
+      if (signature === previousPersistedMcqsSignatureRef.current) return;
       previousPersistedMcqsSignatureRef.current = signature;
       void persistMcqs(mcqs);
     }, 300);

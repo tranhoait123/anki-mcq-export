@@ -13,6 +13,7 @@ import { db } from '../core/db';
 import { translateErrorForUser } from '../core/brain';
 import { selectPreferredPhaseOutcome } from '../utils/resumeSession';
 import { sortMcqsByQuestionNumber, summarizeBatchFailures } from '../utils/appHelpers';
+import { scheduleIdleTask, yieldToMain } from '../utils/performance';
 import { RunGenerationPhaseParams, RunGenerationPhaseResult } from './useGenerationPhase';
 
 interface UseGenerateWorkflowParams {
@@ -90,6 +91,12 @@ export const useGenerateWorkflow = ({
   warnVisionRecommendedDocx,
   onGenerationComplete,
 }: UseGenerateWorkflowParams) => {
+  const waitForIdle = React.useCallback((timeout = 1200) => (
+    new Promise<void>(resolve => {
+      scheduleIdleTask(resolve, timeout);
+    })
+  ), []);
+
   const handleGenerate = async () => {
     if (files.length === 0) return;
     if (warnVisionRecommendedDocx()) return;
@@ -241,6 +248,8 @@ export const useGenerateWorkflow = ({
       }));
       await setVisibleMcqs(formatted);
       if (formatted.length > 0) {
+        await yieldToMain();
+        await waitForIdle();
         try {
           await onGenerationComplete?.({
             files,

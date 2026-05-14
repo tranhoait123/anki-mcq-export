@@ -12,11 +12,23 @@ import {
 } from '../types';
 import { generateQuestions } from '../core/brain';
 import { sortMcqsByQuestionNumber } from '../utils/appHelpers';
+import { scheduleIdleTask } from '../utils/performance';
 
 const COMPLETED_BATCH_VISIBLE_FLUSH_COUNT = 40;
 const COMPLETED_BATCH_VISIBLE_FLUSH_MS = 2500;
 const CHECKPOINT_BATCH_INTERVAL = 5;
 const CHECKPOINT_INTERVAL_MS = 10000;
+const PARTIAL_VISIBLE_FLUSH_MS = 650;
+const PARTIAL_VISIBLE_FLUSH_CHUNK_SIZE = 16;
+const COMPLETED_VISIBLE_FLUSH_CHUNK_SIZE = 60;
+const REALTIME_PREVIEW_VISIBLE_LIMIT = 160;
+const VISIBLE_FLUSH_LONG_TASK_MS = 70;
+
+const getNowMs = () => (
+  typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now()
+);
 
 export interface RunGenerationPhaseParams {
   phase: ProcessingPhase;
@@ -125,56 +137,101 @@ export const useGenerationPhase = ({
       phaseComparisonFailedBatchDetails: comparisonFailedBatchDetails,
     }));
 
-    let partialFlushTimer: ReturnType<typeof setTimeout> | null = null;
+    let partialFlushCancel: (() => void) | null = null;
     let pendingPartialQuestions: MCQ[] = [];
-    let completedBatchFlushTimer: ReturnType<typeof setTimeout> | null = null;
+    let partialFlushInFlight = false;
+    let partialFlushPromise: Promise<void> | null = null;
+    let realtimePreviewAutoDisabled = false;
+    let completedBatchFlushCancel: (() => void) | null = null;
     let pendingCompletedBatchQuestions: MCQ[] = [];
+    let completedFlushInFlight = false;
+    let completedFlushPromise: Promise<void> | null = null;
 
     const flushPartialQuestions = async () => {
-      if (partialFlushTimer !== null) {
-        clearTimeout(partialFlushTimer);
-        partialFlushTimer = null;
+      if (partialFlushCancel !== null) {
+        partialFlushCancel();
+        partialFlushCancel = null;
       }
-      if (pendingPartialQuestions.length === 0) return;
-      const batch = pendingPartialQuestions;
-      pendingPartialQuestions = [];
-      await appendVisibleMcqs(batch, { persist: false });
+      if (partialFlushInFlight || pendingPartialQuestions.length === 0 || realtimePreviewAutoDisabled) return;
+      if (mcqsRef.current.length >= REALTIME_PREVIEW_VISIBLE_LIMIT) {
+        realtimePreviewAutoDisabled = true;
+        pendingPartialQuestions = [];
+        return;
+      }
+      partialFlushInFlight = true;
+      const batch = pendingPartialQuestions.splice(0, PARTIAL_VISIBLE_FLUSH_CHUNK_SIZE);
+      const startedAt = getNowMs();
+      try {
+        await appendVisibleMcqs(batch, { persist: false });
+      } finally {
+        partialFlushInFlight = false;
+      }
+      if (getNowMs() - startedAt > VISIBLE_FLUSH_LONG_TASK_MS) {
+        realtimePreviewAutoDisabled = true;
+        pendingPartialQuestions = [];
+        return;
+      }
+      if (pendingPartialQuestions.length > 0) schedulePartialFlush(120);
+    };
+
+    const schedulePartialFlush = (timeout = PARTIAL_VISIBLE_FLUSH_MS) => {
+      if (partialFlushCancel !== null || realtimePreviewAutoDisabled) return;
+      partialFlushCancel = scheduleIdleTask(() => {
+        partialFlushCancel = null;
+        const promise = flushPartialQuestions();
+        const tracked = promise.finally(() => {
+          if (partialFlushPromise === tracked) partialFlushPromise = null;
+        });
+        partialFlushPromise = tracked;
+      }, timeout);
     };
 
     const queuePartialQuestions = (partialQuestions: MCQ[]) => {
-      pendingPartialQuestions.push(...partialQuestions);
-      if (pendingPartialQuestions.length >= 10) {
-        void flushPartialQuestions();
+      if (realtimePreviewAutoDisabled || mcqsRef.current.length >= REALTIME_PREVIEW_VISIBLE_LIMIT) {
+        realtimePreviewAutoDisabled = true;
+        pendingPartialQuestions = [];
         return;
       }
-      if (partialFlushTimer !== null) return;
-      partialFlushTimer = setTimeout(() => {
-        void flushPartialQuestions();
-      }, 1000);
+      pendingPartialQuestions.push(...partialQuestions);
+      schedulePartialFlush(pendingPartialQuestions.length >= PARTIAL_VISIBLE_FLUSH_CHUNK_SIZE ? 120 : PARTIAL_VISIBLE_FLUSH_MS);
     };
 
     const flushVisibleQuestions = async () => {
-      if (completedBatchFlushTimer !== null) {
-        clearTimeout(completedBatchFlushTimer);
-        completedBatchFlushTimer = null;
+      if (completedBatchFlushCancel !== null) {
+        completedBatchFlushCancel();
+        completedBatchFlushCancel = null;
       }
-      if (pendingCompletedBatchQuestions.length === 0) return;
-      const batch = pendingCompletedBatchQuestions;
-      pendingCompletedBatchQuestions = [];
-      await appendVisibleMcqs(batch, { persist: true });
+      if (completedFlushInFlight || pendingCompletedBatchQuestions.length === 0) return;
+      completedFlushInFlight = true;
+      const batch = pendingCompletedBatchQuestions.splice(0, COMPLETED_VISIBLE_FLUSH_CHUNK_SIZE);
+      try {
+        await appendVisibleMcqs(batch, { persist: true });
+      } finally {
+        completedFlushInFlight = false;
+      }
+      if (pendingCompletedBatchQuestions.length > 0) scheduleCompletedBatchFlush(120);
+    };
+
+    const scheduleCompletedBatchFlush = (timeout = COMPLETED_BATCH_VISIBLE_FLUSH_MS) => {
+      if (completedBatchFlushCancel !== null) return;
+      completedBatchFlushCancel = scheduleIdleTask(() => {
+        completedBatchFlushCancel = null;
+        const promise = flushVisibleQuestions();
+        const tracked = promise.finally(() => {
+          if (completedFlushPromise === tracked) completedFlushPromise = null;
+        });
+        completedFlushPromise = tracked;
+      }, timeout);
     };
 
     const queueCompletedBatchQuestions = (questions: MCQ[]) => {
       if (!renderCompletedBatchesToVisible || questions.length === 0) return;
       pendingCompletedBatchQuestions.push(...questions);
-      if (pendingCompletedBatchQuestions.length >= COMPLETED_BATCH_VISIBLE_FLUSH_COUNT) {
-        void flushVisibleQuestions();
-        return;
-      }
-      if (completedBatchFlushTimer !== null) return;
-      completedBatchFlushTimer = setTimeout(() => {
-        void flushVisibleQuestions();
-      }, COMPLETED_BATCH_VISIBLE_FLUSH_MS);
+      scheduleCompletedBatchFlush(
+        pendingCompletedBatchQuestions.length >= COMPLETED_BATCH_VISIBLE_FLUSH_COUNT
+          ? 120
+          : COMPLETED_BATCH_VISIBLE_FLUSH_MS
+      );
     };
 
     let res: Awaited<ReturnType<typeof generateQuestions>>;
@@ -232,8 +289,14 @@ export const useGenerationPhase = ({
         }
       );
     } finally {
-      await flushPartialQuestions();
-      await flushVisibleQuestions();
+      if (partialFlushPromise) await partialFlushPromise;
+      while (pendingPartialQuestions.length > 0 && !realtimePreviewAutoDisabled) {
+        await flushPartialQuestions();
+      }
+      if (completedFlushPromise) await completedFlushPromise;
+      while (pendingCompletedBatchQuestions.length > 0) {
+        await flushVisibleQuestions();
+      }
     }
 
     phaseQuestions = sortMcqsByQuestionNumber(res.questions);

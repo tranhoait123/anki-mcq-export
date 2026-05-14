@@ -452,6 +452,80 @@ export const salvageCompleteQuestionsFromJson = (text: string, allowTruncatedSal
   return questions;
 };
 
+export interface StreamingQuestionBuffer {
+  append: (chunk: string) => void;
+  drain: () => any[];
+}
+
+const buildStreamingQuestionKey = (question: any): string => [
+  question?.question || '',
+  ...(Array.isArray(question?.options) ? question.options : []),
+  question?.correctAnswer || '',
+].map(value => String(value).replace(/\s+/g, ' ').trim().toLowerCase()).join('\u0001');
+
+export const createStreamingQuestionBuffer = (): StreamingQuestionBuffer => {
+  let buffer = '';
+  let cursor = 0;
+  let foundQuestionsArray = false;
+  const emittedKeys = new Set<string>();
+
+  const ensureQuestionsArray = () => {
+    if (foundQuestionsArray) return true;
+    const questionsKeyIndex = buffer.indexOf('"questions"');
+    const arrayStart = questionsKeyIndex >= 0
+      ? buffer.indexOf('[', questionsKeyIndex)
+      : buffer.indexOf('[');
+    if (arrayStart < 0) return false;
+    cursor = arrayStart + 1;
+    foundQuestionsArray = true;
+    return true;
+  };
+
+  const append = (chunk: string) => {
+    if (!chunk) return;
+    buffer += chunk;
+  };
+
+  const drain = () => {
+    if (!ensureQuestionsArray()) return [];
+    const questions: any[] = [];
+
+    while (cursor < buffer.length) {
+      const objectStart = buffer.indexOf('{', cursor);
+      if (objectStart < 0) break;
+
+      const arrayEnd = buffer.indexOf(']', cursor);
+      if (arrayEnd >= 0 && arrayEnd < objectStart) {
+        cursor = arrayEnd + 1;
+        break;
+      }
+
+      const objectEnd = findBalancedObjectEnd(buffer, objectStart);
+      if (objectEnd < 0) break;
+
+      try {
+        const parsed = JSON.parse(buffer.substring(objectStart, objectEnd + 1));
+        const normalized = fillMissingQuestionFields(parsed);
+        if (isCompleteQuestionObject(normalized)) {
+          const key = buildStreamingQuestionKey(normalized);
+          if (key && !emittedKeys.has(key)) {
+            emittedKeys.add(key);
+            questions.push(normalized);
+          }
+        }
+      } catch {
+        // Streaming preview is best-effort. The final batch parser still handles repair/salvage.
+      }
+
+      cursor = objectEnd + 1;
+    }
+
+    return questions;
+  };
+
+  return { append, drain };
+};
+
 interface ParseQuestionsOptions {
   allowEmpty?: boolean;
 }

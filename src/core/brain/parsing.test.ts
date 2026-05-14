@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cleanQuestionText } from './parsing';
+import { cleanQuestionText, createStreamingQuestionBuffer } from './parsing';
 
 describe('cleanQuestionText', () => {
   it('strips standard Vietnamese question prefixes', () => {
@@ -63,5 +63,47 @@ describe('cleanQuestionText', () => {
   it('returns original string if stripping makes it empty', () => {
     expect(cleanQuestionText('Câu 1:')).toBe('Câu 1:');
     expect(cleanQuestionText('1.')).toBe('1.');
+  });
+});
+
+describe('createStreamingQuestionBuffer', () => {
+  const question = (id: number) => ({
+    question: `Câu ${id}: Nội dung câu hỏi ${id}?`,
+    options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+    correctAnswer: 'A',
+    explanation: { core: `Core ${id}`, evidence: '', analysis: '', warning: '' },
+    source: 'stream-fixture',
+    difficulty: 'Easy',
+    depthAnalysis: '',
+  });
+
+  it('emits each completed streamed question once without rescanning the full payload', () => {
+    const buffer = createStreamingQuestionBuffer();
+    const payload = JSON.stringify({ questions: [question(1), question(2), question(3)] });
+    const chunks = payload.match(/.{1,23}/g) || [];
+    const emitted = chunks.flatMap(chunk => {
+      buffer.append(chunk);
+      return buffer.drain();
+    });
+
+    expect(emitted.map(item => item.question)).toEqual([
+      'Nội dung câu hỏi 1?',
+      'Nội dung câu hỏi 2?',
+      'Nội dung câu hỏi 3?',
+    ]);
+    expect(buffer.drain()).toEqual([]);
+  });
+
+  it('waits for an object to close before emitting it', () => {
+    const buffer = createStreamingQuestionBuffer();
+    const payload = JSON.stringify({ questions: [question(1)] });
+    const splitAt = payload.indexOf('"correctAnswer"');
+
+    buffer.append(payload.slice(0, splitAt));
+    expect(buffer.drain()).toEqual([]);
+
+    buffer.append(payload.slice(splitAt));
+    expect(buffer.drain()).toHaveLength(1);
+    expect(buffer.drain()).toEqual([]);
   });
 });

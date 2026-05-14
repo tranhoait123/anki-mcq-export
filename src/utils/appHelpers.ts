@@ -70,6 +70,33 @@ export const mergeSortedMcqs = (existing: MCQ[], incoming: MCQ[]): MCQ[] => {
   ];
 };
 
+const normalizeVisibleMcqIdentityPart = (value: unknown): string =>
+  String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+export const getVisibleMcqIdentity = (mcq: Partial<MCQ>): string => [
+  mcq.question,
+  ...(Array.isArray(mcq.options) ? mcq.options : []),
+  mcq.correctAnswer,
+  mcq.source,
+].map(normalizeVisibleMcqIdentityPart).join('\u0001');
+
+export const filterUniqueVisibleMcqs = (incoming: MCQ[], existing: MCQ[]): MCQ[] => {
+  if (incoming.length === 0) return [];
+  const existingIds = new Set(existing.map(item => item.id).filter(Boolean));
+  const existingIdentities = new Set(existing.map(getVisibleMcqIdentity).filter(Boolean));
+  const unique: MCQ[] = [];
+
+  for (const item of incoming) {
+    const identity = getVisibleMcqIdentity(item);
+    if ((item.id && existingIds.has(item.id)) || (identity && existingIdentities.has(identity))) continue;
+    unique.push(item);
+    if (item.id) existingIds.add(item.id);
+    if (identity) existingIdentities.add(identity);
+  }
+
+  return unique;
+};
+
 export const isResumableStatus = (status: ProcessingSessionStatus) =>
   status === 'running' || status === 'paused' || status === 'interrupted';
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanText, formatSessionPhase, getPersistableFiles, mergeSortedMcqs, normalizePersistedSettings, sortMcqsByQuestionNumber, summarizeBatchFailures } from './appHelpers';
+import { cleanText, filterUniqueVisibleMcqs, formatSessionPhase, getPersistableFiles, mergeSortedMcqs, normalizePersistedSettings, sortMcqsByQuestionNumber, summarizeBatchFailures } from './appHelpers';
 import { MCQ } from '../types';
 
 const mcq = (question: string): MCQ => ({
@@ -26,6 +26,15 @@ describe('app helpers', () => {
     );
 
     expect(merged.map(item => item.question)).toEqual(['Câu 1', 'Câu 2', 'Câu 3', 'Câu 5', 'Không số']);
+  });
+
+  it('filters visible appends by exact identity without fuzzy duplicate scanning', () => {
+    const existing = [mcq('Câu 1: Nội dung đã có')];
+    const duplicate = { ...mcq('  câu 1: nội dung đã có  '), id: 'different-stream-id' };
+    const fresh = mcq('Câu 2: Nội dung mới');
+
+    expect(filterUniqueVisibleMcqs([duplicate, fresh, fresh], existing).map(item => item.question))
+      .toEqual(['Câu 2: Nội dung mới']);
   });
 
   it('cleans question and option labels for export', () => {

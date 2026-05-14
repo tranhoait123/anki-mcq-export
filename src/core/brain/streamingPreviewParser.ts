@@ -1,6 +1,5 @@
 import { MCQ } from '../../types';
 import {
-  hasRecentSlowMetrics,
   measureAsync,
   recordPerfMetric,
 } from '../../utils/performance';
@@ -44,20 +43,24 @@ const createMainThreadStreamingPreviewParser = (): StreamingPreviewParser => {
 export const createStreamingPreviewParser = (
   options: StreamingPreviewParserOptions = {}
 ): StreamingPreviewParser => {
-  const fallback = createMainThreadStreamingPreviewParser();
+  let fallback: StreamingPreviewParser | null = null;
+  const getFallback = () => {
+    if (!fallback) fallback = createMainThreadStreamingPreviewParser();
+    return fallback;
+  };
   const createWorker = options.workerFactory || (() => new Worker(
     new URL('../../workers/streamingPreviewWorker.ts', import.meta.url),
     { type: 'module' }
   ));
 
-  if (typeof Worker === 'undefined' && !options.workerFactory) return fallback;
+  if (typeof Worker === 'undefined' && !options.workerFactory) return getFallback();
 
   let worker: Worker | null = null;
   let disposed = false;
   let nextRequestId = 1;
   const pending = new Map<number, PendingFlush>();
 
-  const failToFallback = (error?: unknown) => {
+  const disableWorker = (error?: unknown) => {
     if (error) {
       recordPerfMetric({
         name: 'streamPreview.workerFallback',
@@ -67,9 +70,7 @@ export const createStreamingPreviewParser = (
         meta: { reason: error instanceof Error ? error.message : String(error) },
       });
     }
-    pending.forEach(({ resolve }) => {
-      void fallback.flush().then(resolve);
-    });
+    pending.forEach(({ resolve }) => resolve([]));
     pending.clear();
     worker?.terminate();
     worker = null;
@@ -78,8 +79,14 @@ export const createStreamingPreviewParser = (
   try {
     worker = createWorker();
   } catch (error) {
-    failToFallback(error);
-    return fallback;
+    recordPerfMetric({
+      name: 'streamPreview.workerFallback',
+      durationMs: 0,
+      startedAt: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+      kind: 'measure',
+      meta: { reason: error instanceof Error ? error.message : String(error) },
+    });
+    return getFallback();
   }
 
   worker.onmessage = (event: MessageEvent) => {
@@ -96,34 +103,33 @@ export const createStreamingPreviewParser = (
       const pendingFlush = pending.get(message.requestId);
       if (pendingFlush) {
         pending.delete(message.requestId);
-        void fallback.flush().then(pendingFlush.resolve);
+        pendingFlush.resolve([]);
       }
-      if (!message.requestId) failToFallback(message.error);
+      if (!message.requestId) disableWorker(message.error);
     }
   };
 
   worker.onerror = (event) => {
-    failToFallback(event.error || new Error(event.message || 'Streaming preview worker failed'));
+    disableWorker(event.error || new Error(event.message || 'Streaming preview worker failed'));
   };
 
   return {
     append: (chunk: string) => {
       if (disposed) return;
-      fallback.append(chunk);
-      if (!worker) return;
+      if (!worker) {
+        getFallback().append(chunk);
+        return;
+      }
       try {
         worker.postMessage({ type: 'append', chunk });
       } catch (error) {
-        failToFallback(error);
+        disableWorker(error);
+        getFallback().append(chunk);
       }
     },
     flush: () => {
       if (disposed) return Promise.resolve([]);
-      if (!worker) return fallback.flush();
-      if (hasRecentSlowMetrics({ sinceMs: 4000, threshold: 3, includeLongTasks: true })) {
-        failToFallback(new Error('Recent slow tasks; using main-thread throttled parser fallback.'));
-        return fallback.flush();
-      }
+      if (!worker) return fallback?.flush() ?? Promise.resolve([]);
 
       const requestId = nextRequestId++;
       return measureAsync('streamPreview.flush.worker', () => new Promise<MCQ[]>((resolve, reject) => {
@@ -132,8 +138,8 @@ export const createStreamingPreviewParser = (
           worker?.postMessage({ type: 'flush', requestId });
         } catch (error) {
           pending.delete(requestId);
-          failToFallback(error);
-          void fallback.flush().then(resolve);
+          disableWorker(error);
+          resolve([]);
         }
       }));
     },
@@ -148,7 +154,7 @@ export const createStreamingPreviewParser = (
       }
       worker?.terminate();
       worker = null;
-      fallback.dispose();
+      fallback?.dispose();
     },
   };
 };

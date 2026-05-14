@@ -4,6 +4,7 @@ import {
   getPerfSnapshot,
   getRecentSlowMetricCount,
   hasRecentSlowMetrics,
+  measureAsync,
   recordPerfMetric,
 } from './performance';
 
@@ -38,5 +39,14 @@ describe('performance monitor', () => {
     expect(getRecentSlowMetricCount({ sinceMs: 1000, namePrefix: 'visible' })).toBe(1);
     expect(hasRecentSlowMetrics({ sinceMs: 1000, threshold: 2 })).toBe(true);
     expect(hasRecentSlowMetrics({ sinceMs: 1000, threshold: 3 })).toBe(false);
+  });
+
+  it('does not treat async wall time as main-thread slow work', async () => {
+    await measureAsync('idb.saveSession', () => new Promise<void>(resolve => {
+      setTimeout(resolve, 60);
+    }));
+
+    expect(getPerfSnapshot()[0].kind).toBe('measure');
+    expect(hasRecentSlowMetrics({ sinceMs: 1000, threshold: 1 })).toBe(false);
   });
 });

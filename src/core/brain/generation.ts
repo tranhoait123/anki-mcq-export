@@ -743,6 +743,11 @@ export const generateQuestions = async (
                   let lastPreviewParseAt = -STREAM_PREVIEW_PARSE_INTERVAL_MS;
                   let emittedPreviewCount = 0;
                   let disablePreviewForBatch = false;
+                  const disableStreamingPreview = () => {
+                      if (disablePreviewForBatch) return;
+                      disablePreviewForBatch = true;
+                      streamingPreviewParser?.dispose();
+                  };
 
                   const emitPreviewQuestions = (previewQuestions: any[]) => {
                       if (!options.onPartialQuestions || previewQuestions.length === 0) return;
@@ -760,6 +765,13 @@ export const generateQuestions = async (
                           fullText += chunkText;
 
                           if (streamingPreviewParser && !disablePreviewForBatch) {
+                              if (
+                                emittedPreviewCount >= STREAM_PREVIEW_MAX_BATCH_EMITS ||
+                                hasRecentSlowMetrics({ sinceMs: 4000, threshold: 3, includeLongTasks: true })
+                              ) {
+                                  disableStreamingPreview();
+                                  continue;
+                              }
                               streamingPreviewParser.append(chunkText);
                               const now = getNowMs();
                               if (now - lastPreviewParseAt >= STREAM_PREVIEW_PARSE_INTERVAL_MS) {
@@ -773,7 +785,7 @@ export const generateQuestions = async (
                                     emittedPreviewCount >= STREAM_PREVIEW_MAX_BATCH_EMITS ||
                                     hasRecentSlowMetrics({ sinceMs: 4000, threshold: 3, includeLongTasks: true })
                                   ) {
-                                    disablePreviewForBatch = true;
+                                    disableStreamingPreview();
                                   }
                               }
                           }

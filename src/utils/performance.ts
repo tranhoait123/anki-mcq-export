@@ -114,13 +114,16 @@ export const measureAsync = async <T,>(label: string, work: () => Promise<T>): P
     return await work();
   } finally {
     const elapsed = getNow() - startedAt;
+    // Async wall time often includes IndexedDB, worker, or network wait time. Treat it
+    // as an informational metric so adaptive throttling only reacts to real main-thread
+    // work from measureSync or browser longtask entries.
+    const kind: PerfMetricKind = 'measure';
     recordPerfMetric({
       name: label,
       durationMs: elapsed,
       startedAt,
-      kind: classifyDuration(elapsed),
+      kind,
     });
-    if (isDevMode) console.debug(`[perf] ${label}: ${Math.round(elapsed * 10) / 10}ms`);
   }
 };
 
@@ -137,7 +140,7 @@ export const measureSync = <T,>(label: string, work: () => T): T => {
       startedAt,
       kind: classifyDuration(elapsed),
     });
-    if (isDevMode) console.debug(`[perf] ${label}: ${Math.round(elapsed * 10) / 10}ms`);
+    if (isDevMode && elapsed >= SLOW_TASK_MS) console.debug(`[perf] ${label}: ${Math.round(elapsed * 10) / 10}ms`);
   }
 };
 

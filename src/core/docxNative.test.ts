@@ -404,6 +404,26 @@ describe('DOCX native MCQ parser', () => {
     expect(getNativeMcqBlocks(batches[1])).toHaveLength(2);
   });
 
+  it('ignores generation wrapper preamble when reading native MCQ blocks', () => {
+    const blocks = getNativeMcqBlocks([
+      '[TÀI LIỆU DOCX NATIVE: "deck.docx" (Nhóm 1/1)]',
+      '',
+      '[DOCX_NATIVE_BATCH_COUNT: 2]',
+      '',
+      '<<<MCQ 1>>>',
+      'Question: Alpha',
+      'A. Một',
+      '',
+      '<<<MCQ 2>>>',
+      'Question: Beta',
+      'A. Hai',
+    ].join('\n'));
+
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toMatch(/^<<<MCQ 1>>>/);
+    expect(blocks[0]).not.toContain('TÀI LIỆU DOCX');
+  });
+
   it('keeps DOCX structured fallback batches for many unmarked questions under 15000 chars', () => {
     const xml = `
       <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">

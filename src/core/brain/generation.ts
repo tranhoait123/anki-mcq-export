@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { UploadedFile, ProgressCallback, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, SourceTrace } from "../../types";
-import { createDuplicateLookup } from '../../utils/dedupe';
+import { buildMCQFingerprint, createDuplicateLookup } from '../../utils/dedupe';
 import {
   applySharedCaseContextToQuestion,
   extractSharedCaseContexts,
@@ -415,6 +415,7 @@ export const generateQuestions = async (
     const batchQuestions = new Map<number, MCQ[]>();
     const batchDuplicates = new Map<number, DuplicateInfo[]>();
     const batchAutoSkipped = new Map<number, number>();
+    const batchCoverageKeys = new Map<number, Set<string>>();
     const recoveryBudgets = new Map<string, number>();
     const checkpointBatchInterval = Math.max(1, options.checkpointBatchInterval || 1);
     const checkpointIntervalMs = Math.max(0, options.checkpointIntervalMs || 0);
@@ -446,6 +447,26 @@ export const generateQuestions = async (
       if (count <= 0) return;
       batchAutoSkipped.set(batchNumber, (batchAutoSkipped.get(batchNumber) || 0) + count);
     };
+
+    const getBatchCoverageSet = (batchNumber: number) => {
+      let coverage = batchCoverageKeys.get(batchNumber);
+      if (!coverage) {
+        coverage = new Set<string>();
+        batchCoverageKeys.set(batchNumber, coverage);
+      }
+      return coverage;
+    };
+
+    const markBatchQuestionCovered = (batchNumber: number, question: Partial<MCQ>, matchedQuestion?: Partial<MCQ>) => {
+      const coverageTarget = matchedQuestion || question;
+      const stableKey = coverageTarget.id
+        ? `id:${coverageTarget.id}`
+        : `fp:${buildMCQFingerprint(coverageTarget)}`;
+      getBatchCoverageSet(batchNumber).add(stableKey);
+    };
+
+    const getBatchCoveredQuestionCount = (batchNumber: number): number =>
+      batchCoverageKeys.get(batchNumber)?.size || 0;
 
     const buildCheckpointSnapshot = (completedBatchNumbers: number[]) => (
       measureSync(`generation.buildCheckpointSnapshot(${completedBatchNumbers.length}/${totalTopLevelBatches})`, () => {
@@ -788,6 +809,7 @@ export const generateQuestions = async (
             if (!result.isDup) {
               q.id = `mcq-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
               newQs.push(q);
+              markBatchQuestionCovered(topLevelIndex + 1, q);
               duplicateLookup.add(q);
               if (recoveryBudgetKey) {
                 recoveryBudgets.set(recoveryBudgetKey, Math.max(0, (recoveryBudgets.get(recoveryBudgetKey) || 0) - 1));
@@ -813,6 +835,7 @@ export const generateQuestions = async (
                 batchNewDuplicates.push(duplicateInfo);
               } else {
                 if (sameTopLevelBatchDuplicate) continue;
+                markBatchQuestionCovered(topLevelIndex + 1, q, result.matchedData);
                 autoSkippedCount++;
                 batchNewAutoSkipped++;
                 console.log(`⏩ Auto-skipped identical MCQ (~100%): ${q.question.substring(0, 50)}...`);
@@ -837,7 +860,7 @@ export const generateQuestions = async (
             } else if (!part.partialRecovery) {
               console.warn(`⚠️ Batch ${batchLabel}: Salvage lấy được ${rawNewQs.length}/${expectedQuestions} câu (thiếu ${missingCount}). Đang cứu chọn lọc phần thiếu.`);
               const topLevelBatchNumber = topLevelIndex + 1;
-              const beforeRecoveryCount = (batchQuestions.get(topLevelBatchNumber) || []).length;
+              const beforeRecoveryCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
               const recoveryParts = canRecoverPdfVision
                 ? await buildPdfVisionRecoveryParts(part, rawNewQs, missingCount)
                 : part.nativeMcqBatch
@@ -862,7 +885,7 @@ export const generateQuestions = async (
                 recoveryBudgets.delete(recoveryBudgetKey);
               }
 
-              const afterRecoveryCount = (batchQuestions.get(topLevelBatchNumber) || []).length;
+              const afterRecoveryCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
               const recoveredCount = getRecoveredMissingQuestionCount(beforeRecoveryCount, afterRecoveryCount, missingCount);
               if (depth === 0 && recoveredCount < missingCount) {
                 recordBatchFailure(index, batchLabel, new Error(`Thiếu ${missingCount - recoveredCount}/${expectedQuestions} câu`), 'partial', {

@@ -620,8 +620,11 @@ export const buildQuestionMarkerStructuredText = (paragraphs: DocxParagraph[]): 
 export const getNativeMcqBlocks = (nativeText: string): string[] => {
   const text = String(nativeText || '').trim();
   if (!text || !MCQ_MARKER_PATTERN.test(text)) return [];
+  const firstMarkerIndex = text.search(/^<<<MCQ\s+\d+>>>$/m);
+  if (firstMarkerIndex < 0) return [];
 
   return text
+    .slice(firstMarkerIndex)
     .replace(/^\[(?:DOCX_NATIVE|PDF_TEXT)_(?:MCQ|BATCH)_COUNT:\s*\d+\]\s*/i, '')
     .split(/(?=^<<<MCQ\s+\d+>>>$)/gm)
     .map((block) => block.trim())

@@ -169,6 +169,8 @@ export const useResumeWorkflow = ({
             liveAppendToVisible: realtimePreviewEnabled,
             renderCompletedBatchesToVisible: true,
             forcedOcrMode: activeOcrMode,
+            seedQuestions: res.questions,
+            seedDuplicates: res.duplicates || [],
           });
           const uniqueRescued = deduplicateQuestions(rescuePhase.res.questions, res.questions);
           res = {
@@ -251,6 +253,8 @@ export const useResumeWorkflow = ({
             liveAppendToVisible: realtimePreviewEnabled,
             renderCompletedBatchesToVisible: true,
             forcedOcrMode: activeOcrMode,
+            seedQuestions: selectedRes.questions,
+            seedDuplicates: selectedRes.duplicates || [],
           });
           const uniqueRescued = deduplicateQuestions(rescuePhase.res.questions, selectedRes.questions);
           selectedRes = {

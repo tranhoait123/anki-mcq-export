@@ -35,10 +35,8 @@ import {
   joinSourceLabel,
   splitStructuredPartByBatchSize,
 } from './batching';
-import {
-  createStreamingQuestionBuffer,
-  parseQuestionsFromModelText,
-} from './parsing';
+import { parseQuestionsFromModelText } from './parsing';
+import { createStreamingPreviewParser } from './streamingPreviewParser';
 import {
   translateErrorForUser,
 } from './providerErrors';
@@ -73,7 +71,7 @@ import {
   waitWithController,
 } from './generationHelpers';
 import { SYSTEM_INSTRUCTION_EXTRACT } from './prompts';
-import { measureSync } from '../../utils/performance';
+import { hasRecentSlowMetrics, measureSync } from '../../utils/performance';
 
 const STREAM_PREVIEW_PARSE_INTERVAL_MS = 400;
 const STREAM_PREVIEW_LONG_TASK_MS = 80;
@@ -719,7 +717,7 @@ export const generateQuestions = async (
                   
                   let fullText = '';
                   const currentBatchIndex = topLevelIndex + 1;
-                  const streamingBuffer = createStreamingQuestionBuffer();
+                  const streamingPreviewParser = options.onPartialQuestions ? createStreamingPreviewParser() : null;
                   let lastPreviewParseAt = -STREAM_PREVIEW_PARSE_INTERVAL_MS;
                   let emittedPreviewCount = 0;
                   let disablePreviewForBatch = false;
@@ -734,31 +732,36 @@ export const generateQuestions = async (
                       options.onPartialQuestions(previewQuestions, currentBatchIndex);
                   };
 
-                  for await (const chunk of resultStream) {
-                      const chunkText = chunk.text || '';
-                      fullText += chunkText;
-                      
-                      if (options.onPartialQuestions && !disablePreviewForBatch) {
-                          streamingBuffer.append(chunkText);
-                          const now = getNowMs();
-                          if (now - lastPreviewParseAt >= STREAM_PREVIEW_PARSE_INTERVAL_MS) {
-                              lastPreviewParseAt = now;
-                              const startedAt = getNowMs();
-                              const previewQuestions = streamingBuffer.drain();
-                              const elapsed = getNowMs() - startedAt;
-                              emitPreviewQuestions(previewQuestions);
-                              if (
-                                elapsed > STREAM_PREVIEW_LONG_TASK_MS ||
-                                emittedPreviewCount >= STREAM_PREVIEW_MAX_BATCH_EMITS
-                              ) {
-                                disablePreviewForBatch = true;
+                  try {
+                      for await (const chunk of resultStream) {
+                          const chunkText = chunk.text || '';
+                          fullText += chunkText;
+
+                          if (streamingPreviewParser && !disablePreviewForBatch) {
+                              streamingPreviewParser.append(chunkText);
+                              const now = getNowMs();
+                              if (now - lastPreviewParseAt >= STREAM_PREVIEW_PARSE_INTERVAL_MS) {
+                                  lastPreviewParseAt = now;
+                                  const startedAt = getNowMs();
+                                  const previewQuestions = await streamingPreviewParser.flush();
+                                  const elapsed = getNowMs() - startedAt;
+                                  emitPreviewQuestions(previewQuestions);
+                                  if (
+                                    elapsed > STREAM_PREVIEW_LONG_TASK_MS ||
+                                    emittedPreviewCount >= STREAM_PREVIEW_MAX_BATCH_EMITS ||
+                                    hasRecentSlowMetrics({ sinceMs: 4000, threshold: 3, includeLongTasks: true })
+                                  ) {
+                                    disablePreviewForBatch = true;
+                                  }
                               }
                           }
                       }
-                  }
 
-                  if (options.onPartialQuestions && !disablePreviewForBatch) {
-                      emitPreviewQuestions(streamingBuffer.drain());
+                      if (streamingPreviewParser && !disablePreviewForBatch) {
+                          emitPreviewQuestions(await streamingPreviewParser.flush());
+                      }
+                  } finally {
+                      streamingPreviewParser?.dispose();
                   }
 
                   return parseQuestionsFromModelText(fullText, index, expectedQuestions, { allowEmpty: !isDocxImageBatch });

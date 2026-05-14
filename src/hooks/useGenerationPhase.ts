@@ -12,7 +12,7 @@ import {
 } from '../types';
 import { generateQuestions } from '../core/brain';
 import { sortMcqsByQuestionNumber } from '../utils/appHelpers';
-import { scheduleIdleTask } from '../utils/performance';
+import { hasRecentSlowMetrics, scheduleIdleTask } from '../utils/performance';
 
 const COMPLETED_BATCH_VISIBLE_FLUSH_COUNT = 40;
 const COMPLETED_BATCH_VISIBLE_FLUSH_MS = 2500;
@@ -153,6 +153,11 @@ export const useGenerationPhase = ({
         partialFlushCancel = null;
       }
       if (partialFlushInFlight || pendingPartialQuestions.length === 0 || realtimePreviewAutoDisabled) return;
+      if (hasRecentSlowMetrics({ sinceMs: 4000, threshold: 3, includeLongTasks: true })) {
+        realtimePreviewAutoDisabled = true;
+        pendingPartialQuestions = [];
+        return;
+      }
       if (mcqsRef.current.length >= REALTIME_PREVIEW_VISIBLE_LIMIT) {
         realtimePreviewAutoDisabled = true;
         pendingPartialQuestions = [];

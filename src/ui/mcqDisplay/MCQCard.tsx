@@ -1,9 +1,9 @@
 import React from 'react';
 import { CheckCircle2, ExternalLink, FileText, Filter, PenLine, Trash2 } from 'lucide-react';
 import { Explanation, MCQ, SourceTrace } from '../../types';
-import { buildAnkiHtml } from '../../core/anki';
 import { isOptionCorrect } from '../../utils/text';
 import RichExplanation from './RichExplanation';
+import LazyAnkiHtml from './LazyAnkiHtml';
 import { MCQViewMode } from './types';
 
 interface MCQCardProps {
@@ -52,10 +52,6 @@ const MCQCard = React.memo(({
     : `glass ${cardRadiusClass} ${cardPaddingClass} pro-shadow`;
   const passiveCardMotionClass = performanceMode ? 'transition-colors' : 'transition-all group hover:-translate-y-1';
   const editCardMotionClass = performanceMode ? 'transition-colors' : 'transition-all';
-  const htmlContent = React.useMemo(
-    () => buildAnkiHtml(data.explanation, data.difficulty, data.depthAnalysis),
-    [data.depthAnalysis, data.difficulty, data.explanation]
-  );
 
   if (viewMode === 'preview' && !isEditing) {
     return (
@@ -112,10 +108,12 @@ const MCQCard = React.memo(({
           ))}
         </div>
 
-        <div className={`${compact ? 'pt-4' : 'pt-6'} border-t border-slate-100 dark:border-slate-800`}>
-          <span className={`text-[10px] font-black text-slate-400 tracking-widest uppercase ${compact ? 'mb-3' : 'mb-4'} block`}>Giao diện Anki</span>
-          <div dangerouslySetInnerHTML={{ __html: htmlContent }} className={`anki-html ${compact ? 'p-4' : 'p-6'} bg-slate-50 dark:bg-slate-950/50 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-inner`} />
-        </div>
+        <LazyAnkiHtml
+          compact={compact}
+          depthAnalysis={data.depthAnalysis}
+          difficulty={data.difficulty}
+          explanation={data.explanation}
+        />
       </div>
     );
   }

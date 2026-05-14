@@ -357,6 +357,86 @@ describe('Core Logic', () => {
     ]);
   });
 
+  it('keeps valid partial progress in results while leaving the batch retryable', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const makeQuestionPayload = (question: string) => ({
+      question,
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: {
+        core: 'A đúng.',
+        evidence: '',
+        analysis: '',
+        warning: '',
+      },
+      source: 'model-source',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    });
+    const providerResponse = (questions: any[]) => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ questions }) } }],
+    }), { status: 200 });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(providerResponse([
+        makeQuestionPayload('1. Alpha stem?'),
+        makeQuestionPayload('2. Beta stem?'),
+      ]))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { message: 'provider rejected targeted recovery' },
+      }), { status: 418 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-1',
+        name: 'deck.docx',
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        content: '',
+        nativeText: [
+          '[DOCX_NATIVE_MCQ_COUNT: 3]',
+          '',
+          '<<<MCQ 1>>>',
+          'Question: 1. Alpha stem?',
+          'A. Một',
+          'B. Hai',
+          'C. Ba',
+          'D. Bốn',
+          '',
+          '<<<MCQ 2>>>',
+          'Question: 2. Beta stem?',
+          'A. Một',
+          'B. Hai',
+          'C. Ba',
+          'D. Bốn',
+          '',
+          '<<<MCQ 3>>>',
+          'Question: 3. Gamma stem?',
+          'A. Một',
+          'B. Hai',
+          'C. Ba',
+          'D. Bốn',
+        ].join('\n'),
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.failedBatches).toEqual([1]);
+    expect(result.failedBatchDetails[0]).toMatchObject({
+      index: 1,
+      stage: 'partial',
+      missingCount: 1,
+      recoveredCount: 0,
+    });
+    expect(result.questions.map((question) => question.question).sort()).toEqual([
+      'Alpha stem?',
+      'Beta stem?',
+    ]);
+  });
+
   it('excludes partial questions from failed batches in final snapshots', () => {
     const snapshot = buildCompletedBatchSnapshot(
       [{ question: 'Existing' }],

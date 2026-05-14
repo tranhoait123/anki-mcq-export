@@ -81,6 +81,16 @@ describe('OpenAI-compatible provider vision payloads', () => {
     expect(secondBody.response_format).toBeUndefined();
   });
 
+  it('wraps browser network/CORS failures with provider and model context', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+
+    await expect(callOpenAICompatibleProvider(
+      shopAIKeySettings,
+      'openai/gpt-5.4-mini',
+      [{ role: 'user', content: 'Scan this.' }]
+    )).rejects.toThrow('ShopAIKey NETWORK_ERROR: Failed to fetch | model=gpt-5.4-mini');
+  });
+
   it('validates a ShopAIKey key and selected model through /v1/models', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       object: 'list',

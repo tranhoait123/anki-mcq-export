@@ -60,8 +60,12 @@ export const translateErrorForUser = (error: any, context?: string): string => {
     return `${prefix}⏱️ Yêu cầu quá thời gian chờ. Tài liệu có thể quá dài — hãy thử chia nhỏ file hoặc giảm số trang.`;
   }
 
+  if (msgLow.includes("shopaikey network_error") || msgLow.includes("openrouter network_error")) {
+    const providerName = msgLow.includes("shopaikey") ? "ShopAIKey" : "OpenRouter";
+    return `${prefix}🌐 Không kết nối được tới ${providerName}. Nếu log trình duyệt báo CORS, provider đang chặn phản hồi từ browser; hãy thử lại sau, đổi provider/model, hoặc dùng Google/OpenRouter nếu cần chạy ngay.${providerSuffix}`;
+  }
   if (msgLow.includes("failed to fetch") || msgLow.includes("networkerror") || msgLow.includes("net::")) {
-    return `${prefix}🌐 Mất kết nối mạng. Hãy kiểm tra WiFi/Internet rồi thử lại.`;
+    return `${prefix}🌐 Mất kết nối mạng hoặc provider chặn phản hồi CORS. Hãy kiểm tra WiFi/Internet rồi thử lại.`;
   }
   if (msgLow.includes("timeout") || msgLow.includes("econnreset") || msgLow.includes("econnrefused")) {
     return `${prefix}🌐 Kết nối bị gián đoạn (timeout). Hãy kiểm tra mạng và thử lại.`;

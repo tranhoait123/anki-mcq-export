@@ -232,11 +232,17 @@ export const callOpenAICompatibleProvider = async (
   includeResponseFormat: boolean = true
 ): Promise<string> => {
   const request = buildOpenAICompatibleProviderRequest(settings, modelName, messages, includeResponseFormat);
-  const response = await fetch(request.url, {
-    method: 'POST',
-    headers: request.headers,
-    body: JSON.stringify(request.body),
-  });
+  let response: Response;
+  try {
+    response = await fetch(request.url, {
+      method: 'POST',
+      headers: request.headers,
+      body: JSON.stringify(request.body),
+    });
+  } catch (error: any) {
+    const detail = error?.message || String(error) || 'Network request failed';
+    throw new Error(`${request.providerName} NETWORK_ERROR: ${detail} | model=${request.model}`);
+  }
 
   if (!response.ok) {
     const error = await createProviderApiError(request.providerName, response, request.model);

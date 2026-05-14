@@ -446,6 +446,27 @@ export const generateQuestions = async (
       batchAutoSkipped.set(batchNumber, (batchAutoSkipped.get(batchNumber) || 0) + count);
     };
 
+    const getBatchProgressNumbers = (): number[] => {
+      const progressed = new Set<number>();
+      batchQuestions.forEach((questions, batchNumber) => {
+        if (questions.length > 0) progressed.add(batchNumber);
+      });
+      batchDuplicates.forEach((duplicates, batchNumber) => {
+        if (duplicates.length > 0) progressed.add(batchNumber);
+      });
+      batchAutoSkipped.forEach((count, batchNumber) => {
+        if (count > 0) progressed.add(batchNumber);
+      });
+      return Array.from(progressed);
+    };
+
+    const getSnapshotBatchNumbers = (completedBatchNumbers: number[]): number[] => (
+      Array.from(new Set([
+        ...completedBatchNumbers,
+        ...getBatchProgressNumbers(),
+      ])).sort((a, b) => a - b)
+    );
+
     const getBatchCoverageSet = (batchNumber: number) => {
       let coverage = batchCoverageKeys.get(batchNumber);
       if (!coverage) {
@@ -468,6 +489,7 @@ export const generateQuestions = async (
 
     const buildCheckpointSnapshot = (completedBatchNumbers: number[]) => (
       measureSync(`generation.buildCheckpointSnapshot(${completedBatchNumbers.length}/${totalTopLevelBatches})`, () => {
+        const snapshotBatchNumbers = getSnapshotBatchNumbers(completedBatchNumbers);
         const snapshot = buildCompletedBatchSnapshot(
           options.existingQuestions || [],
           options.existingDuplicates || [],
@@ -475,7 +497,7 @@ export const generateQuestions = async (
           batchQuestions,
           batchDuplicates,
           batchAutoSkipped,
-          completedBatchNumbers
+          snapshotBatchNumbers
         );
         const questionList = snapshot.questionsSnapshot;
 

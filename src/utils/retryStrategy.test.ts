@@ -22,6 +22,7 @@ describe('batch retry strategy', () => {
     expect(classifyBatchError(new Error('Gemini API Error: too many requests; rate limit exceeded'))).toBe('rateLimit');
     expect(classifyBatchError({ statusCode: 429, message: 'RetryInfo quota exhausted' })).toBe('rateLimit');
     expect(classifyBatchError(new Error('Gemini overloaded 503'))).toBe('serverBusy');
+    expect(classifyBatchError(new Error('ShopAIKey NETWORK_ERROR: Failed to fetch | model=gpt-5.4-mini'))).toBe('serverBusy');
     expect(getRetryProfile('rescue').minAttempts).toBeLessThan(getRetryProfile('normal').minAttempts);
     expect(getRetryProfile('rescue').backoffCapMs).toBeLessThan(getRetryProfile('normal').backoffCapMs);
     expect(getRetryProfile('rescue').maxElapsedMs).toBeGreaterThan(45_000);

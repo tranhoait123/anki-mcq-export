@@ -58,13 +58,13 @@ export async function executeWithUserRotation<T>(
   const ATTEMPTS_LIMIT = Math.max(retryProfile.minAttempts, retryProfile.minAttempts + retryProfile.attemptBuffer);
   let attempts = 0;
   let currentModel = initialModel;
-  let currentKey = startingKey || userKeyRotator.getCurrentKey();
+  let currentKey = startingKey || userKeyRotator.selectBestKey();
   const keysTried = new Set<string>();
-  const sameKeySoftRateLimitRetries = new Map<string, number>();
   const startedAt = Date.now();
 
   const getRemainingBudgetMs = () => retryProfile.maxElapsedMs - (Date.now() - startedAt);
-  const getUntriedAvailableKey = () => userKeyRotator.getKeyForBatch(keysTried) || userKeyRotator.rotate(keysTried);
+  const getUntriedAvailableKey = () => userKeyRotator.selectBestKey({ excludeKeys: keysTried });
+  const getRetriedAvailableKey = () => userKeyRotator.selectBestKey({ allowRetriedKeys: true });
 
   while (attempts < ATTEMPTS_LIMIT) {
     await controller?.waitIfPaused();
@@ -73,23 +73,35 @@ export async function executeWithUserRotation<T>(
       throw new Error(`RETRY_BUDGET_EXHAUSTED: Dịch vụ AI vẫn bận sau ${Math.round(retryProfile.maxElapsedMs / 1000)}s. Batch này sẽ được đánh dấu để quét lại sau.`);
     }
 
+    if (currentKey && !userKeyRotator.isKeyAvailable(currentKey)) {
+      currentKey = getUntriedAvailableKey();
+    }
+
     if (!currentKey && userKeyRotator.keyCount > 0) {
       const cooldownDelay = userKeyRotator.getNextCooldownDelayMs();
       if (cooldownDelay > 0) {
         const waitMs = Math.min(cooldownDelay, retryProfile.singleKeyBackoffCapMs, Math.max(250, getRemainingBudgetMs()));
         console.log(`⏳ All API keys are cooling down. Waiting ${Math.round(waitMs / 1000)}s before retrying.`);
         await waitWithController(waitMs, controller);
-        currentKey = getUntriedAvailableKey() || userKeyRotator.getKeyForBatch() || userKeyRotator.getCurrentKey();
+        currentKey = getUntriedAvailableKey() || getRetriedAvailableKey();
         continue;
+      }
+      currentKey = getUntriedAvailableKey() || getRetriedAvailableKey();
+      if (!currentKey) {
+        throw new Error(`RETRY_BUDGET_EXHAUSTED: Không còn API key khả dụng trong lượt thử hiện tại. Batch này sẽ được đánh dấu để quét lại sau.`);
       }
     }
 
     attempts++;
-    if (currentKey) keysTried.add(currentKey);
+    const attemptedKey = currentKey;
+    if (attemptedKey) {
+      keysTried.add(attemptedKey);
+      userKeyRotator.markKeyInFlight(attemptedKey);
+    }
 
     try {
-      const result = await operation(currentKey, currentModel);
-      userKeyRotator.reportSuccess(currentKey);
+      const result = await operation(attemptedKey, currentModel);
+      userKeyRotator.markKeyResult(attemptedKey, { kind: 'success' });
       return result;
     } catch (error: any) {
       const msg = error.message?.toLowerCase() || "";
@@ -116,25 +128,28 @@ export async function executeWithUserRotation<T>(
           if (msg.includes("openrouter api error") || msg.includes("shopaikey api error")) {
             throw error;
           }
-          console.warn(`🚫 Auth/Invalid Key detected! Key #${userKeyRotator.getKeyNumber(currentKey)} is broken. Rotating IMMEDIATELY...`);
-          userKeyRotator.markKeyFailed(currentKey);
+          console.warn(`🚫 Auth/Invalid Key detected! Key #${userKeyRotator.getKeyNumber(attemptedKey)} is blocked temporarily. Rotating IMMEDIATELY...`);
+          userKeyRotator.markKeyResult(attemptedKey, { kind: 'auth', error });
           if (userKeyRotator.availableKeyCount > 0) {
-            currentKey = getUntriedAvailableKey() || userKeyRotator.getKeyForBatch();
+            currentKey = getUntriedAvailableKey() || getRetriedAvailableKey();
             continue;
           }
           throw new Error(`API Key hoặc Token bị từ chối truy cập (403/Invalid). Vui lòng vào Cài đặt kiểm tra lại (Có thể Key hết hạn hoặc sai).`);
         }
 
         if (decision.cause === 'hardQuota') {
-          console.warn(`🧱 Hard quota/billing limit detected on key #${userKeyRotator.getKeyNumber(currentKey)}. Avoiding same-key retry.`);
-          userKeyRotator.markKeyCooldown(currentKey, 'rateLimit', retryHintMs || retryProfile.singleKeyBackoffCapMs);
+          console.warn(`🧱 Hard quota/billing limit detected on key #${userKeyRotator.getKeyNumber(attemptedKey)}. Avoiding same-key retry.`);
+          userKeyRotator.markKeyResult(attemptedKey, { kind: 'quota', durationMs: retryHintMs, error });
           if (userKeyRotator.availableKeyCount > 0) {
-            currentKey = getUntriedAvailableKey() || userKeyRotator.getKeyForBatch();
+            currentKey = getUntriedAvailableKey() || getRetriedAvailableKey();
             continue;
           }
           throw new Error("AI_HARD_QUOTA_EXHAUSTED: Hết quota/billing hoặc free-tier cho key hiện tại. Batch này được giữ lại để quét sau khi đổi/thêm key.");
         }
 
+        if (decision.cause === 'fatal' && (msg.includes('400') || msg.includes('invalid_argument'))) {
+          userKeyRotator.markKeyResult(attemptedKey, { kind: 'suspect', durationMs: 30 * 1000, error });
+        }
         throw error;
       }
 
@@ -170,10 +185,7 @@ export async function executeWithUserRotation<T>(
           // Tạm khóa key cụ thể vừa dính lỗi 429 để các luồng song song khác bỏ qua nó.
           // Ưu tiên thời gian chờ tối thiểu 45s để đảm bảo key qua chu kỳ giới hạn của Gemini.
           const individualCooldownMs = Math.max(45 * 1000, backoffMs);
-          userKeyRotator.markKeyCooldown(currentKey, 'rateLimit', individualCooldownMs);
-
-          const sameKeyRetries = sameKeySoftRateLimitRetries.get(currentKey) || 0;
-          sameKeySoftRateLimitRetries.set(currentKey, sameKeyRetries + 1);
+          userKeyRotator.markKeyResult(attemptedKey, { kind: 'rateLimit', durationMs: individualCooldownMs, error });
 
           // Nếu còn bất kỳ key dự phòng rảnh rỗi nào, XOAY NGAY LẬP TỨC mà không cần đợi thử lại lần 2.
           const canTryBackupKey = (
@@ -201,7 +213,7 @@ export async function executeWithUserRotation<T>(
           if (cooldownDelay > 0) {
             backoffMs = Math.min(cooldownDelay, retryProfile.singleKeyBackoffCapMs, Math.max(250, getRemainingBudgetMs()));
             await waitWithController(backoffMs, controller);
-            currentKey = getUntriedAvailableKey() || userKeyRotator.getKeyForBatch() || userKeyRotator.getCurrentKey();
+            currentKey = getUntriedAvailableKey() || getRetriedAvailableKey();
             continue;
           } else {
             backoffMs = Math.min(
@@ -217,6 +229,8 @@ export async function executeWithUserRotation<T>(
         continue;
       }
       throw error;
+    } finally {
+      if (attemptedKey) userKeyRotator.releaseKeyInFlight(attemptedKey);
     }
   }
   throw new Error(`Dịch vụ AI đang bận hoặc quá tải sau ${ATTEMPTS_LIMIT} lần thử. Vui lòng chờ 1-2 phút rồi thử lại.`);

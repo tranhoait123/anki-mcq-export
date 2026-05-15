@@ -255,10 +255,9 @@ describe('Core Logic', () => {
       'key-one-valid',
       'key-two-valid',
       'key-three-valid',
-      'key-four-valid',
-      'key-five-valid',
     ]));
-    expect(userKeyRotator.availableKeyCount).toBe(0); // all visited keys were cooled down individually
+    expect(userKeyRotator.availableKeyCount).toBe(2); // circuit breaker keeps fresh keys unburned
+    expect(userKeyRotator.getRecommendedConcurrency()).toBe(1);
   });
 
   it('caps PDF recovery accounting to questions added by the same batch', () => {

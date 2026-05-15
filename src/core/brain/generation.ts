@@ -500,11 +500,18 @@ export const generateQuestions = async (
         );
         const questionList = snapshot.questionsSnapshot;
 
-        questionList.sort((a, b) => {
-          const numA = extractQuestionNumber(a.question) || 999999;
-          const numB = extractQuestionNumber(b.question) || 999999;
-          return numA - numB;
-        });
+        if (questionList.length > 1) {
+          const numCache = new Map<any, number>();
+          const getNum = (q: any) => {
+            let num = numCache.get(q);
+            if (num === undefined) {
+              num = extractQuestionNumber(q.question) ?? 999999;
+              numCache.set(q, num);
+            }
+            return num;
+          };
+          questionList.sort((a, b) => getNum(a) - getNum(b));
+        }
 
         return {
           questionsSnapshot: questionList,
@@ -1059,11 +1066,18 @@ export const generateQuestions = async (
     const finalDuplicates = finalSnapshot.duplicatesSnapshot;
     const finalAutoSkippedCount = finalSnapshot.autoSkippedCount;
 
-    finalQuestions.sort((a, b) => {
-      const numA = extractQuestionNumber(a.question) || 999999;
-      const numB = extractQuestionNumber(b.question) || 999999;
-      return numA - numB;
-    });
+    if (finalQuestions.length > 1) {
+      const numCache = new Map<any, number>();
+      const getNum = (q: any) => {
+        let num = numCache.get(q);
+        if (num === undefined) {
+          num = extractQuestionNumber(q.question) ?? 999999;
+          numCache.set(q, num);
+        }
+        return num;
+      };
+      finalQuestions.sort((a, b) => getNum(a) - getNum(b));
+    }
 
     failedBatches = Array.from(new Set(failedBatches)).sort((a, b) => a - b);
     failedBatchDetails = failedBatchDetails.sort((a, b) => a.index - b.index || a.label.localeCompare(b.label));

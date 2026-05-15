@@ -34,7 +34,14 @@ export const getPersistableFiles = (files: UploadedFile[]): UploadedFile[] =>
     .map((file) => ({ ...file, isProcessing: false, progress: 100 }));
 
 export const sortMcqsByQuestionNumber = (items: MCQ[]): MCQ[] => {
-  return [...items].sort((a, b) => getQuestionSortNumber(a.question) - getQuestionSortNumber(b.question));
+  if (items.length <= 1) return [...items];
+  const mapped = items.map((item, i) => ({
+    index: i,
+    value: item,
+    sortNum: getQuestionSortNumber(item.question)
+  }));
+  mapped.sort((a, b) => a.sortNum - b.sortNum || a.index - b.index);
+  return mapped.map(el => el.value);
 };
 
 export const getQuestionSortNumber = (str: string): number => {
@@ -47,6 +54,17 @@ export const mergeSortedMcqs = (existing: MCQ[], incoming: MCQ[]): MCQ[] => {
   if (existing.length === 0) return sortMcqsByQuestionNumber(incoming);
 
   const sortedIncoming = sortMcqsByQuestionNumber(incoming);
+  
+  const numCache = new Map<any, number>();
+  const getNum = (q: any) => {
+    let num = numCache.get(q);
+    if (num === undefined) {
+      num = getQuestionSortNumber(q.question);
+      numCache.set(q, num);
+    }
+    return num;
+  };
+
   const merged: MCQ[] = [];
   let existingIndex = 0;
   let incomingIndex = 0;
@@ -54,7 +72,7 @@ export const mergeSortedMcqs = (existing: MCQ[], incoming: MCQ[]): MCQ[] => {
   while (existingIndex < existing.length && incomingIndex < sortedIncoming.length) {
     const existingItem = existing[existingIndex];
     const incomingItem = sortedIncoming[incomingIndex];
-    if (getQuestionSortNumber(existingItem.question) <= getQuestionSortNumber(incomingItem.question)) {
+    if (getNum(existingItem) <= getNum(incomingItem)) {
       merged.push(existingItem);
       existingIndex++;
     } else {

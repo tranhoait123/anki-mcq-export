@@ -50,13 +50,31 @@ export interface BatchPostprocessOptions {
   yieldEvery?: number;
 }
 
+export const compactQuestionForDedupe = (question: MCQ): MCQ => ({
+  id: question.id,
+  question: question.question,
+  options: Array.isArray(question.options) ? question.options.slice(0, 5) : [],
+  correctAnswer: question.correctAnswer,
+  explanation: {
+    core: '',
+    evidence: '',
+    analysis: '',
+    warning: '',
+  },
+  source: question.source,
+  trace: question.trace ? { ...question.trace } : undefined,
+  sharedCase: question.sharedCase ? { ...question.sharedCase } : undefined,
+  difficulty: question.difficulty || '',
+  depthAnalysis: question.depthAnalysis || '',
+});
+
 export const createBatchPostprocessState = (
   seedQuestions: MCQ[] = [],
   duplicateCounter = 0
 ): BatchPostprocessState => ({
   batchQuestionIds: new Map(),
   duplicateCounter,
-  questions: [...seedQuestions],
+  questions: seedQuestions.map(compactQuestionForDedupe),
 });
 
 const buildCoverageKey = (question: Partial<MCQ>): string => (

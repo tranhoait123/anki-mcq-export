@@ -21,6 +21,7 @@ export interface GenerateQuestionsOptions {
   onCheckpoint?: (checkpoint: ProcessingCheckpoint) => void;
   checkpointBatchInterval?: number;
   checkpointIntervalMs?: number;
+  lightweightCheckpoints?: boolean;
   onPartialQuestions?: (questions: MCQ[], batchIndex: number) => void;
 }
 

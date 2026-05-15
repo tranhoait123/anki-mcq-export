@@ -12,6 +12,18 @@ interface ProcessingSessionRefs {
   analysisRef: React.RefObject<AnalysisResult | null>;
 }
 
+interface PersistSessionOptions {
+  compact?: boolean;
+}
+
+export const compactProcessingSessionForPersist = (session: ProcessingSession): ProcessingSession => ({
+  ...session,
+  mcqsSnapshot: [],
+  phaseQuestionsSnapshot: [],
+  duplicatesSnapshot: [],
+  phaseDuplicatesSnapshot: [],
+});
+
 export const useProcessingSession = ({
   filesRef,
   mcqsRef,
@@ -22,26 +34,28 @@ export const useProcessingSession = ({
   const activeSessionRef = useRef<ProcessingSession | null>(null);
   const sessionPersistChainRef = useRef<Promise<void>>(Promise.resolve());
 
-  const saveSession = (session: ProcessingSession) => (
-    measureAsync(`session.save(${session.currentCount})`, () => db.saveSession(session))
+  const saveSession = (session: ProcessingSession, options: PersistSessionOptions = {}) => (
+    measureAsync(`session.save(${session.currentCount}${options.compact ? ',compact' : ''})`, () =>
+      db.saveSession(options.compact ? compactProcessingSessionForPersist(session) : session)
+    )
   );
 
-  const persistSession = async (session: ProcessingSession) => {
+  const persistSession = async (session: ProcessingSession, options: PersistSessionOptions = {}) => {
     activeSessionRef.current = session;
     setResumeSession(session);
     sessionPersistChainRef.current = sessionPersistChainRef.current
       .catch(() => undefined)
-      .then(() => saveSession(session));
+      .then(() => saveSession(session, options));
     await sessionPersistChainRef.current;
   };
 
-  const persistSessionSnapshot = (session: ProcessingSession) => {
+  const persistSessionSnapshot = (session: ProcessingSession, options: PersistSessionOptions = {}) => {
     sessionPersistChainRef.current = sessionPersistChainRef.current
       .catch(() => undefined)
-      .then(() => saveSession(session));
+      .then(() => saveSession(session, options));
   };
 
-  const updateActiveSession = async (partial: Partial<ProcessingSession>, options: { persist?: boolean } = {}) => {
+  const updateActiveSession = async (partial: Partial<ProcessingSession>, options: { persist?: boolean; compact?: boolean } = {}) => {
     const current = activeSessionRef.current || await db.getSession();
     if (!current) return null;
     const next: ProcessingSession = {
@@ -55,7 +69,7 @@ export const useProcessingSession = ({
     if (options.persist === false) return next;
     sessionPersistChainRef.current = sessionPersistChainRef.current
       .catch(() => undefined)
-      .then(() => saveSession(next));
+      .then(() => saveSession(next, { compact: options.compact }));
     await sessionPersistChainRef.current;
     return next;
   };

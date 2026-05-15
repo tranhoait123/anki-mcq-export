@@ -5,10 +5,10 @@ import {
   createBatchPostprocessState,
   processBatchPostprocess,
 } from '../core/brain/batchPostprocess';
-import { DuplicateInfo, MCQ } from '../types';
+import { MCQ } from '../types';
 
 type BatchPostprocessWorkerRequest =
-  | { type: 'start'; requestId: number; seedDuplicates?: DuplicateInfo[]; seedQuestions: MCQ[] }
+  | { type: 'start'; requestId: number; seedDuplicateCount?: number; seedQuestions: MCQ[] }
   | { type: 'process'; requestId: number; input: BatchPostprocessInput }
   | { type: 'dispose' };
 
@@ -25,7 +25,7 @@ self.onmessage = (event: MessageEvent<BatchPostprocessWorkerRequest>) => {
   void (async () => {
     try {
       if (message.type === 'start') {
-        state = createBatchPostprocessState(message.seedQuestions || [], message.seedDuplicates?.length || 0);
+        state = createBatchPostprocessState(message.seedQuestions || [], message.seedDuplicateCount || 0);
         self.postMessage({ type: 'started', requestId: message.requestId, result: undefined });
         return;
       }

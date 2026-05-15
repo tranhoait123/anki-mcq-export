@@ -3,6 +3,7 @@ import { measureAsync, recordPerfMetric } from '../../utils/performance';
 import {
   BatchPostprocessInput,
   BatchPostprocessResult,
+  compactQuestionForDedupe,
   createBatchPostprocessState,
   ingestBatchPostprocessResult,
   processBatchPostprocess,
@@ -165,7 +166,11 @@ export const createBatchPostprocessor = (
       await localFallback.start(seedQuestions, seedDuplicates);
       if (disposed || usingFallback || !worker) return;
       try {
-        await postWorkerMessage<void>({ type: 'start', seedQuestions, seedDuplicates });
+        await postWorkerMessage<void>({
+          type: 'start',
+          seedQuestions: seedQuestions.map(compactQuestionForDedupe),
+          seedDuplicateCount: seedDuplicates.length,
+        });
       } catch (error) {
         disableWorker(error);
       }

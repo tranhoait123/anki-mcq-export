@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MCQ } from '../../types';
 import {
+  compactQuestionForDedupe,
   createBatchPostprocessState,
   processBatchPostprocess,
 } from './batchPostprocess';
@@ -22,6 +23,39 @@ const makeQuestion = (id: number): MCQ => ({
 });
 
 describe('processBatchPostprocess', () => {
+  it('keeps seed dedupe state compact while preserving match-critical fields', () => {
+    const compact = compactQuestionForDedupe({
+      ...makeQuestion(1),
+      explanation: {
+        core: 'x'.repeat(5000),
+        evidence: 'heavy evidence',
+        analysis: 'heavy analysis',
+        warning: 'heavy warning',
+      },
+      trace: {
+        fileId: 'file-1',
+        fileName: 'deck.pdf',
+        sourceLabel: 'deck.pdf | Trang 1',
+        mode: 'pdfText',
+      },
+    });
+
+    expect(compact).toMatchObject({
+      id: 'seed-1',
+      question: 'Câu 1: Bệnh nhân số 1 cần chọn đáp án nào?',
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      source: 'seed',
+    });
+    expect(compact.explanation).toEqual({
+      core: '',
+      evidence: '',
+      analysis: '',
+      warning: '',
+    });
+    expect(compact.trace?.sourceLabel).toBe('deck.pdf | Trang 1');
+  });
+
   it('parses, dedupes, and tracks coverage off the generation hot path', async () => {
     const seed = makeQuestion(1);
     const fresh: MCQ = {

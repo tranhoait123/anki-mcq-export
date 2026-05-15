@@ -11,6 +11,7 @@ import {
   UploadedFile,
 } from '../types';
 import { generateQuestions } from '../core/brain';
+import { db } from '../core/db';
 import { sortMcqsByQuestionNumber } from '../utils/appHelpers';
 import { hasRecentSlowMetrics, scheduleIdleTask } from '../utils/performance';
 
@@ -72,10 +73,10 @@ interface UseGenerationPhaseParams {
   duplicatesRef: React.MutableRefObject<DuplicateInfo[]>;
   mcqsRef: React.MutableRefObject<MCQ[]>;
   persistMcqs: (items: MCQ[]) => Promise<void>;
-  persistSession: (session: ProcessingSession) => Promise<void>;
+  persistSession: (session: ProcessingSession, options?: { compact?: boolean }) => Promise<void>;
   setCurrentCount: React.Dispatch<React.SetStateAction<number>>;
   setProgressStatus: React.Dispatch<React.SetStateAction<string>>;
-  updateActiveSession: (partial: Partial<ProcessingSession>, options?: { persist?: boolean }) => Promise<ProcessingSession | null>;
+  updateActiveSession: (partial: Partial<ProcessingSession>, options?: { persist?: boolean; compact?: boolean }) => Promise<ProcessingSession | null>;
 }
 
 export const useGenerationPhase = ({
@@ -116,8 +117,10 @@ export const useGenerationPhase = ({
     let phaseQuestions = sortMcqsByQuestionNumber(seedQuestions);
     let phaseDuplicates = [...seedDuplicates];
     let phaseAutoSkippedCount = seedAutoSkippedCount;
+    const isTargetedRepairPhase = Boolean(retryIndices?.length) || phase === 'rescue' || phase === 'retryFailed';
+    const useCompactSessionPersistence = renderCompletedBatchesToVisible && isTargetedRepairPhase;
 
-    await persistSession(await buildSessionBase(phase, requestSettings, {
+    const initialSession = await buildSessionBase(phase, requestSettings, {
       totalTopLevelBatches: retryIndices?.length || 0,
       completedBatchIndices: existingCompletedBatchIndices,
       failedBatchIndices: [],
@@ -135,7 +138,8 @@ export const useGenerationPhase = ({
       phaseComparisonBaselineCount: comparisonBaselineCount,
       phaseComparisonFailedBatchIndices: comparisonFailedBatchIndices,
       phaseComparisonFailedBatchDetails: comparisonFailedBatchDetails,
-    }));
+    });
+    await persistSession(initialSession, { compact: useCompactSessionPersistence });
 
     let partialFlushCancel: (() => void) | null = null;
     let pendingPartialQuestions: MCQ[] = [];
@@ -252,6 +256,7 @@ export const useGenerationPhase = ({
         expectedQuestionCount,
         (newBatch) => {
           phaseQuestions = sortMcqsByQuestionNumber([...phaseQuestions, ...newBatch]);
+          if (renderCompletedBatchesToVisible && newBatch.length > 0) void db.upsertMCQs(newBatch);
           queueCompletedBatchQuestions(newBatch);
         },
         retryIndices,
@@ -261,7 +266,7 @@ export const useGenerationPhase = ({
           retryProfile,
           autoRescue,
           resumeMode: existingCompletedBatchIndices.length > 0 || seedQuestions.length > 0,
-          skipInferredCompletedBatches,
+          skipInferredCompletedBatches: skipInferredCompletedBatches || Boolean(retryIndices?.length),
           completedBatchIndices: existingCompletedBatchIndices,
           existingQuestions: phaseQuestions,
           existingDuplicates: phaseDuplicates,
@@ -269,6 +274,7 @@ export const useGenerationPhase = ({
           sessionPhase: phase,
           checkpointBatchInterval: CHECKPOINT_BATCH_INTERVAL,
           checkpointIntervalMs: CHECKPOINT_INTERVAL_MS,
+          lightweightCheckpoints: useCompactSessionPersistence,
           onCheckpoint: (checkpoint: ProcessingCheckpoint) => {
             const hasFullSnapshot = checkpoint.snapshotKind !== 'metadata' && Array.isArray(checkpoint.questionsSnapshot);
             void updateActiveSession({
@@ -288,7 +294,7 @@ export const useGenerationPhase = ({
               } : {}),
               phaseAutoSkippedCount: checkpoint.autoSkippedCount,
               phaseCurrentCount: checkpoint.currentCount,
-            });
+            }, { compact: renderCompletedBatchesToVisible && (useCompactSessionPersistence || !hasFullSnapshot) });
             if (!renderCompletedBatchesToVisible && hasFullSnapshot) void persistMcqs(checkpoint.questionsSnapshot || []);
           },
           onPartialQuestions: liveAppendToVisible
@@ -325,7 +331,7 @@ export const useGenerationPhase = ({
       phaseDuplicatesSnapshot: phaseDuplicates,
       phaseAutoSkippedCount: phaseAutoSkippedCount,
       phaseCurrentCount: phaseQuestions.length,
-    });
+    }, { compact: renderCompletedBatchesToVisible && useCompactSessionPersistence });
 
     return {
       res,

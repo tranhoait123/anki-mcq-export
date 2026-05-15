@@ -389,7 +389,12 @@ export const generateQuestions = async (
     let autoSkippedCount = options.existingAutoSkippedCount || 0;
     let rescueCompleted = 0;
     const rescueTotal = retryIndices?.length || 0;
-    const inferredCompletedBatchIndices = options.resumeMode && !options.skipInferredCompletedBatches
+    const shouldInferCompletedBatchIndices = Boolean(
+      options.resumeMode &&
+      !options.skipInferredCompletedBatches &&
+      !(retryIndices && retryIndices.length > 0)
+    );
+    const inferredCompletedBatchIndices = shouldInferCompletedBatchIndices
       ? inferCompletedBatchIndicesFromExistingQuestions(allParts, options.existingQuestions || [])
       : [];
     const skippedBatchSet = new Set([
@@ -512,7 +517,9 @@ export const generateQuestions = async (
     const emitCheckpoint = (batchIndex: number, completedBatchIndices: number[], forceFullSnapshot = false) => {
       if (!options.onCheckpoint) return;
       const now = Date.now();
-      const shouldBuildFullSnapshot = forceFullSnapshot || now - lastFullCheckpointAt >= FULL_CHECKPOINT_INTERVAL_MS;
+      const shouldBuildFullSnapshot = !options.lightweightCheckpoints && (
+        forceFullSnapshot || now - lastFullCheckpointAt >= FULL_CHECKPOINT_INTERVAL_MS
+      );
       const checkpointSnapshot = shouldBuildFullSnapshot ? buildCheckpointSnapshot(completedBatchIndices) : null;
       lastCheckpointCompletedCount = getPhaseCompletedCount(completedBatchIndices);
       lastCheckpointAt = now;

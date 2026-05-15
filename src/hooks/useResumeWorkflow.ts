@@ -165,13 +165,13 @@ export const useResumeWorkflow = ({
             retryIndices: res.failedBatches,
             isAdvancedMode: true,
             retryProfile: 'rescue',
-            autoRescue: true,
-            liveAppendToVisible: realtimePreviewEnabled,
-            renderCompletedBatchesToVisible: true,
-            forcedOcrMode: activeOcrMode,
-            seedQuestions: res.questions,
-            seedDuplicates: res.duplicates || [],
-          });
+          autoRescue: true,
+          liveAppendToVisible: realtimePreviewEnabled,
+          renderCompletedBatchesToVisible: true,
+          forcedOcrMode: activeOcrMode,
+          seedQuestions: res.questions.length > 0 ? res.questions : mcqsRef.current,
+          seedDuplicates: res.duplicates || [],
+        });
           const uniqueRescued = deduplicateQuestions(rescuePhase.res.questions, res.questions);
           res = {
             ...res,
@@ -253,7 +253,7 @@ export const useResumeWorkflow = ({
             liveAppendToVisible: realtimePreviewEnabled,
             renderCompletedBatchesToVisible: true,
             forcedOcrMode: activeOcrMode,
-            seedQuestions: selectedRes.questions,
+            seedQuestions: selectedRes.questions.length > 0 ? selectedRes.questions : mcqsRef.current,
             seedDuplicates: selectedRes.duplicates || [],
           });
           const uniqueRescued = deduplicateQuestions(rescuePhase.res.questions, selectedRes.questions);
@@ -287,7 +287,7 @@ export const useResumeWorkflow = ({
           liveAppendToVisible: realtimePreviewEnabled,
           renderCompletedBatchesToVisible: true,
           existingCompletedBatchIndices: session.completedBatchIndices || [],
-          seedQuestions: session.phaseQuestionsSnapshot || [],
+          seedQuestions: (session.phaseQuestionsSnapshot || []).length > 0 ? (session.phaseQuestionsSnapshot || []) : mcqsRef.current,
           seedDuplicates: session.phaseDuplicatesSnapshot || [],
           seedAutoSkippedCount: session.phaseAutoSkippedCount || 0,
           forcedOcrMode: activeOcrMode,

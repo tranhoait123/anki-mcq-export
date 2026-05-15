@@ -61,13 +61,29 @@ export const useAppBootstrap = ({
         }
 
         if (persistedSession && isResumableStatus(persistedSession.status)) {
+          let hydratedSessionSnapshotsFromMcqStore = false;
+          if ((persistedSession.mcqsSnapshot || []).length === 0 && persistedMcqs.length > 0) {
+            hydratedSessionSnapshotsFromMcqStore = true;
+            persistedSession = {
+              ...persistedSession,
+              mcqsSnapshot: persistedMcqs,
+              phaseQuestionsSnapshot: (persistedSession.phaseQuestionsSnapshot || []).length > 0
+                ? persistedSession.phaseQuestionsSnapshot
+                : persistedMcqs,
+              phaseCurrentCount: persistedSession.phaseCurrentCount || persistedMcqs.length,
+            };
+          }
           if (persistedSession.status !== 'interrupted') {
             persistedSession = {
               ...persistedSession,
               status: 'interrupted',
               updatedAt: Date.now(),
             };
-            await db.saveSession(persistedSession);
+            await db.saveSession(hydratedSessionSnapshotsFromMcqStore ? {
+              ...persistedSession,
+              mcqsSnapshot: [],
+              phaseQuestionsSnapshot: [],
+            } : persistedSession);
           }
           if (persistedSession.analysisSnapshot) setAnalysis(persistedSession.analysisSnapshot);
           if ((persistedSession.mcqsSnapshot || []).length > 0) {

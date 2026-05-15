@@ -177,7 +177,7 @@ export const buildPartialSalvageRecoveryParts = (
       ...part,
       text: buildNativeMcqBatchText(chunk),
       expectedQuestions: chunk.length,
-      partialRecovery: true,
+      partialRecovery: false,
       recoveryAttemptedFromPartial: true,
     });
   }

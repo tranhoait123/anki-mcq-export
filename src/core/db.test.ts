@@ -356,6 +356,6 @@ describe('AppDB session persistence', () => {
     expect(await appDb.getAllMCQs()).toEqual([]);
     expect(await appDb.getFiles()).toEqual([]);
     expect(await appDb.getSession()).toBeNull();
-    expect(await appDb.getProject(baseProject.id)).toEqual(baseProject);
+    expect(await appDb.getProject(baseProject.id)).toBeNull();
   });
 });

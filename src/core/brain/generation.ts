@@ -572,11 +572,12 @@ export const generateQuestions = async (
     const stableFallbackModel = getProviderFallbackModel(runtimeSettings.provider);
     const extractionModel = isAdvancedMode || isRescueMode ? stableFallbackModel : runtimeSettings.model;
 
-    const runPartsWithLimit = async <T,>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> => {
+    const runPartsWithLimit = async <T,>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>): Promise<void> => {
       const active: Promise<void>[] = [];
+      let i = 0;
       for (const item of items) {
         await controller?.waitIfPaused();
-        const p = worker(item);
+        const p = worker(item, ++i);
         active.push(p);
         while (active.length >= Math.max(1, limit)) {
           const finishedIndex = await Promise.race(active.map((promise, idx) => promise.then(() => idx)));
@@ -656,8 +657,8 @@ export const generateQuestions = async (
     };
 
     // Hàm xử lý Batch chính có khả năng Đệ quy (Subdivision)
-    const processBatch = async (part: any, index: number, depth: number = 0, forceJsonRepair: boolean = false, topLevelIndex: number = index) => {
-      const batchLabel = depth === 0 ? `${index + 1}` : `${index + 1}${String.fromCharCode(96 + depth)}`;
+    const processBatch = async (part: any, index: number, depth: number = 0, forceJsonRepair: boolean = false, topLevelIndex: number = index, subIndex: number = 0) => {
+      const batchLabel = depth === 0 ? `${index + 1}` : `${index + 1}${String.fromCharCode(96 + depth)}${subIndex > 0 ? `.${subIndex}` : ''}`;
 
       try {
         await controller?.waitIfPaused();
@@ -666,7 +667,7 @@ export const generateQuestions = async (
         if (adaptiveBatching && depth === 0 && part.nativeMcqBatch && expectedAtStart > adaptiveQuestionCap) {
           const cappedParts = splitStructuredPartByBatchSize(part, adaptiveQuestionCap);
           if (cappedParts.length > 1) {
-            await runPartsWithLimit(cappedParts, getSplitConcurrencyLimit(), (p) => processBatch(p, index, depth + 1, forceJsonRepair, topLevelIndex));
+            await runPartsWithLimit(cappedParts, getSplitConcurrencyLimit(), (p, i) => processBatch(p, index, depth + 1, forceJsonRepair, topLevelIndex, i));
             return;
           }
         }
@@ -923,7 +924,7 @@ export const generateQuestions = async (
                 await runPartsWithLimit(
                   recoveryParts.map((recoveryPart) => ({ ...recoveryPart, recoveryBudgetKey })),
                   getSplitConcurrencyLimit(),
-                  (recoveryPart) => processBatch(recoveryPart, index, depth + 1, true, topLevelIndex)
+                  (recoveryPart, i) => processBatch(recoveryPart, index, depth + 1, true, topLevelIndex, i)
                 );
                 recoveryBudgets.delete(recoveryBudgetKey);
               }
@@ -958,7 +959,7 @@ export const generateQuestions = async (
             await runPartsWithLimit(
               recoveryParts,
               getSplitConcurrencyLimit(),
-              (recoveryPart) => processBatch(recoveryPart, index, depth + 1, true, topLevelIndex)
+              (recoveryPart, i) => processBatch(recoveryPart, index, depth + 1, true, topLevelIndex, i)
             );
             return;
           }
@@ -998,7 +999,7 @@ export const generateQuestions = async (
               .map(text => ({ ...part, text }))
           ).filter(p => p.text.trim().length > 0);
 
-          await runPartsWithLimit(parts, getSplitConcurrencyLimit(), (p) => processBatch(p, index, depth + 1, false, topLevelIndex));
+          await runPartsWithLimit(parts, getSplitConcurrencyLimit(), (p, i) => processBatch(p, index, depth + 1, false, topLevelIndex, i));
           const progressAfterSplit = allQuestions.length + allDuplicates.length + autoSkippedCount;
           if (depth === 0 && progressAfterSplit === progressBeforeSplit && !failedBatches.includes(index + 1)) {
             recordBatchFailure(index, batchLabel, e, 'split');

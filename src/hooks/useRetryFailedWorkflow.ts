@@ -67,8 +67,10 @@ export const useRetryFailedWorkflow = ({
   startProcessingController,
   warnVisionRecommendedDocx,
 }: UseRetryFailedWorkflowParams) => {
+  const isWorkingRef = React.useRef(false);
+
   const handleRetryFailed = async () => {
-    if (files.length === 0 || failedBatchIndices.length === 0) return;
+    if (isWorkingRef.current || files.length === 0 || failedBatchIndices.length === 0) return;
     if (retryFailedAttempted) {
       toast.info("Đã quét lại phần lỗi một lần. Các phần còn lỗi nên để quét lại sau khi đổi file, model hoặc API key.");
       return;
@@ -77,16 +79,16 @@ export const useRetryFailedWorkflow = ({
     const requestSettings = getRequestSettings(currentFilesRequireVision());
     const realtimePreviewEnabled = requestSettings.realtimePreviewEnabled === true;
 
-    await clearResumeSession();
-    setRetryFailedAttempted(true);
-    setLoading(true);
-    const baselineQuestions = [...mcqsRef.current];
-    const baselineCount = baselineQuestions.length;
-    setCurrentCount(baselineCount);
-    setProgressStatus(`Đang quét lại ${failedBatchIndices.length} phần lỗi...`);
+    isWorkingRef.current = true;
     let retryCompleted = false;
-
     try {
+      await clearResumeSession();
+      setRetryFailedAttempted(true);
+      setLoading(true);
+      const baselineQuestions = [...mcqsRef.current];
+      const baselineCount = baselineQuestions.length;
+      setCurrentCount(baselineCount);
+      setProgressStatus(`Đang quét lại ${failedBatchIndices.length} phần lỗi...`);
       const controller = startProcessingController();
       const filesToUse = await prepareFiles(ocrMode, controller, requestSettings);
       const retryPhase = await runGenerationPhase({
@@ -132,6 +134,7 @@ export const useRetryFailedWorkflow = ({
       if (retryCompleted) await clearResumeSession();
       clearProcessingController();
       setLoading(false);
+      isWorkingRef.current = false;
     }
   };
 

@@ -655,7 +655,7 @@ describe('Core Logic', () => {
 
     expect(recoveryParts).toHaveLength(1);
     expect(recoveryParts[0].expectedQuestions).toBe(1);
-    expect(recoveryParts[0].partialRecovery).toBe(true);
+    expect(recoveryParts[0].partialRecovery).toBe(false);
     expect(recoveryParts[0].text).toContain('103. Câu gamma còn thiếu');
     expect(recoveryParts[0].text).not.toContain('101. Câu alpha');
   });

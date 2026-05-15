@@ -55,18 +55,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
         }
     };
 
-    const handleClearCaches = async () => {
+    const handleClearAll = async () => {
         const ok = await confirm({
-            title: 'Xóa bộ nhớ đệm AI?',
-            body: 'Việc này chỉ xóa Context Cache và markdown cache. Câu hỏi, file hiện tại và thư viện bộ đề sẽ được giữ nguyên.',
-            confirmLabel: 'Xóa cache',
+            title: 'Xóa tất cả dữ liệu?',
+            body: 'CẢNH BÁO: Việc này sẽ xóa toàn bộ bộ nhớ đệm, danh sách câu hỏi hiện tại, các file đã tải lên và toàn bộ Thư viện bộ đề (Projects). Các cài đặt và API Key sẽ được giữ nguyên. Bạn có chắc chắn không?',
+            confirmLabel: 'Xóa tất cả',
             variant: 'danger',
             onConfirm: async () => {
-                await db.clearCaches();
+                await db.clearAll();
+                setTimeout(() => window.location.reload(), 1000); // Reload to reset all React state safely
             },
         });
         if (ok) {
-            toast.success("Đã xóa sạch bộ nhớ đệm.");
+            toast.success("Đã xóa sạch toàn bộ dữ liệu ứng dụng.");
         }
     };
 
@@ -323,20 +324,20 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                     </p>
                                 </div>
 
-                                {/* Cache Management */}
+                                {/* Storage Management */}
                                 <div className="pt-2 border-t dark:border-slate-700 space-y-3">
                                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                                        <Database size={14} className="text-emerald-500" />
-                                        Quản lý bộ nhớ AI (Context Cache)
+                                        <Database size={14} className="text-red-500" />
+                                        Xóa Dữ Liệu Ứng Dụng
                                     </label>
                                     <button
-                                        onClick={handleClearCaches}
-                                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-red-600 bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 hover:bg-red-100 transition-colors rounded-lg"
+                                        onClick={handleClearAll}
+                                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-red-600 border border-red-700 hover:bg-red-700 transition-colors rounded-lg shadow-sm"
                                     >
-                                        <Trash2 size={14} /> Xóa bộ nhớ đệm
+                                        <Trash2 size={14} /> Xóa tất cả bộ nhớ & dữ liệu
                                     </button>
                                     <p className="text-[9px] text-gray-500 dark:text-gray-400 text-center leading-relaxed">
-                                        Giúp làm mới dữ liệu đọc file. Việc xóa cache sẽ làm AI quét lại file từ đầu (tốn Quota hơn).
+                                        Xóa toàn bộ câu hỏi hiện tại, files, bộ nhớ đệm AI (Cache) và toàn bộ Thư viện bộ đề (Projects). Không xóa API Key và Cài đặt.
                                     </p>
                                 </div>
                             </div>

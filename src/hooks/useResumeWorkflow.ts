@@ -71,20 +71,22 @@ export const useResumeWorkflow = ({
     toast.info("Đã bỏ phiên dang dở. File và dữ liệu đã khôi phục vẫn được giữ lại.");
   };
 
+  const isWorkingRef = React.useRef(false);
+
   const handleResumeSession = async () => {
     const session = resumeSession;
-    if (!session || files.length === 0) return;
+    if (isWorkingRef.current || !session || files.length === 0) return;
     if (warnVisionRecommendedDocx()) return;
 
-    setLoading(true);
-    setCurrentCount(session.currentCount ?? session.phaseCurrentCount ?? mcqsRef.current.length);
-    setProgressStatus(`Đang tiếp tục ${formatSessionPhase(session.phase).toLowerCase()}...`);
-    setFailedBatchIndices(session.failedBatchIndices || []);
-    setDuplicates(session.duplicatesSnapshot || []);
-    duplicatesRef.current = session.duplicatesSnapshot || [];
+    isWorkingRef.current = true;
     let resumedSuccessfully = false;
-
     try {
+      setLoading(true);
+      setCurrentCount(session.currentCount ?? session.phaseCurrentCount ?? mcqsRef.current.length);
+      setProgressStatus(`Đang tiếp tục ${formatSessionPhase(session.phase).toLowerCase()}...`);
+      setFailedBatchIndices(session.failedBatchIndices || []);
+      setDuplicates(session.duplicatesSnapshot || []);
+      duplicatesRef.current = session.duplicatesSnapshot || [];
       const controller = startProcessingController();
       let activeOcrMode: 'gemini' | 'tesseract' = session.forcedOcrMode || 'gemini';
       const realtimePreviewEnabled = session.settingsSnapshot.realtimePreviewEnabled === true;
@@ -305,6 +307,7 @@ export const useResumeWorkflow = ({
       if (resumedSuccessfully) await clearResumeSession();
       clearProcessingController();
       setLoading(false);
+      isWorkingRef.current = false;
     }
   };
 

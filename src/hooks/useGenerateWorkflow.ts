@@ -102,30 +102,32 @@ export const useGenerateWorkflow = ({
     })
   ), []);
 
+  const isWorkingRef = React.useRef(false);
+
   const handleGenerate = async () => {
-    if (files.length === 0) return;
+    if (isWorkingRef.current || files.length === 0) return;
     if (warnVisionRecommendedDocx()) return;
     const requestSettings = getRequestSettings(currentFilesRequireVision());
 
     if (!validateProviderCredentials(requestSettings)) return;
 
-    await clearResumeSession();
-    setLoading(true);
-    setCurrentCount(0);
-    setProgressStatus("Đang chuẩn bị xử lý...");
-    setMcqs([]);
-    mcqsRef.current = [];
-    await db.saveMCQs([]);
-    setFailedBatchIndices([]);
-    setRetryFailedAttempted(false);
-    setAudit(null);
-    setShowAudit(false);
-    setDuplicates([]);
-    duplicatesRef.current = [];
-    setShowDuplicates(false);
+    isWorkingRef.current = true;
     let completed = false;
-
     try {
+      await clearResumeSession();
+      setLoading(true);
+      setCurrentCount(0);
+      setProgressStatus("Đang chuẩn bị xử lý...");
+      setMcqs([]);
+      mcqsRef.current = [];
+      await db.saveMCQs([]);
+      setFailedBatchIndices([]);
+      setRetryFailedAttempted(false);
+      setAudit(null);
+      setShowAudit(false);
+      setDuplicates([]);
+      duplicatesRef.current = [];
+      setShowDuplicates(false);
       const controller = startProcessingController();
       const settingsSnapshot = { ...requestSettings };
       const realtimePreviewEnabled = settingsSnapshot.realtimePreviewEnabled === true;
@@ -309,6 +311,7 @@ export const useGenerateWorkflow = ({
       if (completed) await clearResumeSession();
       clearProcessingController();
       setLoading(false);
+      isWorkingRef.current = false;
     }
   };
 

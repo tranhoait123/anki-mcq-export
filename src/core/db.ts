@@ -401,12 +401,14 @@ export class AppDB {
     async clearAll(): Promise<void> {
         if (!this.db) await this.init();
         return new Promise((resolve, reject) => {
-            const transaction = this.db!.transaction([STORES.MCQS, STORES.CACHES, STORES.MARKDOWN, STORES.FILES, STORES.SESSIONS], 'readwrite');
+            const transaction = this.db!.transaction([STORES.MCQS, STORES.CACHES, STORES.MARKDOWN, STORES.FILES, STORES.SESSIONS, STORES.PROJECTS, STORES.PROJECT_SUMMARIES], 'readwrite');
             transaction.objectStore(STORES.MCQS).clear();
             transaction.objectStore(STORES.CACHES).clear();
             transaction.objectStore(STORES.MARKDOWN).clear();
             transaction.objectStore(STORES.FILES).clear();
             transaction.objectStore(STORES.SESSIONS).clear();
+            transaction.objectStore(STORES.PROJECTS).clear();
+            transaction.objectStore(STORES.PROJECT_SUMMARIES).clear();
             transaction.oncomplete = () => resolve();
             transaction.onerror = (e: any) => reject(e.target.error);
         });

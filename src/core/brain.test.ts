@@ -177,7 +177,7 @@ describe('Core Logic', () => {
     expect(userKeyRotator.getRecommendedConcurrency()).toBeLessThan(3);
   });
 
-  it('honors soft 429 delay by retrying the same key before rotating', async () => {
+  it('rotates to backup keys immediately after first soft 429 and cools down the failed key', async () => {
     userKeyRotator.init('key-one-valid,key-two-valid,key-three-valid', 3);
     const calls: string[] = [];
 
@@ -199,8 +199,8 @@ describe('Core Logic', () => {
     );
 
     expect(result).toBe('ok');
-    expect(calls).toEqual(['key-one-valid', 'key-one-valid']);
-    expect(userKeyRotator.availableKeyCount).toBe(3);
+    expect(calls).toEqual(['key-one-valid', 'key-two-valid']);
+    expect(userKeyRotator.availableKeyCount).toBe(2); // key-one-valid is cooling down
     expect(userKeyRotator.hardFailedKeyCount).toBe(0);
   });
 
@@ -230,7 +230,7 @@ describe('Core Logic', () => {
     expect(userKeyRotator.availableKeyCount).toBe(2);
   });
 
-  it('caps soft-rate-limit key visits per logical batch', async () => {
+  it('caps soft-rate-limit key visits per logical batch and cools down visited keys', async () => {
     userKeyRotator.init('key-one-valid,key-two-valid,key-three-valid,key-four-valid,key-five-valid', 5);
     const calls: string[] = [];
     const profile: RetryProfile = { ...tinyRetryProfile, minAttempts: 7, attemptBuffer: 0 };
@@ -251,7 +251,7 @@ describe('Core Logic', () => {
 
     expect(new Set(calls).size).toBeLessThanOrEqual(3);
     expect(new Set(calls)).not.toContain('key-four-valid');
-    expect(userKeyRotator.availableKeyCount).toBe(5);
+    expect(userKeyRotator.availableKeyCount).toBe(2); // 3 visited keys were cooled down individually
   });
 
   it('caps PDF recovery accounting to questions added by the same batch', () => {

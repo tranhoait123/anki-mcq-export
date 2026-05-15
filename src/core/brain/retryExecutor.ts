@@ -166,17 +166,28 @@ export async function executeWithUserRotation<T>(
             );
 
         if (isSoftRateLimitRetry) {
-          userKeyRotator.markSoftRateLimit(backoffMs);
+          // Tạm khóa key cụ thể vừa dính lỗi 429 để các luồng song song khác bỏ qua nó.
+          // Ưu tiên thời gian chờ tối thiểu 45s để đảm bảo key qua chu kỳ giới hạn của Gemini.
+          const individualCooldownMs = Math.max(45 * 1000, backoffMs);
+          userKeyRotator.markKeyCooldown(currentKey, 'rateLimit', individualCooldownMs);
+
           const sameKeyRetries = sameKeySoftRateLimitRetries.get(currentKey) || 0;
           sameKeySoftRateLimitRetries.set(currentKey, sameKeyRetries + 1);
+
+          // Nếu còn bất kỳ key dự phòng rảnh rỗi nào, XOAY NGAY LẬP TỨC mà không cần đợi thử lại lần 2.
           const canTryBackupKey = (
-            sameKeyRetries >= 1 &&
-            userKeyRotator.availableKeyCount > 1 &&
+            userKeyRotator.availableKeyCount > 0 &&
             keysTried.size < userKeyRotator.getMaxKeysPerOperation()
           );
+
           if (canTryBackupKey) {
             const nextKey = userKeyRotator.rotate();
-            if (nextKey) currentKey = nextKey;
+            if (nextKey) {
+              currentKey = nextKey;
+              // Vì đã đổi sang key mới lành lặn, giảm thời gian chờ (backoff) xuống tối thiểu để thực hiện yêu cầu ngay.
+              backoffMs = Math.max(250, getBackoffDelayMs(retryProfile, 1, 0, false, false, false, true));
+              console.log(`⚡ Xoay sang API Key dự phòng tươi mới: #${userKeyRotator.getKeyNumber(currentKey)}`);
+            }
           }
         } else if (isServerBusyRetry) {
           userKeyRotator.markProviderPressure(backoffMs);

@@ -84,6 +84,61 @@ describe('processBatchPostprocess', () => {
     expect(result.coverageKeys.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('does not count seeded questions from the same source as recovered duplicates', async () => {
+    const seed = {
+      ...makeQuestion(1),
+      source: 'deck.docx | Nhóm 1',
+    };
+    const state = createBatchPostprocessState([seed]);
+
+    const result = await processBatchPostprocess({
+      allowEmpty: false,
+      batchIndex: 0,
+      expectedQuestions: 1,
+      fullText: JSON.stringify({ questions: [seed] }),
+      partMeta: {
+        sourceLabel: 'deck.docx | Nhóm 1',
+        text: '',
+      },
+      topLevelBatchNumber: 1,
+    }, state);
+
+    expect(result.newQuestions).toHaveLength(0);
+    expect(result.duplicates).toHaveLength(0);
+    expect(result.autoSkippedCount).toBe(0);
+    expect(result.coverageKeys).toHaveLength(0);
+  });
+
+  it('spends selective recovery budget when an existing question from another source covers the missing item', async () => {
+    const seed = {
+      ...makeQuestion(1),
+      source: 'deck.docx | Nhóm khác',
+    };
+    const extra = {
+      ...makeQuestion(2),
+      question: 'Câu 2: Câu không nên xử lý khi budget đã đủ?',
+    };
+    const state = createBatchPostprocessState([seed]);
+
+    const result = await processBatchPostprocess({
+      allowEmpty: false,
+      batchIndex: 0,
+      expectedQuestions: 2,
+      fullText: JSON.stringify({ questions: [seed, extra] }),
+      partMeta: {
+        sourceLabel: 'deck.docx | Nhóm 1',
+        text: '',
+      },
+      recoveryBudgetRemaining: 1,
+      topLevelBatchNumber: 1,
+    }, state);
+
+    expect(result.autoSkippedCount).toBe(1);
+    expect(result.coverageKeys).toHaveLength(1);
+    expect(result.newQuestions).toHaveLength(0);
+    expect(result.recoveryBudgetRemaining).toBe(0);
+  });
+
   it('keeps partial salvage metadata for recovery decisions', async () => {
     const state = createBatchPostprocessState();
     const result = await processBatchPostprocess({

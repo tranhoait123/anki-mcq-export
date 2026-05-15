@@ -42,6 +42,7 @@ export interface BatchPostprocessResult {
 export interface BatchPostprocessState {
   batchQuestionIds: Map<number, Set<string>>;
   duplicateCounter: number;
+  questionIdsBySource: Map<string, Set<string>>;
   questions: MCQ[];
 }
 
@@ -68,14 +69,38 @@ export const compactQuestionForDedupe = (question: MCQ): MCQ => ({
   depthAnalysis: question.depthAnalysis || '',
 });
 
+const normalizeSourceForBatch = (value: string = ''): string =>
+  String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+const addQuestionIdToSourceIndex = (
+  sourceIndex: Map<string, Set<string>>,
+  question: Partial<MCQ>
+) => {
+  if (!question.id) return;
+  const sourceKey = normalizeSourceForBatch(question.source || question.trace?.sourceLabel || '');
+  if (!sourceKey) return;
+  let ids = sourceIndex.get(sourceKey);
+  if (!ids) {
+    ids = new Set();
+    sourceIndex.set(sourceKey, ids);
+  }
+  ids.add(question.id);
+};
+
 export const createBatchPostprocessState = (
   seedQuestions: MCQ[] = [],
   duplicateCounter = 0
-): BatchPostprocessState => ({
-  batchQuestionIds: new Map(),
-  duplicateCounter,
-  questions: seedQuestions.map(compactQuestionForDedupe),
-});
+): BatchPostprocessState => {
+  const questions = seedQuestions.map(compactQuestionForDedupe);
+  const state: BatchPostprocessState = {
+    batchQuestionIds: new Map(),
+    duplicateCounter,
+    questionIdsBySource: new Map(),
+    questions,
+  };
+  questions.forEach(question => addQuestionIdToSourceIndex(state.questionIdsBySource, question));
+  return state;
+};
 
 const buildCoverageKey = (question: Partial<MCQ>): string => (
   question.id ? `id:${question.id}` : `fp:${buildMCQFingerprint(question)}`
@@ -122,6 +147,7 @@ export const ingestBatchPostprocessResult = (
     }
     result.newQuestions.forEach((question) => {
       if (question.id) ids!.add(question.id);
+      addQuestionIdToSourceIndex(state.questionIdsBySource, question);
     });
   }
   state.duplicateCounter += result.duplicateCounterDelta;
@@ -148,11 +174,23 @@ export const processBatchPostprocess = async (
   const newQuestions: MCQ[] = [];
   const duplicates: DuplicateInfo[] = [];
   const coverageKeys: string[] = [];
-  const batchQuestionIds = state.batchQuestionIds.get(input.topLevelBatchNumber) || new Set<string>();
+  let batchQuestionIds = state.batchQuestionIds.get(input.topLevelBatchNumber);
+  if (!batchQuestionIds) {
+    batchQuestionIds = new Set<string>();
+    state.batchQuestionIds.set(input.topLevelBatchNumber, batchQuestionIds);
+  }
+  const sourceKey = normalizeSourceForBatch(input.partMeta.sourceLabel || '');
+  const seededIdsFromSameSource = sourceKey ? state.questionIdsBySource.get(sourceKey) : null;
+  seededIdsFromSameSource?.forEach(id => batchQuestionIds.add(id));
   let autoSkippedCount = 0;
   let duplicateCounterDelta = 0;
   let recoveryBudgetRemaining = input.recoveryBudgetRemaining ?? null;
   const yieldEvery = Math.max(1, options.yieldEvery || 8);
+  const markRecoveryCovered = () => {
+    if (recoveryBudgetRemaining !== null) {
+      recoveryBudgetRemaining = Math.max(0, recoveryBudgetRemaining - 1);
+    }
+  };
 
   for (let index = 0; index < rawQuestions.length; index++) {
     if (recoveryBudgetRemaining !== null && recoveryBudgetRemaining <= 0) break;
@@ -165,9 +203,7 @@ export const processBatchPostprocess = async (
       newQuestions.push(question);
       coverageKeys.push(buildCoverageKey(question));
       duplicateLookup.add(question);
-      if (recoveryBudgetRemaining !== null) {
-        recoveryBudgetRemaining = Math.max(0, recoveryBudgetRemaining - 1);
-      }
+      markRecoveryCovered();
       continue;
     }
 
@@ -192,6 +228,7 @@ export const processBatchPostprocess = async (
     if (sameTopLevelBatchDuplicate) continue;
     coverageKeys.push(buildCoverageKey(result.matchedData || question));
     autoSkippedCount++;
+    markRecoveryCovered();
   }
 
   const result: BatchPostprocessResult = {

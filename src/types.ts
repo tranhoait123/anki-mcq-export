@@ -174,8 +174,9 @@ export interface ProcessingCheckpoint {
   completedBatchIndices: number[];
   failedBatchIndices: number[];
   failedBatchDetails: BatchFailureInfo[];
-  questionsSnapshot: MCQ[];
-  duplicatesSnapshot: DuplicateInfo[];
+  snapshotKind?: 'metadata' | 'full';
+  questionsSnapshot?: MCQ[];
+  duplicatesSnapshot?: DuplicateInfo[];
   autoSkippedCount: number;
   currentCount: number;
 }

@@ -59,6 +59,11 @@ interface UseGenerateWorkflowParams {
   }) => Promise<void>;
 }
 
+const hasSameVisibleMcqOrder = (left: MCQ[], right: MCQ[]): boolean => (
+  left.length === right.length &&
+  left.every((item, index) => item.id && item.id === right[index]?.id)
+);
+
 export const useGenerateWorkflow = ({
   analysis,
   clearProcessingController,
@@ -246,7 +251,9 @@ export const useGenerateWorkflow = ({
       const formatted = res.questions.map((q, i) => ({
         ...q, id: q.id || `q - ${Date.now()} -${i} `
       }));
-      await setVisibleMcqs(formatted);
+      if (!hasSameVisibleMcqOrder(mcqsRef.current, formatted)) {
+        await setVisibleMcqs(formatted);
+      }
       if (formatted.length > 0) {
         await yieldToMain();
         await waitForIdle();

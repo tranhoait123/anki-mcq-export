@@ -2,7 +2,7 @@ import React from 'react';
 import { MCQ } from '../types';
 import { db } from '../core/db';
 import { createDuplicateLookup } from '../utils/dedupe';
-import { filterUniqueVisibleMcqs, mergeSortedMcqs, sortMcqsByQuestionNumber } from '../utils/appHelpers';
+import { getVisibleMcqIdentity, mergeSortedMcqs, sortMcqsByQuestionNumber } from '../utils/appHelpers';
 import { measureSync } from '../utils/performance';
 
 interface UseMcqCollectionOptions {
@@ -17,6 +17,26 @@ export const useMcqCollection = ({
   setMcqs,
 }: UseMcqCollectionOptions) => {
   const mcqPersistChainRef = React.useRef<Promise<void>>(Promise.resolve());
+  const visibleLookupRef = React.useRef<{
+    identities: Set<string>;
+    ids: Set<string>;
+    source: MCQ[] | null;
+  }>({ identities: new Set(), ids: new Set(), source: null });
+
+  const rebuildVisibleLookup = React.useCallback((items: MCQ[]) => {
+    visibleLookupRef.current = {
+      identities: new Set(items.map(getVisibleMcqIdentity).filter(Boolean)),
+      ids: new Set(items.map(item => item.id).filter(Boolean)),
+      source: items,
+    };
+    return visibleLookupRef.current;
+  }, []);
+
+  const getVisibleLookup = React.useCallback(() => {
+    const current = visibleLookupRef.current;
+    if (current.source !== mcqsRef.current) return rebuildVisibleLookup(mcqsRef.current);
+    return current;
+  }, [mcqsRef, rebuildVisibleLookup]);
 
   const uniqueAgainst = React.useCallback((newList: MCQ[], existingList: MCQ[]): MCQ[] => {
     return measureSync(`dedupe.uniqueAgainst(${newList.length}x${existingList.length})`, () => {
@@ -42,10 +62,11 @@ export const useMcqCollection = ({
 
   const commitVisibleMcqs = React.useCallback((items: MCQ[]) => {
     mcqsRef.current = items;
+    rebuildVisibleLookup(items);
     React.startTransition(() => {
       setMcqs(items);
     });
-  }, [mcqsRef, setMcqs]);
+  }, [mcqsRef, rebuildVisibleLookup, setMcqs]);
 
   const setVisibleMcqs = React.useCallback(async (items: MCQ[]) => {
     const sorted = sortMcqsByQuestionNumber(items);
@@ -57,9 +78,18 @@ export const useMcqCollection = ({
   }, [activeSessionRef, commitVisibleMcqs, persistMcqs]);
 
   const appendVisibleMcqs = React.useCallback(async (items: MCQ[], options: { persist?: boolean } = {}) => {
-    const uniqueNew = measureSync(`visible.appendUnique(${items.length}x${mcqsRef.current.length})`, () =>
-      filterUniqueVisibleMcqs(items, mcqsRef.current)
-    );
+    const uniqueNew = measureSync(`visible.appendUnique(${items.length}x${mcqsRef.current.length})`, () => {
+      const lookup = getVisibleLookup();
+      const unique: MCQ[] = [];
+      for (const item of items) {
+        const identity = getVisibleMcqIdentity(item);
+        if ((item.id && lookup.ids.has(item.id)) || (identity && lookup.identities.has(identity))) continue;
+        unique.push(item);
+        if (item.id) lookup.ids.add(item.id);
+        if (identity) lookup.identities.add(identity);
+      }
+      return unique;
+    });
     if (uniqueNew.length === 0) return [];
     const merged = mergeSortedMcqs(mcqsRef.current, uniqueNew);
     commitVisibleMcqs(merged);
@@ -69,7 +99,7 @@ export const useMcqCollection = ({
       await persistMcqs(merged);
     }
     return uniqueNew;
-  }, [activeSessionRef, commitVisibleMcqs, mcqsRef, persistMcqs]);
+  }, [activeSessionRef, commitVisibleMcqs, getVisibleLookup, mcqsRef, persistMcqs]);
 
   const deduplicateQuestions = React.useCallback((newList: MCQ[], existingList: MCQ[]): MCQ[] => (
     uniqueAgainst(newList, existingList)

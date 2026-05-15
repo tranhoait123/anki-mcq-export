@@ -270,21 +270,26 @@ export const useGenerationPhase = ({
           checkpointBatchInterval: CHECKPOINT_BATCH_INTERVAL,
           checkpointIntervalMs: CHECKPOINT_INTERVAL_MS,
           onCheckpoint: (checkpoint: ProcessingCheckpoint) => {
+            const hasFullSnapshot = checkpoint.snapshotKind !== 'metadata' && Array.isArray(checkpoint.questionsSnapshot);
             void updateActiveSession({
               totalTopLevelBatches: checkpoint.totalTopLevelBatches,
               completedBatchIndices: checkpoint.completedBatchIndices,
               failedBatchIndices: checkpoint.failedBatchIndices,
               failedBatchDetails: checkpoint.failedBatchDetails,
               currentCount: checkpoint.currentCount,
-              mcqsSnapshot: checkpoint.questionsSnapshot,
-              duplicatesSnapshot: checkpoint.duplicatesSnapshot,
+              ...(hasFullSnapshot ? {
+                mcqsSnapshot: checkpoint.questionsSnapshot || [],
+                duplicatesSnapshot: checkpoint.duplicatesSnapshot || [],
+              } : {}),
               autoSkippedCount: checkpoint.autoSkippedCount,
-              phaseQuestionsSnapshot: checkpoint.questionsSnapshot,
-              phaseDuplicatesSnapshot: checkpoint.duplicatesSnapshot,
+              ...(hasFullSnapshot ? {
+                phaseQuestionsSnapshot: checkpoint.questionsSnapshot || [],
+                phaseDuplicatesSnapshot: checkpoint.duplicatesSnapshot || [],
+              } : {}),
               phaseAutoSkippedCount: checkpoint.autoSkippedCount,
-              phaseCurrentCount: checkpoint.questionsSnapshot.length,
+              phaseCurrentCount: checkpoint.currentCount,
             });
-            if (!renderCompletedBatchesToVisible) void persistMcqs(checkpoint.questionsSnapshot);
+            if (!renderCompletedBatchesToVisible && hasFullSnapshot) void persistMcqs(checkpoint.questionsSnapshot || []);
           },
           onPartialQuestions: liveAppendToVisible
             ? (partialQs, _batchIndex) => {

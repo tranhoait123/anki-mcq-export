@@ -1,12 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
 import { UploadedFile, ProgressCallback, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, SourceTrace } from "../../types";
-import { buildMCQFingerprint, createDuplicateLookup } from '../../utils/dedupe';
-import {
-  applySharedCaseContextToQuestion,
-  extractSharedCaseContexts,
-  getSharedCaseContextForQuestion,
-  hasSharedCaseStem,
-} from '../../utils/sharedCaseContext';
 import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage } from '../../utils/models';
 import { analyzePdfTextLayer, convertPdfToImages, countPdfQuestionMarkers, splitPdfRangeForVisionRecovery } from '../../utils/pdfProcessor';
 import {
@@ -35,7 +28,8 @@ import {
   joinSourceLabel,
   splitStructuredPartByBatchSize,
 } from './batching';
-import { parseQuestionsFromModelText } from './parsing';
+import { BatchPostprocessInput, BatchPostprocessResult } from './batchPostprocess';
+import { createBatchPostprocessor } from './batchPostprocessor';
 import { createStreamingPreviewParser } from './streamingPreviewParser';
 import {
   translateErrorForUser,
@@ -76,6 +70,7 @@ import { hasRecentSlowMetrics, measureSync } from '../../utils/performance';
 const STREAM_PREVIEW_PARSE_INTERVAL_MS = 400;
 const STREAM_PREVIEW_LONG_TASK_MS = 80;
 const STREAM_PREVIEW_MAX_BATCH_EMITS = 120;
+const FULL_CHECKPOINT_INTERVAL_MS = 30000;
 
 const getNowMs = () => (
   typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -129,6 +124,7 @@ export const generateQuestions = async (
   isAdvancedMode: boolean = false,
   options: GenerateQuestionsOptions = {}
 ): Promise<{ questions: MCQ[], duplicates: DuplicateInfo[], failedBatches: number[], failedBatchDetails: BatchFailureInfo[], autoSkippedCount: number }> => {
+  let batchPostprocessor: ReturnType<typeof createBatchPostprocessor> | null = null;
   try {
     const mismatchMessage = getProviderModelMismatchMessage(settings.provider, settings.model);
     let runtimeSettings = mismatchMessage ? { ...settings, model: coerceModelForProvider(settings.provider, settings.model) } : settings;
@@ -415,6 +411,8 @@ export const generateQuestions = async (
     const batchAutoSkipped = new Map<number, number>();
     const batchCoverageKeys = new Map<number, Set<string>>();
     const recoveryBudgets = new Map<string, number>();
+    batchPostprocessor = createBatchPostprocessor();
+    await batchPostprocessor.start(allQuestions, allDuplicates);
     const checkpointBatchInterval = Math.max(1, options.checkpointBatchInterval || 1);
     const checkpointIntervalMs = Math.max(0, options.checkpointIntervalMs || 0);
     const getPhaseCompletedCount = (completedBatchNumbers: number[]) => {
@@ -423,16 +421,12 @@ export const generateQuestions = async (
     };
     let lastCheckpointCompletedCount = getPhaseCompletedCount(Array.from(skippedBatchSet));
     let lastCheckpointAt = Date.now();
+    let lastFullCheckpointAt = 0;
 
     const appendBatchQuestions = (batchNumber: number, questions: MCQ[]) => {
       if (questions.length === 0) return;
       const current = batchQuestions.get(batchNumber) || [];
       batchQuestions.set(batchNumber, [...current, ...questions]);
-    };
-
-    const isSameTopLevelBatchDuplicate = (batchNumber: number, matchedData?: MCQ) => {
-      if (!matchedData) return false;
-      return (batchQuestions.get(batchNumber) || []).some(question => question.id === matchedData.id);
     };
 
     const appendBatchDuplicates = (batchNumber: number, duplicates: DuplicateInfo[]) => {
@@ -476,12 +470,12 @@ export const generateQuestions = async (
       return coverage;
     };
 
-    const markBatchQuestionCovered = (batchNumber: number, question: Partial<MCQ>, matchedQuestion?: Partial<MCQ>) => {
-      const coverageTarget = matchedQuestion || question;
-      const stableKey = coverageTarget.id
-        ? `id:${coverageTarget.id}`
-        : `fp:${buildMCQFingerprint(coverageTarget)}`;
-      getBatchCoverageSet(batchNumber).add(stableKey);
+    const markBatchCoverageKeys = (batchNumber: number, coverageKeys: string[]) => {
+      if (coverageKeys.length === 0) return;
+      const coverage = getBatchCoverageSet(batchNumber);
+      coverageKeys.forEach((key) => {
+        if (key) coverage.add(key);
+      });
     };
 
     const getBatchCoveredQuestionCount = (batchNumber: number): number =>
@@ -515,21 +509,25 @@ export const generateQuestions = async (
       })
     );
 
-    const emitCheckpoint = (batchIndex: number, completedBatchIndices: number[]) => {
+    const emitCheckpoint = (batchIndex: number, completedBatchIndices: number[], forceFullSnapshot = false) => {
       if (!options.onCheckpoint) return;
-      const checkpointSnapshot = buildCheckpointSnapshot(completedBatchIndices);
+      const now = Date.now();
+      const shouldBuildFullSnapshot = forceFullSnapshot || now - lastFullCheckpointAt >= FULL_CHECKPOINT_INTERVAL_MS;
+      const checkpointSnapshot = shouldBuildFullSnapshot ? buildCheckpointSnapshot(completedBatchIndices) : null;
       lastCheckpointCompletedCount = getPhaseCompletedCount(completedBatchIndices);
-      lastCheckpointAt = Date.now();
+      lastCheckpointAt = now;
+      if (shouldBuildFullSnapshot) lastFullCheckpointAt = now;
       options.onCheckpoint({
         batchIndex,
         totalTopLevelBatches,
         completedBatchIndices,
         failedBatchIndices: Array.from(new Set(failedBatches)).sort((a, b) => a - b),
         failedBatchDetails: [...failedBatchDetails].sort((a, b) => a.index - b.index || a.label.localeCompare(b.label)),
-        questionsSnapshot: checkpointSnapshot.questionsSnapshot,
-        duplicatesSnapshot: checkpointSnapshot.duplicatesSnapshot,
-        autoSkippedCount: checkpointSnapshot.autoSkippedCount,
-        currentCount: checkpointSnapshot.questionsSnapshot.length,
+        snapshotKind: shouldBuildFullSnapshot ? 'full' : 'metadata',
+        questionsSnapshot: checkpointSnapshot?.questionsSnapshot,
+        duplicatesSnapshot: checkpointSnapshot?.duplicatesSnapshot,
+        autoSkippedCount: checkpointSnapshot?.autoSkippedCount ?? autoSkippedCount,
+        currentCount: checkpointSnapshot?.questionsSnapshot.length ?? allQuestions.length,
       });
     };
 
@@ -672,6 +670,22 @@ export const generateQuestions = async (
         const batchStartingKey = runtimeSettings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
         const expectedQuestions = expectedAtStart;
         const isDocxImageBatch = part.sourceMode === 'docxImage';
+        const topLevelBatchNumber = topLevelIndex + 1;
+        const recoveryBudgetKey = typeof part.recoveryBudgetKey === 'string' ? part.recoveryBudgetKey : '';
+        const createPostprocessInput = (fullText: string): BatchPostprocessInput => ({
+          allowEmpty: !isDocxImageBatch,
+          batchIndex: index,
+          duplicateCounterStart: duplicateCounter,
+          expectedQuestions,
+          fullText,
+          partMeta: {
+            sourceLabel: part.sourceLabel,
+            text: part.text,
+            trace: part.trace,
+          },
+          recoveryBudgetRemaining: recoveryBudgetKey ? (recoveryBudgets.get(recoveryBudgetKey) || 0) : null,
+          topLevelBatchNumber,
+        });
         const sourceInstruction = `SOURCE_LABEL: ${getTrustedSourceLabel(part)}\nBắt buộc trường "source" của mọi câu hỏi trong batch này phải copy y nguyên SOURCE_LABEL. CHỈ được trích xuất câu hỏi nằm trong đúng SOURCE_LABEL của batch hiện tại. Nếu tài liệu/cache còn chứa phần khác, bỏ qua hoàn toàn các câu ngoài phạm vi SOURCE_LABEL này dù nội dung rất giống. Không tự bịa tên đề, năm, chương, trang, file đáp án hoặc nguồn khác.`;
         const structuredSourceLabel = part.sourceMode === 'pdfText' ? 'PDF TEXT STRUCTURED' : 'DOCX';
         const hasStructuredExpectedBlocks = expectedQuestions > 0 && (part.nativeMcqBatch || part.structuredMcqBatch || part.sourceMode === 'pdfText');
@@ -695,7 +709,7 @@ export const generateQuestions = async (
           : `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
         const scanPrompt = `${repairInstruction ? `${repairInstruction}\n\n` : ''}${partialRecoveryInstruction ? `${partialRecoveryInstruction}\n\n` : ''}${sourceInstruction}\n\n${nativePrompt ? `${nativePrompt}\n\n` : ''}${imagePrompt ? `${imagePrompt}\n\n` : ''}${visionPrompt ? `${visionPrompt}\n\n` : ''}${extractionCommand}`;
 
-        const rawNewQs = await (isOpenAICompatibleProvider(runtimeSettings.provider)
+        const postprocessResult: BatchPostprocessResult = await (isOpenAICompatibleProvider(runtimeSettings.provider)
           ? executeWithUserRotation(
               extractionModel,
               async (dummyKey, activeModel) => {
@@ -707,7 +721,7 @@ export const generateQuestions = async (
                   ];
 
                   const text = await callOpenAICompatibleProvider(runtimeSettings, activeModel, messages);
-                  return parseQuestionsFromModelText(text, index, expectedQuestions, { allowEmpty: !isDocxImageBatch });
+                  return batchPostprocessor!.processBatch(createPostprocessInput(text));
               }
               ,
               undefined,
@@ -743,6 +757,9 @@ export const generateQuestions = async (
                   let lastPreviewParseAt = -STREAM_PREVIEW_PARSE_INTERVAL_MS;
                   let emittedPreviewCount = 0;
                   let disablePreviewForBatch = false;
+                  let previewFlushPromise: Promise<void> | null = null;
+                  let pendingPreviewFlush = false;
+                  let lastStreamHeartbeatAt = getNowMs();
                   const disableStreamingPreview = () => {
                       if (disablePreviewForBatch) return;
                       disablePreviewForBatch = true;
@@ -758,11 +775,47 @@ export const generateQuestions = async (
                       emittedPreviewCount += previewQuestions.length;
                       options.onPartialQuestions(previewQuestions, currentBatchIndex);
                   };
+                  const requestPreviewFlush = () => {
+                      if (!streamingPreviewParser || disablePreviewForBatch) return;
+                      if (previewFlushPromise) {
+                          pendingPreviewFlush = true;
+                          return;
+                      }
+                      const startedAt = getNowMs();
+                      previewFlushPromise = streamingPreviewParser.flush()
+                        .then((previewQuestions) => {
+                            const elapsed = getNowMs() - startedAt;
+                            emitPreviewQuestions(previewQuestions);
+                            if (
+                              elapsed > STREAM_PREVIEW_LONG_TASK_MS ||
+                              emittedPreviewCount >= STREAM_PREVIEW_MAX_BATCH_EMITS ||
+                              hasRecentSlowMetrics({ sinceMs: 4000, threshold: 3, includeLongTasks: true })
+                            ) {
+                              disableStreamingPreview();
+                            }
+                        })
+                        .catch(() => {
+                            disableStreamingPreview();
+                        })
+                        .finally(() => {
+                            previewFlushPromise = null;
+                            if (pendingPreviewFlush && !disablePreviewForBatch) {
+                                pendingPreviewFlush = false;
+                                requestPreviewFlush();
+                            }
+                        });
+                  };
 
                   try {
                       for await (const chunk of resultStream) {
                           const chunkText = chunk.text || '';
                           fullText += chunkText;
+                          const now = getNowMs();
+                          if (onProgress && now - lastStreamHeartbeatAt >= 1000) {
+                              lastStreamHeartbeatAt = now;
+                              const receivedKb = Math.max(1, Math.round(fullText.length / 1024));
+                              onProgress(`Quét Batch ${batchLabel}/${totalBatches}${depth > 0 ? ' (Đang chia nhỏ)' : ''}... đã nhận ${receivedKb}KB`, allQuestions.length);
+                          }
 
                           if (streamingPreviewParser && !disablePreviewForBatch) {
                               if (
@@ -773,32 +826,22 @@ export const generateQuestions = async (
                                   continue;
                               }
                               streamingPreviewParser.append(chunkText);
-                              const now = getNowMs();
                               if (now - lastPreviewParseAt >= STREAM_PREVIEW_PARSE_INTERVAL_MS) {
                                   lastPreviewParseAt = now;
-                                  const startedAt = getNowMs();
-                                  const previewQuestions = await streamingPreviewParser.flush();
-                                  const elapsed = getNowMs() - startedAt;
-                                  emitPreviewQuestions(previewQuestions);
-                                  if (
-                                    elapsed > STREAM_PREVIEW_LONG_TASK_MS ||
-                                    emittedPreviewCount >= STREAM_PREVIEW_MAX_BATCH_EMITS ||
-                                    hasRecentSlowMetrics({ sinceMs: 4000, threshold: 3, includeLongTasks: true })
-                                  ) {
-                                    disableStreamingPreview();
-                                  }
+                                  requestPreviewFlush();
                               }
                           }
                       }
 
                       if (streamingPreviewParser && !disablePreviewForBatch) {
-                          emitPreviewQuestions(await streamingPreviewParser.flush());
+                          requestPreviewFlush();
+                          while (previewFlushPromise) await previewFlushPromise;
                       }
                   } finally {
                       streamingPreviewParser?.dispose();
                   }
 
-                  return parseQuestionsFromModelText(fullText, index, expectedQuestions, { allowEmpty: !isDocxImageBatch });
+                  return batchPostprocessor!.processBatch(createPostprocessInput(fullText));
               },
               batchStartingKey, // Per-batch key assignment
               stableFallbackModel,
@@ -807,87 +850,36 @@ export const generateQuestions = async (
             )
         );
 
-        if (rawNewQs && rawNewQs.length > 0) {
-          const salvagedPartial = Boolean((rawNewQs as any).__salvagedPartial);
-          const missingCount = Number((rawNewQs as any).__missingCount || 0);
-          applyTrustedSourceMetadata(rawNewQs, part);
-          const sharedCaseContexts = part.text ? extractSharedCaseContexts(part.text) : [];
-          if (sharedCaseContexts.length > 0) {
-            rawNewQs.forEach((q) => {
-              if (!q || typeof q.question !== 'string') return;
-              const context = getSharedCaseContextForQuestion(q.question, sharedCaseContexts);
-              if (!context) return;
-              const hadStem = hasSharedCaseStem(q.question, context.stem);
-              q.question = applySharedCaseContextToQuestion(q.question, sharedCaseContexts);
-              const hasStemAfter = hasSharedCaseStem(q.question, context.stem);
-              if (!hadStem && hasStemAfter) {
-                q.sharedCase = {
-                  applied: true,
-                  confidence: context.confidence,
-                  stem: context.stem,
-                  startQuestion: context.startQuestion,
-                  endQuestion: context.endQuestion,
-                  sourceLabel: part.sourceLabel,
-                  pageRange: part.trace?.pageRange,
-                };
-              } else if (!hasStemAfter && q.explanation && typeof q.explanation.warning === 'string') {
-                q.explanation.warning = `${q.explanation.warning ? `${q.explanation.warning}\n\n` : ''}⚠️ Câu này nằm trong nhóm có tình huống chung (${context.startQuestion}-${context.endQuestion}) nhưng app chưa ghép được stem chắc chắn. Cần kiểm tra lại nguồn.`.trim();
-              }
-            });
-          }
-          const newQs = [];
-          const batchNewDuplicates: DuplicateInfo[] = [];
-          let batchNewAutoSkipped = 0;
-          const duplicateLookup = createDuplicateLookup<MCQ>(allQuestions);
-          const recoveryBudgetKey = typeof part.recoveryBudgetKey === 'string' ? part.recoveryBudgetKey : '';
-          for (const q of rawNewQs) {
-            if (recoveryBudgetKey && (recoveryBudgets.get(recoveryBudgetKey) || 0) <= 0) break;
-            const result = duplicateLookup.find(q);
-            if (!result.isDup) {
-              q.id = `mcq-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
-              newQs.push(q);
-              markBatchQuestionCovered(topLevelIndex + 1, q);
-              duplicateLookup.add(q);
-              if (recoveryBudgetKey) {
-                recoveryBudgets.set(recoveryBudgetKey, Math.max(0, (recoveryBudgets.get(recoveryBudgetKey) || 0) - 1));
-              }
-            } else {
-              duplicateCounter++;
-              const sameTopLevelBatchDuplicate = isSameTopLevelBatchDuplicate(topLevelIndex + 1, result.matchedData);
-              // Chỉ thêm vào danh sách Review nếu độ trùng lặp < 98% (không phải auto-skip)
-              if (!result.isAutoSkip) {
-                if (sameTopLevelBatchDuplicate) continue;
-                const duplicateInfo: DuplicateInfo = {
-                  id: `dup-${Date.now()}-${duplicateCounter}`,
-                  question: q.question.substring(0, 50),
-                  reason: result.reason || 'Duplicate found',
-                  matchedWith: result.matchedWith || result.matchedData?.question?.substring(0, 60) || 'Câu hỏi đã có',
-                  fullData: q,
-                  matchedData: result.matchedData,
-                  score: result.score,
-                  fieldScores: result.fieldScores,
-                  evidence: result.evidence
-                };
-                allDuplicates.push(duplicateInfo);
-                batchNewDuplicates.push(duplicateInfo);
-              } else {
-                if (sameTopLevelBatchDuplicate) continue;
-                markBatchQuestionCovered(topLevelIndex + 1, q, result.matchedData);
-                autoSkippedCount++;
-                batchNewAutoSkipped++;
-                console.log(`⏩ Auto-skipped identical MCQ (~100%): ${q.question.substring(0, 50)}...`);
-              }
-            }
+        if (postprocessResult.rawQuestions.length > 0) {
+          const rawNewQs = postprocessResult.rawQuestions;
+          const newQs = postprocessResult.newQuestions;
+          const batchNewDuplicates = postprocessResult.duplicates;
+          const batchNewAutoSkipped = postprocessResult.autoSkippedCount;
+          const salvagedPartial = postprocessResult.salvagedPartial;
+          const missingCount = postprocessResult.missingCount;
+          duplicateCounter += postprocessResult.duplicateCounterDelta;
+          markBatchCoverageKeys(topLevelBatchNumber, postprocessResult.coverageKeys);
+          if (recoveryBudgetKey && typeof postprocessResult.recoveryBudgetRemaining === 'number') {
+            recoveryBudgets.set(recoveryBudgetKey, postprocessResult.recoveryBudgetRemaining);
           }
 
+          if (batchNewDuplicates.length > 0) {
+            allDuplicates.push(...batchNewDuplicates);
+            appendBatchDuplicates(topLevelBatchNumber, batchNewDuplicates);
+          }
+          if (batchNewAutoSkipped > 0) {
+            autoSkippedCount += batchNewAutoSkipped;
+            incrementBatchAutoSkipped(topLevelBatchNumber, batchNewAutoSkipped);
+          }
           if (newQs.length > 0) {
             allQuestions.push(...newQs);
-            appendBatchQuestions(topLevelIndex + 1, newQs);
+            appendBatchQuestions(topLevelBatchNumber, newQs);
+            if (onProgress) {
+              onProgress(`Quét Batch ${batchLabel}/${totalBatches}${depth > 0 ? ' (Đang chia nhỏ)' : ''}... đã xử lý ${allQuestions.length} câu`, allQuestions.length);
+            }
             if (onBatchComplete) onBatchComplete(newQs);
             console.log(`✅ Batch ${batchLabel}: Found ${newQs.length} questions.`);
           }
-          appendBatchDuplicates(topLevelIndex + 1, batchNewDuplicates);
-          incrementBatchAutoSkipped(topLevelIndex + 1, batchNewAutoSkipped);
 
           if (salvagedPartial && missingCount > 0) {
             const missingRatio = expectedQuestions > 0 ? missingCount / expectedQuestions : 0;
@@ -1020,7 +1012,9 @@ export const generateQuestions = async (
             (checkpointIntervalMs > 0 && now - lastCheckpointAt >= checkpointIntervalMs) ||
             failedBatches.includes(index + 1)
           );
-          if (shouldEmitCheckpoint) emitCheckpoint(index + 1, completedBatchIndices);
+          if (shouldEmitCheckpoint) {
+            emitCheckpoint(index + 1, completedBatchIndices, phaseCompletedCount >= totalBatches || failedBatches.includes(index + 1));
+          }
         }
         if (isRescueMode && depth === 0 && !failedBatches.includes(index + 1)) rescueCompleted++;
       }
@@ -1048,7 +1042,7 @@ export const generateQuestions = async (
     if (options.onCheckpoint) {
       const completedBatchIndices = Array.from(skippedBatchSet).sort((a, b) => a - b);
       if (getPhaseCompletedCount(completedBatchIndices) !== lastCheckpointCompletedCount) {
-        emitCheckpoint(completedBatchIndices[completedBatchIndices.length - 1] || totalBatches, completedBatchIndices);
+        emitCheckpoint(completedBatchIndices[completedBatchIndices.length - 1] || totalBatches, completedBatchIndices, true);
       }
     }
 
@@ -1067,10 +1061,13 @@ export const generateQuestions = async (
     failedBatches = Array.from(new Set(failedBatches)).sort((a, b) => a - b);
     failedBatchDetails = failedBatchDetails.sort((a, b) => a.index - b.index || a.label.localeCompare(b.label));
 
+    batchPostprocessor?.dispose();
+    batchPostprocessor = null;
     console.log(`\n📊 FINAL: ${finalQuestions.length} questions. Auto-skipped: ${finalAutoSkippedCount}. Failed Batches: ${failedBatches.join(', ') || 'None'}`, failedBatchDetails);
     return { questions: finalQuestions, duplicates: finalDuplicates, failedBatches, failedBatchDetails, autoSkippedCount: finalAutoSkippedCount };
 
   } catch (error: any) {
+    batchPostprocessor?.dispose();
     throw new Error(translateErrorForUser(error, 'Trích xuất'));
   }
 };

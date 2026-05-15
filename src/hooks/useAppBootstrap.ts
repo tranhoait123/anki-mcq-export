@@ -35,6 +35,16 @@ export const useAppBootstrap = ({
 
         const persistedFiles = getPersistableFiles(await db.getFiles());
         if (persistedFiles.length > 0) setFiles(persistedFiles);
+        let persistedMcqs = await db.getAllMCQs();
+        if (persistedMcqs.length === 0) {
+          const legacy = localStorage.getItem('anki_mcqs');
+          if (legacy) {
+            persistedMcqs = JSON.parse(legacy);
+            if (Array.isArray(persistedMcqs) && persistedMcqs.length > 0) {
+              await db.saveMCQs(persistedMcqs);
+            }
+          }
+        }
 
         let persistedSession = await db.getSession();
         if (persistedSession) {
@@ -60,23 +70,17 @@ export const useAppBootstrap = ({
             await db.saveSession(persistedSession);
           }
           if (persistedSession.analysisSnapshot) setAnalysis(persistedSession.analysisSnapshot);
-          if ((persistedSession.mcqsSnapshot || []).length > 0) setMcqs(sortMcqsByQuestionNumber(persistedSession.mcqsSnapshot || []));
+          if ((persistedSession.mcqsSnapshot || []).length > 0) {
+            setMcqs(sortMcqsByQuestionNumber(persistedSession.mcqsSnapshot || []));
+          } else if (persistedMcqs.length > 0) {
+            setMcqs(sortMcqsByQuestionNumber(persistedMcqs));
+          }
           if (persistedSession.duplicatesSnapshot.length > 0) setDuplicates(persistedSession.duplicatesSnapshot);
           if ((persistedSession.failedBatchIndices || []).length > 0) setFailedBatchIndices(persistedSession.failedBatchIndices);
           setCurrentCount(persistedSession.currentCount || 0);
           setResumeSession(persistedSession);
         }
 
-        let persistedMcqs = await db.getAllMCQs();
-        if (persistedMcqs.length === 0) {
-          const legacy = localStorage.getItem('anki_mcqs');
-          if (legacy) {
-            persistedMcqs = JSON.parse(legacy);
-            if (Array.isArray(persistedMcqs) && persistedMcqs.length > 0) {
-              await db.saveMCQs(persistedMcqs);
-            }
-          }
-        }
         if (persistedMcqs.length > 0 && !persistedSession) setMcqs(persistedMcqs);
 
         setIsLoaded(true);

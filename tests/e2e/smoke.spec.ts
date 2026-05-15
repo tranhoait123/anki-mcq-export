@@ -225,3 +225,35 @@ test('streams a large realtime preview without duplicate final cards and keeps s
   await page.getByPlaceholder('Tìm câu hỏi...').fill('');
   await expect(page.getByText('320 / 320 câu')).toBeVisible();
 });
+
+test('keeps frames moving while streaming and postprocessing a heavy MCQ batch', async ({ page }) => {
+  await page.goto('/');
+  await page.getByTestId('file-input').setInputFiles({
+    name: 'e2e-heavy-postprocess.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('E2E heavy postprocess should keep progress, search, and frames responsive.'),
+  });
+
+  await page.getByTestId('analyze-button').click();
+  await expect(page.getByText('Hệ thống đã sẵn sàng')).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).__maxFrameGap = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      (window as any).__maxFrameGap = Math.max((window as any).__maxFrameGap, now - last);
+      last = now;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  await page.getByTestId('generate-button').click();
+  await expect(page.getByRole('button', { name: /Tạm dừng/i })).toBeVisible();
+  await expect(page.getByPlaceholder('Tìm câu hỏi...')).toBeVisible();
+  await page.getByPlaceholder('Tìm câu hỏi...').fill('Heavy postprocess item 50');
+  await expect(page.getByText('Câu 50: Heavy postprocess item 50 vẫn không đứng UI?')).toBeVisible();
+  await page.getByPlaceholder('Tìm câu hỏi...').fill('');
+
+  await expect(page.getByTestId('result-count')).toHaveText('420');
+  const maxFrameGap = await page.evaluate(() => (window as any).__maxFrameGap);
+  expect(maxFrameGap).toBeLessThan(350);
+});

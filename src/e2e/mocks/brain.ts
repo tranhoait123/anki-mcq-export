@@ -106,12 +106,22 @@ export const hashFiles = async (files: UploadedFile[]) =>
 export const translateErrorForUser = (error: any, context = 'Xử lý') =>
   `${context}: ${error?.message || 'Lỗi mock e2e'}`;
 
-export const analyzeDocument = async (_files: UploadedFile[], _settings: AppSettings): Promise<AnalysisResult> => ({
-  topic: 'E2E smoke',
-  estimatedCount: 1,
-  questionRange: '1',
-  confidence: 'High',
-});
+export const analyzeDocument = async (files: UploadedFile[], _settings: AppSettings): Promise<AnalysisResult> => {
+  const fileName = files[0]?.name || '';
+  const estimatedCount = fileName === 'e2e-heavy-postprocess.txt'
+    ? 420
+    : fileName === 'e2e-stream-large.txt'
+    ? 320
+    : fileName === 'e2e-large.txt'
+    ? 350
+    : 1;
+  return {
+    topic: 'E2E smoke',
+    estimatedCount,
+    questionRange: estimatedCount === 1 ? '1' : `1-${estimatedCount}`,
+    confidence: 'High',
+  };
+};
 
 export const auditMissingQuestions = async (_files: UploadedFile[], _count: number, _settings: AppSettings): Promise<AuditResult> => ({
   status: 'success',
@@ -238,6 +248,31 @@ export const generateQuestions = async (
     for (let index = 0; index < questions.length; index += 80) {
       onBatch?.(questions.slice(index, index + 80));
       await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    return {
+      questions,
+      duplicates: [],
+      failedBatches: [],
+      failedBatchDetails: [],
+      autoSkippedCount: 0,
+    };
+  }
+
+  if (files[0]?.name === 'e2e-heavy-postprocess.txt') {
+    const questions = makeLargeMockQuestions(files, 420).map((question, index) => ({
+      ...question,
+      question: `Câu ${index + 1}: Heavy postprocess item ${index + 1} vẫn không đứng UI?`,
+    }));
+    for (let index = 0; index < questions.length; index += 30) {
+      const batch = questions.slice(index, index + 30);
+      onProgress?.(`Mock e2e đang nhận dữ liệu lớn... ${index + batch.length}/${questions.length}`, 0);
+      options.onPartialQuestions?.(batch, Math.floor(index / 30) + 1);
+      await new Promise(resolve => setTimeout(resolve, 35));
+    }
+    for (let index = 0; index < questions.length; index += 70) {
+      onProgress?.(`Mock e2e đang hậu xử lý dữ liệu lớn... ${Math.min(index + 70, questions.length)}/${questions.length}`, index);
+      onBatch?.(questions.slice(index, index + 70));
+      await new Promise(resolve => setTimeout(resolve, 20));
     }
     return {
       questions,

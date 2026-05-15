@@ -70,9 +70,16 @@ describe('batch retry strategy', () => {
   it('does not split auth failures', () => {
     expect(classifyBatchError(new Error('403 permission denied'))).toBe('auth');
     expect(classifyBatchError(new Error('API_KEY_INVALID: API key not valid'))).toBe('auth');
+    expect(classifyBatchError(new Error('Gemini API Error: API key invalid'))).toBe('auth');
     expect(classifyBatchError(new Error('invalid_grant token expired'))).toBe('auth');
     expect(shouldSplitForError('auth')).toBe(false);
     expect(describeBatchError(new Error('403 permission denied')).advice).toContain('API key');
+  });
+
+  it('does not treat generic 400 request/model errors as invalid keys', () => {
+    expect(classifyBatchError({ statusCode: 400, message: '400 INVALID_ARGUMENT: response_schema is invalid for this model' })).toBe('fatal');
+    expect(classifyBatchError(new Error('400 INVALID_ARGUMENT: model does not support response_format'))).toBe('fatal');
+    expect(classifyBatchError(new Error('400 INVALID_ARGUMENT: API_KEY_INVALID: API key not valid'))).toBe('auth');
   });
 
   it('splits text on natural boundaries without empty parts', () => {

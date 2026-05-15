@@ -55,32 +55,35 @@ export class UserKeyRotator {
     );
   }
 
-  getCurrentKey(): string {
+  getCurrentKey(excludeKeys?: Iterable<string>): string {
     if (this.keys.length === 0) return '';
-    if (!this.isKeyAvailable(this.keys[this.currentIndex])) return this.getKeyForBatch();
-    return this.keys[this.currentIndex];
+    const excluded = this.getExcludedKeySet(excludeKeys);
+    const currentKey = this.keys[this.currentIndex];
+    if (!this.isKeyAvailable(currentKey) || excluded.has(currentKey)) return this.getKeyForBatch(excluded);
+    return currentKey;
   }
 
-  rotate(): string {
-    if (this.keys.length <= 1) return this.getCurrentKey();
+  rotate(excludeKeys?: Iterable<string>): string {
+    if (this.keys.length === 0) return '';
+    const excluded = this.getExcludedKeySet(excludeKeys);
+    if (this.keys.length <= 1) return this.getCurrentKey(excluded);
 
     let attempts = 0;
-    do {
+    while (attempts < this.keys.length) {
       this.currentIndex = (this.currentIndex + 1) % this.keys.length;
       attempts++;
-      if (attempts >= this.keys.length) {
-        const nextSoonest = this.getNextCooldownDelayMs();
-        if (nextSoonest > 0) {
-          console.warn(`⏳ All keys are failed/cooling down. Waiting for cooldown instead of resetting failed keys.`);
-          return '';
-        }
-        break;
+      const key = this.keys[this.currentIndex] || '';
+      if (this.isKeyAvailable(key) && !excluded.has(key)) {
+        console.log(`🔄 Rotating to API Key #${this.getKeyNumber(key)}/${this.keys.length}`);
+        return key;
       }
-    } while (!this.isKeyAvailable(this.keys[this.currentIndex]));
+    }
 
-    const key = this.keys[this.currentIndex] || '';
-    if (key) console.log(`🔄 Rotating to API Key #${this.getKeyNumber(key)}/${this.keys.length}`);
-    return key;
+    const nextSoonest = this.getNextCooldownDelayMs();
+    if (nextSoonest > 0) {
+      console.warn(`⏳ All keys are failed/cooling down. Waiting for cooldown instead of resetting failed keys.`);
+    }
+    return '';
   }
 
   reportSuccess(key: string): void {
@@ -147,12 +150,15 @@ export class UserKeyRotator {
     console.warn(`🌐 Provider pressure cooldown for ${Math.round(boundedDurationMs / 1000)}s. Keys stay available; concurrency is ${this.recommendedConcurrency}/${this.getMaxUsefulConcurrency()}.`);
   }
 
-  getKeyForBatch(): string {
+  getKeyForBatch(excludeKeys?: Iterable<string>): string {
     if (this.keys.length === 0) return '';
-    const availableKeys = this.getAvailableKeys();
+    const availableKeys = this.getAvailableKeys(excludeKeys);
     if (availableKeys.length === 0) return '';
     this.batchKeyCounter = this.batchKeyCounter % availableKeys.length;
-    return availableKeys[this.batchKeyCounter++ % availableKeys.length];
+    const key = availableKeys[this.batchKeyCounter++ % availableKeys.length];
+    const keyIndex = this.keys.indexOf(key);
+    if (keyIndex >= 0) this.currentIndex = keyIndex;
+    return key;
   }
 
   getRecommendedConcurrency(limit?: number): number {
@@ -206,9 +212,9 @@ export class UserKeyRotator {
   }
 
   getMaxKeysPerOperation(): number {
-    const usableKeyCount = this.getAvailableKeys().length || this.getHealthyKeyCount();
+    const usableKeyCount = this.getHealthyKeyCount();
     if (usableKeyCount <= 0) return 0;
-    return Math.max(1, Math.min(3, usableKeyCount));
+    return Math.max(1, Math.min(8, usableKeyCount));
   }
 
   hasRecentProviderPressure(windowMs: number = 30 * 1000): boolean {
@@ -216,8 +222,13 @@ export class UserKeyRotator {
     return this.globalCooldownUntil > now || (this.lastPressureAt > 0 && now - this.lastPressureAt <= windowMs && this.pressureStreak > 0);
   }
 
-  private getAvailableKeys(): string[] {
-    return this.keys.filter(key => this.isKeyAvailable(key));
+  private getAvailableKeys(excludeKeys?: Iterable<string>): string[] {
+    const excluded = this.getExcludedKeySet(excludeKeys);
+    return this.keys.filter(key => this.isKeyAvailable(key) && !excluded.has(key));
+  }
+
+  private getExcludedKeySet(excludeKeys?: Iterable<string>): Set<string> {
+    return excludeKeys instanceof Set ? excludeKeys : new Set(excludeKeys || []);
   }
 
   private getMaxUsefulConcurrency(): number {

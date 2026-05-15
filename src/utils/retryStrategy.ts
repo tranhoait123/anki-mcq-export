@@ -75,10 +75,12 @@ export const classifyBatchError = (error: any): BatchErrorKind => {
   const msg = (error?.message || String(error) || '').toLowerCase();
   const statusCode = error?.status || error?.statusCode || 0;
 
-  if (statusCode === 401 || statusCode === 403 || msg.includes('401') || msg.includes('403') || msg.includes('permission denied') || msg.includes('forbidden')) return 'auth';
-  if ((msg.includes('api key') || msg.includes('api_key') || msg.includes('api-key') || msg.includes('token') || msg.includes('invalid_grant')) && (msg.includes('invalid') || msg.includes('not found') || msg.includes('expired') || msg.includes('hết hạn'))) return 'auth';
-  if (msg.includes('api_key_invalid') || msg.includes('key not valid')) return 'auth';
+  const hasAuthStatus = statusCode === 401 || statusCode === 403 || /\b(?:401|403)\b/.test(msg) || msg.includes('permission denied') || msg.includes('forbidden');
+  const hasExplicitInvalidKey = msg.includes('api_key_invalid') || msg.includes('api key invalid') || msg.includes('invalid api key') || msg.includes('api-key invalid') || msg.includes('api key not valid') || msg.includes('api-key not valid') || msg.includes('key not valid');
+  const hasExpiredAuthToken = msg.includes('invalid_grant') || (msg.includes('token') && (msg.includes('expired') || msg.includes('hết hạn')));
+  if (hasAuthStatus || hasExplicitInvalidKey || hasExpiredAuthToken) return 'auth';
   if (msg.includes('context length') || msg.includes('context_length') || msg.includes('context too long') || msg.includes('context too large') || msg.includes('token limit') || msg.includes('max tokens') || msg.includes('maximum tokens') || msg.includes('request too large') || msg.includes('payload too large') || statusCode === 413) return 'format';
+  if (statusCode === 400 || msg.includes('400 invalid_argument') || msg.includes('invalid_argument')) return 'fatal';
   if (statusCode === 429 || msg.includes('429') || msg.includes('quota') || msg.includes('exhausted') || msg.includes('resource_exhausted') || msg.includes('too many requests') || msg.includes('rate limit')) return 'rateLimit';
   if (statusCode === 503 || statusCode === 504 || msg.includes('503') || msg.includes('504') || msg.includes('unavailable') || msg.includes('overloaded') || msg.includes('deadline') || msg.includes('timeout') || msg.includes('econnreset') || msg.includes('failed to fetch') || msg.includes('network_error') || msg.includes('networkerror') || msg.includes('net::')) return 'serverBusy';
   if (msg.includes('không tìm thấy câu hỏi') || msg.includes('khong tim thay cau hoi') || msg.includes('questions.length') || msg.includes('empty')) return 'empty';

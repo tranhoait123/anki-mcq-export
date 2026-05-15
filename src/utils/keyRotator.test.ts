@@ -84,12 +84,39 @@ describe('UserKeyRotator safety patch', () => {
 
     expect(rotator.availableKeyCount).toBe(4);
     expect(rotator.hardFailedKeyCount).toBe(0);
-    expect(rotator.getMaxKeysPerOperation()).toBe(3);
+    expect(rotator.getMaxKeysPerOperation()).toBe(4);
     expect(rotator.getRecommendedConcurrency()).toBe(1);
     expect(rotator.getNextCooldownDelayMs()).toBe(12_000);
 
     now += 12_001;
     expect(rotator.availableKeyCount).toBe(4);
+  });
+
+  it('caps per-operation key visits at eight healthy keys', () => {
+    const rotator = new UserKeyRotator();
+    const keys = Array.from({ length: 31 }, (_unused, index) => `key-${index + 1}-valid`);
+    rotator.init(keys.join(','), 10);
+
+    expect(rotator.availableKeyCount).toBe(31);
+    expect(rotator.getMaxKeysPerOperation()).toBe(8);
+
+    keys.slice(0, 25).forEach(key => rotator.markKeyFailed(key));
+    expect(rotator.availableKeyCount).toBe(6);
+    expect(rotator.getMaxKeysPerOperation()).toBe(6);
+  });
+
+  it('selects an available batch key outside excluded and cooling keys', () => {
+    let now = 1_000;
+    const rotator = new UserKeyRotator(() => now);
+    rotator.init('key-one-valid,key-two-valid,key-three-valid');
+
+    expect(rotator.getKeyForBatch(new Set(['key-one-valid']))).toBe('key-two-valid');
+
+    rotator.markKeyCooldown('key-two-valid', 'rateLimit', 5_000);
+    expect(rotator.getKeyForBatch(new Set(['key-one-valid']))).toBe('key-three-valid');
+
+    now += 5_001;
+    expect(rotator.getKeyForBatch(new Set(['key-one-valid', 'key-three-valid']))).toBe('key-two-valid');
   });
 
   it('keeps rate limits key-specific even after provider pressure', () => {

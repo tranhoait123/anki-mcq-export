@@ -233,7 +233,7 @@ describe('Core Logic', () => {
   it('caps soft-rate-limit key visits per logical batch and cools down visited keys', async () => {
     userKeyRotator.init('key-one-valid,key-two-valid,key-three-valid,key-four-valid,key-five-valid', 5);
     const calls: string[] = [];
-    const profile: RetryProfile = { ...tinyRetryProfile, minAttempts: 7, attemptBuffer: 0 };
+    const profile: RetryProfile = { ...tinyRetryProfile, minAttempts: 7, attemptBuffer: 0, maxElapsedMs: 1600 };
 
     await expect(executeWithUserRotation(
       'gemini-test',
@@ -249,9 +249,16 @@ describe('Core Logic', () => {
       profile
     )).rejects.toThrow(/quá tải|bận|RETRY_BUDGET/i);
 
-    expect(new Set(calls).size).toBeLessThanOrEqual(3);
-    expect(new Set(calls)).not.toContain('key-four-valid');
-    expect(userKeyRotator.availableKeyCount).toBe(2); // 3 visited keys were cooled down individually
+    expect(calls[0]).toBe('key-one-valid');
+    expect(new Set(calls).size).toBe(calls.length);
+    expect(new Set(calls)).toEqual(new Set([
+      'key-one-valid',
+      'key-two-valid',
+      'key-three-valid',
+      'key-four-valid',
+      'key-five-valid',
+    ]));
+    expect(userKeyRotator.availableKeyCount).toBe(0); // all visited keys were cooled down individually
   });
 
   it('caps PDF recovery accounting to questions added by the same batch', () => {

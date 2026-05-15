@@ -380,4 +380,93 @@ D. Điều trị nội khoa.
     expect(combinedText).toContain('Bệnh nhân nữ có siêu âm tử cung trống beta 1300');
     expect(combinedText).toContain('Câu 13: Lâm sàng hướng đến sảy thai trọn');
   });
+
+  it('handles Case A: range starting with an option tail and then a bare-numbered question', () => {
+    const pageText = `
+D. Giãn phế quản
+47. Bệnh nhân nam 73 tuổi, nghề nghiệp công nhân đã nghỉ hưu, đến khám vì khó thở.
+A. Đợt cấp COPD
+B. Suy tim cấp
+C. Viêm phổi cộng đồng
+D. Thuyên tắc phổi
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+`;
+    const page = scorePdfTextPage(pageText, 1);
+    const analysis = buildPdfTextAnalysisFromPages([page], 3, 1, 10);
+    const combinedText = analysis.textBatches.map((batch) => batch.text).join('\n');
+
+    expect(analysis.detectedMcqCount).toBe(1);
+    expect(combinedText).toContain('Question: 47. Bệnh nhân nam');
+    expect(combinedText).not.toContain('Giãn phế quản 47.');
+  });
+
+  it('handles Case B: range starting with a watermark/header and then a bare-numbered question', () => {
+    const pageText = `
+TEAM CAO HỌC YDS
+100. Bệnh nhân nữ, 45 tuổi, nhập viện với triệu chứng mệt mỏi.
+A. Bình thường
+B. Chậm
+C. Nhanh
+D. Rất nhanh
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+`;
+    const page = scorePdfTextPage(pageText, 1);
+    const analysis = buildPdfTextAnalysisFromPages([page], 3, 1, 10);
+    const combinedText = analysis.textBatches.map((batch) => batch.text).join('\n');
+
+    expect(analysis.detectedMcqCount).toBe(1);
+    expect(combinedText).toContain('Question: 100. Bệnh nhân nữ');
+    expect(combinedText).not.toContain('TEAM CAO HỌC YDS 100.');
+  });
+
+  it('handles Case C: orphaned tail of a split question at the start of a chunk', () => {
+    const chunkText = `
+TEAM CAO HỌC YDS
+Sau khi xuất viện, bệnh nhân sử dụng budesonide/formoterol để duy trì.
+A. 1-1
+B. 2-1
+C. 2-2
+D. 3-3
+54. Bệnh nhân nam 36 tuổi, nhập viện vì sốt cao.
+A. Viêm phổi
+B. Sốt xuất huyết
+C. Nhiễm trùng tiểu
+D. Viêm màng não
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
+`;
+    const page = scorePdfTextPage(chunkText, 1);
+    const analysis = buildPdfTextAnalysisFromPages([page], 3, 1, 10);
+    const combinedText = analysis.textBatches.map((batch) => batch.text).join('\n');
+
+    expect(analysis.detectedMcqCount).toBe(1);
+    expect(combinedText).toContain('Question: 54. Bệnh nhân nam');
+    expect(combinedText).not.toContain('Sau khi xuất viện');
+  });
 });

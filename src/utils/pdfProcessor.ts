@@ -62,6 +62,7 @@ export interface PdfRasterOptions {
 }
 
 const QUESTION_MARKER_PATTERN = /(?:^|\n)\s*(?:câu|cau|question|q)\s*\d+\s*[:.)-]/gi;
+const BARE_QUESTION_MARKER_PATTERN = /(?:^|\n)\s*(?:\d{1,3}|[IVX]{1,8})\s*[\.)-]\s+[A-ZÀ-Ỹ\p{Lu}]/gu;
 const OPTION_MARKER_PATTERN = /(?:^|\n)\s*(?:\(?[A-E]\)?\s*[\.:)-])/gi;
 const QUESTION_LINE_PATTERN = /^(?:câu|cau|question|q)\s*\d+\s*[:.)-]/i;
 const BARE_NUMBERED_QUESTION_LINE_PATTERN = /^(?:\d{1,3}|[IVX]{1,8})\s*[\.)-]\s+\S/i;
@@ -104,8 +105,14 @@ const countMatches = (text: string, pattern: RegExp): number => {
     return text.match(pattern)?.length || 0;
 };
 
+const countMcqMarkers = (text: string): number => {
+    const keywordMatches = countMatches(text, QUESTION_MARKER_PATTERN);
+    if (keywordMatches > 0) return keywordMatches;
+    return countMatches(text, BARE_QUESTION_MARKER_PATTERN);
+};
+
 export const countPdfQuestionMarkers = (text: string): number =>
-    countMatches(normalizePdfText(text), QUESTION_MARKER_PATTERN);
+    countMcqMarkers(normalizePdfText(text));
 
 export const getPdfRasterConfig = (quality: PdfRasterQuality = 'standard'): PdfRasterConfig => (
     quality === 'high'
@@ -129,7 +136,7 @@ export const scorePdfTextPage = (text: string, pageNumber = 1): PdfTextPage => {
     const cleanText = normalizePdfText(text);
     const charCount = cleanText.length;
     const weirdCharRatio = getWeirdCharRatio(cleanText);
-    const mcqMarkerCount = countMatches(cleanText, QUESTION_MARKER_PATTERN);
+    const mcqMarkerCount = countMcqMarkers(cleanText);
     const optionMarkerCount = countMatches(cleanText, OPTION_MARKER_PATTERN);
     const lines = cleanText ? cleanText.split(/\n+/).map((line) => line.trim()).filter(Boolean) : [];
     const lineCount = lines.length;
@@ -219,8 +226,8 @@ const buildPageRanges = (pageCount: number, pagesPerChunk = 3, overlap = 1): Pdf
 
 const parseMcqBlocksFromText = (text: string): string[] => {
     const lines = normalizePdfText(text).split(/\n+/).map((line) => line.trim()).filter(Boolean);
-    const blocks: { question: string[]; options: { letter: string; text: string }[]; correctAnswer?: string }[] = [];
-    let current: { question: string[]; options: { letter: string; text: string }[]; correctAnswer?: string } | null = null;
+    const blocks: { question: string[]; options: { letter: string; text: string }[]; correctAnswer?: string; isStartedAsQuestion?: boolean }[] = [];
+    let current: { question: string[]; options: { letter: string; text: string }[]; correctAnswer?: string; isStartedAsQuestion?: boolean } | null = null;
 
     const getAnswerKeyLetter = (line: string): string => {
         const match = line.match(ANSWER_KEY_LINE_PATTERN);
@@ -250,13 +257,21 @@ const parseMcqBlocksFromText = (text: string): string[] => {
         const answerKeyLetter = getAnswerKeyLetter(line);
         if (QUESTION_LINE_PATTERN.test(line)) {
             flush();
-            current = { question: [line], options: [] };
+            current = { question: [line], options: [], isStartedAsQuestion: true };
             continue;
         }
         if (isLikelyQuestionBoundaryAfterOptions(line, nextLine)) {
             flush();
-            current = { question: [line], options: [] };
+            current = { question: [line], options: [], isStartedAsQuestion: true };
             continue;
+        }
+        if (current && current.options.length === 0 && !current.isStartedAsQuestion) {
+            const isBareQuestion = BARE_NUMBERED_QUESTION_LINE_PATTERN.test(line) && (line.includes('?') || line.length >= 18);
+            if (isBareQuestion) {
+                flush();
+                current = { question: [line], options: [], isStartedAsQuestion: true };
+                continue;
+            }
         }
         if (optionMatch && current) {
             current.options.push({ letter: optionMatch[1].toUpperCase(), text: optionMatch[2].trim() });
@@ -267,7 +282,8 @@ const parseMcqBlocksFromText = (text: string): string[] => {
             continue;
         }
         if (!current) {
-            current = { question: [line], options: [] };
+            const startsAsBareQuestion = BARE_NUMBERED_QUESTION_LINE_PATTERN.test(line) && (line.includes('?') || line.length >= 18);
+            current = { question: [line], options: [], isStartedAsQuestion: startsAsBareQuestion };
             continue;
         }
         if (current.options.length > 0) {
@@ -279,7 +295,15 @@ const parseMcqBlocksFromText = (text: string): string[] => {
     }
     flush();
 
-    const structuredBlocks = blocks.map((block, index) => [
+    const hasRealQuestionBlocks = blocks.some((b) => b.isStartedAsQuestion);
+    const validBlocks = blocks.filter((block) => {
+        if (block.isStartedAsQuestion) return true;
+        if (hasRealQuestionBlocks) return false;
+        const questionText = block.question.join(' ').trim();
+        return questionText.length >= 30;
+    });
+
+    const structuredBlocks = validBlocks.map((block, index) => [
         `<<<MCQ ${index + 1}>>>`,
         `Question: ${block.question.join(' ').replace(/\s+/g, ' ').trim()}`,
         ...block.options.map((option) => `${option.letter === block.correctAnswer ? '✅ ' : ''}${option.letter}. ${option.text.replace(/\s+/g, ' ').trim()}`),

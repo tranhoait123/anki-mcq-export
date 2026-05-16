@@ -762,6 +762,79 @@ describe('Core Logic', () => {
     expect(result.failedBatchDetails).toEqual([]);
   });
 
+  it('resumes fresh batches before previously failed batches to avoid burning keys early', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const seenRequests: string[] = [];
+    const fetchMock = vi.fn(async (_url, init: any) => {
+      seenRequests.push(JSON.stringify(JSON.parse(init.body).messages));
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: '{"questions":[]}' } }],
+      }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await generateQuestions(
+      [
+        { id: 'done', name: 'done.txt', type: 'text/plain', content: 'Batch đã hoàn tất.' },
+        { id: 'failed', name: 'failed-old.txt', type: 'text/plain', content: 'Batch lỗi cũ cần để sau.' },
+        { id: 'fresh', name: 'fresh-next.txt', type: 'text/plain', content: 'Batch mới chưa quét.' },
+      ],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      false,
+      {
+        resumeMode: true,
+        completedBatchIndices: [1],
+        deprioritizedBatchIndices: [2],
+      }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(seenRequests[0]).toContain('fresh-next.txt');
+    expect(seenRequests[1]).toContain('failed-old.txt');
+  });
+
+  it('runs targeted rescue retry indices sequentially even when app concurrency is high', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fetchMock = vi.fn(async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      inFlight--;
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: '{"questions":[]}' } }],
+      }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await generateQuestions(
+      [
+        { id: 'a', name: 'a.txt', type: 'text/plain', content: 'A' },
+        { id: 'b', name: 'b.txt', type: 'text/plain', content: 'B' },
+        { id: 'c', name: 'c.txt', type: 'text/plain', content: 'C' },
+      ],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 5 },
+      0,
+      undefined,
+      0,
+      undefined,
+      [1, 2, 3],
+      true,
+      {
+        retryProfile: 'rescue',
+      }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(maxInFlight).toBe(1);
+  });
+
   it('does not infer-skip explicit rescue retry indices from seeded partial questions', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const makeQuestionPayload = (question: string) => ({

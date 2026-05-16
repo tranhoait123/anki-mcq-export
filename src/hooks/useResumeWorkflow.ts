@@ -11,7 +11,7 @@ import {
 } from '../types';
 import { db } from '../core/db';
 import { translateErrorForUser } from '../core/brain';
-import { selectPreferredPhaseOutcome } from '../utils/resumeSession';
+import { selectPreferredPhaseOutcome, shouldDelayAutoRescue } from '../utils/resumeSession';
 import { formatSessionPhase, sortMcqsByQuestionNumber } from '../utils/appHelpers';
 import { RunGenerationPhaseParams, RunGenerationPhaseResult } from './useGenerationPhase';
 
@@ -103,6 +103,7 @@ export const useResumeWorkflow = ({
           seedQuestions: mcqsRef.current,
           seedDuplicates: [],
           existingCompletedBatchIndices: session.completedBatchIndices,
+          deprioritizedBatchIndices: session.failedBatchIndices || [],
           liveAppendToVisible: realtimePreviewEnabled,
           renderCompletedBatchesToVisible: true,
           forcedOcrMode: activeOcrMode,
@@ -158,31 +159,35 @@ export const useResumeWorkflow = ({
         }
 
         if (res.failedBatches && res.failedBatches.length > 0) {
-          const rescuePhase = await runGenerationPhase({
-            phase: 'rescue',
-            filesToUse,
-            requestSettings: session.settingsSnapshot,
-            expectedQuestionCount,
-            controller,
-            retryIndices: res.failedBatches,
-            isAdvancedMode: true,
-            retryProfile: 'rescue',
-          autoRescue: true,
-          liveAppendToVisible: realtimePreviewEnabled,
-          renderCompletedBatchesToVisible: true,
-          forcedOcrMode: activeOcrMode,
-          seedQuestions: res.questions.length > 0 ? res.questions : mcqsRef.current,
-          seedDuplicates: res.duplicates || [],
-        });
-          const uniqueRescued = deduplicateQuestions(rescuePhase.res.questions, res.questions);
-          res = {
-            ...res,
-            questions: [...res.questions, ...uniqueRescued],
-            duplicates: [...(res.duplicates || []), ...(rescuePhase.res.duplicates || [])],
-            failedBatches: rescuePhase.res.failedBatches || [],
-            failedBatchDetails: rescuePhase.res.failedBatchDetails || [],
-            autoSkippedCount: (res.autoSkippedCount || 0) + (rescuePhase.res.autoSkippedCount || 0),
-          };
+          if (shouldDelayAutoRescue(res.failedBatchDetails || [], res.failedBatches)) {
+            setProgressStatus(`Provider đang nóng hoặc còn nhiều batch cứu thiếu; giữ ${res.failedBatches.length} phần lỗi để quét lại sau.`);
+          } else {
+            const rescuePhase = await runGenerationPhase({
+              phase: 'rescue',
+              filesToUse,
+              requestSettings: session.settingsSnapshot,
+              expectedQuestionCount,
+              controller,
+              retryIndices: res.failedBatches,
+              isAdvancedMode: true,
+              retryProfile: 'rescue',
+              autoRescue: true,
+              liveAppendToVisible: realtimePreviewEnabled,
+              renderCompletedBatchesToVisible: true,
+              forcedOcrMode: activeOcrMode,
+              seedQuestions: res.questions.length > 0 ? res.questions : mcqsRef.current,
+              seedDuplicates: res.duplicates || [],
+            });
+            const uniqueRescued = deduplicateQuestions(rescuePhase.res.questions, res.questions);
+            res = {
+              ...res,
+              questions: [...res.questions, ...uniqueRescued],
+              duplicates: [...(res.duplicates || []), ...(rescuePhase.res.duplicates || [])],
+              failedBatches: rescuePhase.res.failedBatches || [],
+              failedBatchDetails: rescuePhase.res.failedBatchDetails || [],
+              autoSkippedCount: (res.autoSkippedCount || 0) + (rescuePhase.res.autoSkippedCount || 0),
+            };
+          }
         }
 
         await setVisibleMcqs(sortMcqsByQuestionNumber(res.questions));
@@ -203,6 +208,7 @@ export const useResumeWorkflow = ({
           comparisonBaselineCount: session.phaseComparisonBaselineCount || mcqsRef.current.length,
           comparisonFailedBatchIndices: session.phaseComparisonFailedBatchIndices || [],
           comparisonFailedBatchDetails: session.phaseComparisonFailedBatchDetails || [],
+          deprioritizedBatchIndices: session.failedBatchIndices || [],
           forcedOcrMode: 'tesseract',
         });
 
@@ -242,31 +248,35 @@ export const useResumeWorkflow = ({
         }
 
         if (selectedRes.failedBatches && selectedRes.failedBatches.length > 0) {
-          const rescuePhase = await runGenerationPhase({
-            phase: 'rescue',
-            filesToUse,
-            requestSettings: session.settingsSnapshot,
-            expectedQuestionCount,
-            controller,
-            retryIndices: selectedRes.failedBatches,
-            isAdvancedMode: true,
-            retryProfile: 'rescue',
-            autoRescue: true,
-            liveAppendToVisible: realtimePreviewEnabled,
-            renderCompletedBatchesToVisible: true,
-            forcedOcrMode: activeOcrMode,
-            seedQuestions: selectedRes.questions.length > 0 ? selectedRes.questions : mcqsRef.current,
-            seedDuplicates: selectedRes.duplicates || [],
-          });
-          const uniqueRescued = deduplicateQuestions(rescuePhase.res.questions, selectedRes.questions);
-          selectedRes = {
-            ...selectedRes,
-            questions: [...selectedRes.questions, ...uniqueRescued],
-            duplicates: [...(selectedRes.duplicates || []), ...(rescuePhase.res.duplicates || [])],
-            failedBatches: rescuePhase.res.failedBatches || [],
-            failedBatchDetails: rescuePhase.res.failedBatchDetails || [],
-            autoSkippedCount: (selectedRes.autoSkippedCount || 0) + (rescuePhase.res.autoSkippedCount || 0),
-          };
+          if (shouldDelayAutoRescue(selectedRes.failedBatchDetails || [], selectedRes.failedBatches)) {
+            setProgressStatus(`Provider đang nóng hoặc còn nhiều batch cứu thiếu; giữ ${selectedRes.failedBatches.length} phần lỗi để quét lại sau.`);
+          } else {
+            const rescuePhase = await runGenerationPhase({
+              phase: 'rescue',
+              filesToUse,
+              requestSettings: session.settingsSnapshot,
+              expectedQuestionCount,
+              controller,
+              retryIndices: selectedRes.failedBatches,
+              isAdvancedMode: true,
+              retryProfile: 'rescue',
+              autoRescue: true,
+              liveAppendToVisible: realtimePreviewEnabled,
+              renderCompletedBatchesToVisible: true,
+              forcedOcrMode: activeOcrMode,
+              seedQuestions: selectedRes.questions.length > 0 ? selectedRes.questions : mcqsRef.current,
+              seedDuplicates: selectedRes.duplicates || [],
+            });
+            const uniqueRescued = deduplicateQuestions(rescuePhase.res.questions, selectedRes.questions);
+            selectedRes = {
+              ...selectedRes,
+              questions: [...selectedRes.questions, ...uniqueRescued],
+              duplicates: [...(selectedRes.duplicates || []), ...(rescuePhase.res.duplicates || [])],
+              failedBatches: rescuePhase.res.failedBatches || [],
+              failedBatchDetails: rescuePhase.res.failedBatchDetails || [],
+              autoSkippedCount: (selectedRes.autoSkippedCount || 0) + (rescuePhase.res.autoSkippedCount || 0),
+            };
+          }
         }
 
         await setVisibleMcqs(sortMcqsByQuestionNumber(selectedRes.questions));

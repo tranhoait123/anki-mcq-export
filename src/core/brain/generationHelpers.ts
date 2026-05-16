@@ -14,6 +14,7 @@ export interface GenerateQuestionsOptions {
   resumeMode?: boolean;
   skipInferredCompletedBatches?: boolean;
   completedBatchIndices?: number[];
+  deprioritizedBatchIndices?: number[];
   existingQuestions?: MCQ[];
   existingDuplicates?: DuplicateInfo[];
   existingAutoSkippedCount?: number;

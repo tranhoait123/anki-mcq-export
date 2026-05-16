@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MCQ } from '../types';
-import { selectPreferredPhaseOutcome } from './resumeSession';
+import { selectPreferredPhaseOutcome, shouldDelayAutoRescue } from './resumeSession';
 
 const makeQuestion = (id: number): MCQ => ({
   id: `q-${id}`,
@@ -74,5 +74,21 @@ describe('resume session selection', () => {
     expect(result.questions).toHaveLength(3);
     expect(result.failedBatchIndices).toEqual([5]);
     expect(result.forcedOcrMode).toBe('tesseract');
+  });
+
+  it('delays auto-rescue when failures indicate provider pressure or many recovery-heavy batches', () => {
+    expect(shouldDelayAutoRescue([
+      { index: 1, label: '1', kind: 'rateLimit', stage: 'normal', message: '429', advice: 'Đợi.' },
+    ], [1])).toBe(true);
+
+    expect(shouldDelayAutoRescue([
+      { index: 1, label: '1', kind: 'format', stage: 'partial', message: 'Thiếu', advice: 'Thử lại.' },
+      { index: 2, label: '2', kind: 'empty', stage: 'split', message: 'Rỗng', advice: 'Thử lại.' },
+      { index: 3, label: '3', kind: 'format', stage: 'normal', message: 'JSON', advice: 'Thử lại.' },
+    ], [1, 2, 3])).toBe(true);
+
+    expect(shouldDelayAutoRescue([
+      { index: 1, label: '1', kind: 'format', stage: 'normal', message: 'JSON', advice: 'Thử lại.' },
+    ], [1])).toBe(false);
   });
 });

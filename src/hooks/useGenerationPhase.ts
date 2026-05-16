@@ -51,6 +51,7 @@ export interface RunGenerationPhaseParams {
   comparisonFailedBatchIndices?: number[];
   comparisonFailedBatchDetails?: GeneratedResponse['failedBatchDetails'];
   existingCompletedBatchIndices?: number[];
+  deprioritizedBatchIndices?: number[];
   skipInferredCompletedBatches?: boolean;
   forcedOcrMode?: 'gemini' | 'tesseract';
 }
@@ -111,6 +112,7 @@ export const useGenerationPhase = ({
     comparisonFailedBatchIndices = [],
     comparisonFailedBatchDetails = [],
     existingCompletedBatchIndices = [],
+    deprioritizedBatchIndices = [],
     skipInferredCompletedBatches = false,
     forcedOcrMode,
   }: RunGenerationPhaseParams): Promise<RunGenerationPhaseResult> => {
@@ -268,6 +270,7 @@ export const useGenerationPhase = ({
           resumeMode: existingCompletedBatchIndices.length > 0 || seedQuestions.length > 0,
           skipInferredCompletedBatches: skipInferredCompletedBatches || Boolean(retryIndices?.length),
           completedBatchIndices: existingCompletedBatchIndices,
+          deprioritizedBatchIndices,
           existingQuestions: phaseQuestions,
           existingDuplicates: phaseDuplicates,
           existingAutoSkippedCount: phaseAutoSkippedCount,

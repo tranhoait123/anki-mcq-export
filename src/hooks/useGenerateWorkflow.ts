@@ -11,7 +11,7 @@ import {
 } from '../types';
 import { db } from '../core/db';
 import { translateErrorForUser } from '../core/brain';
-import { selectPreferredPhaseOutcome } from '../utils/resumeSession';
+import { selectPreferredPhaseOutcome, shouldDelayAutoRescue } from '../utils/resumeSession';
 import { sortMcqsByQuestionNumber, summarizeBatchFailures } from '../utils/appHelpers';
 import { scheduleIdleTask, yieldToMain } from '../utils/performance';
 import { RunGenerationPhaseParams, RunGenerationPhaseResult } from './useGenerationPhase';
@@ -216,37 +216,41 @@ export const useGenerateWorkflow = ({
       let autoRescuedCount = 0;
       if (res.failedBatches && res.failedBatches.length > 0) {
         const initialFailed = [...res.failedBatches];
-        try {
-          const rescuePhase = await runGenerationPhase({
-            phase: 'rescue',
-            filesToUse,
-            requestSettings: settingsSnapshot,
-            expectedQuestionCount,
-            controller,
-            retryIndices: initialFailed,
-            isAdvancedMode: true,
-            retryProfile: 'rescue',
-            autoRescue: true,
-            liveAppendToVisible: realtimePreviewEnabled,
-            renderCompletedBatchesToVisible: true,
-            forcedOcrMode: activeOcrMode,
-            seedQuestions: res.questions,
-            seedDuplicates: res.duplicates || [],
-          });
-          const rescueRes = rescuePhase.res;
+        if (shouldDelayAutoRescue(res.failedBatchDetails || [], initialFailed)) {
+          setProgressStatus(`Provider đang nóng hoặc còn nhiều batch cứu thiếu; giữ ${initialFailed.length} phần lỗi để quét lại sau thay vì chạy cứu ngay.`);
+        } else {
+          try {
+            const rescuePhase = await runGenerationPhase({
+              phase: 'rescue',
+              filesToUse,
+              requestSettings: settingsSnapshot,
+              expectedQuestionCount,
+              controller,
+              retryIndices: initialFailed,
+              isAdvancedMode: true,
+              retryProfile: 'rescue',
+              autoRescue: true,
+              liveAppendToVisible: realtimePreviewEnabled,
+              renderCompletedBatchesToVisible: true,
+              forcedOcrMode: activeOcrMode,
+              seedQuestions: res.questions,
+              seedDuplicates: res.duplicates || [],
+            });
+            const rescueRes = rescuePhase.res;
 
-          const uniqueRescued = deduplicateQuestions(rescueRes.questions, res.questions);
-          autoRescuedCount = Math.max(autoRescuedCount, uniqueRescued.length);
-          res = {
-            ...res,
-            questions: [...res.questions, ...uniqueRescued],
-            duplicates: [...(res.duplicates || []), ...(rescueRes.duplicates || [])],
-            failedBatches: rescueRes.failedBatches || [],
-            failedBatchDetails: rescueRes.failedBatchDetails || [],
-            autoSkippedCount: (res.autoSkippedCount || 0) + (rescueRes.autoSkippedCount || 0),
-          };
-        } catch (rescueError) {
-          console.warn("Auto-rescue failed:", rescueError);
+            const uniqueRescued = deduplicateQuestions(rescueRes.questions, res.questions);
+            autoRescuedCount = Math.max(autoRescuedCount, uniqueRescued.length);
+            res = {
+              ...res,
+              questions: [...res.questions, ...uniqueRescued],
+              duplicates: [...(res.duplicates || []), ...(rescueRes.duplicates || [])],
+              failedBatches: rescueRes.failedBatches || [],
+              failedBatchDetails: rescueRes.failedBatchDetails || [],
+              autoSkippedCount: (res.autoSkippedCount || 0) + (rescueRes.autoSkippedCount || 0),
+            };
+          } catch (rescueError) {
+            console.warn("Auto-rescue failed:", rescueError);
+          }
         }
       }
 

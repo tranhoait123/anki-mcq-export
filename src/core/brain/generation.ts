@@ -491,6 +491,11 @@ export const generateQuestions = async (
       ...(options.completedBatchIndices || []),
       ...inferredCompletedBatchIndices,
     ]);
+    const deprioritizedBatchSet = new Set<number>(
+      (options.deprioritizedBatchIndices || [])
+        .filter((batchNumber) => Number.isFinite(batchNumber) && batchNumber > 0)
+        .map((batchNumber) => Math.floor(batchNumber))
+    );
     const inferredOnlyBatchIndices = inferredCompletedBatchIndices.filter(
       index => !(options.completedBatchIndices || []).includes(index)
     );
@@ -712,11 +717,12 @@ export const generateQuestions = async (
     };
 
     // --- STEP 2: BATCH PROCESSING ---
-    const getConcurrencyLimit = () => (
-      runtimeSettings.provider === 'google'
+    const getConcurrencyLimit = () => {
+      if (isRescueMode) return 1;
+      return runtimeSettings.provider === 'google'
         ? userKeyRotator.getRecommendedConcurrency(requestedConcurrency)
-        : requestedConcurrency
-    );
+        : requestedConcurrency;
+    };
 
     const totalBatches = totalTopLevelBatches;
     const stableFallbackModel = getProviderFallbackModel(runtimeSettings.provider, runtimeSettings.model);
@@ -1397,24 +1403,65 @@ export const generateQuestions = async (
       }
     };
 
-    const activePromises: Promise<void>[] = [];
-    for (let i = 0; i < allParts.length; i++) {
-      await controller?.waitIfPaused();
-      if (skippedBatchSet.has(i + 1)) continue;
-
-      // Nếu đang chạy chế độ Retry, chỉ xử lý những index có trong danh sách
-      if (retryIndices && retryIndices.length > 0 && !retryIndices.includes(i + 1)) {
-        continue;
+    const getProcessablePartIndexes = (): number[] => {
+      const indexes: number[] = [];
+      for (let i = 0; i < allParts.length; i++) {
+        const batchNumber = i + 1;
+        if (skippedBatchSet.has(batchNumber)) continue;
+        if (retryIndices && retryIndices.length > 0 && !retryIndices.includes(batchNumber)) continue;
+        indexes.push(i);
       }
+      return indexes;
+    };
 
-      const p = processBatch(allParts[i], i);
-      activePromises.push(p);
-      while (activePromises.length >= getConcurrencyLimit()) {
-        const finishedIndex = await Promise.race(activePromises.map((p, idx) => p.then(() => idx)));
-        activePromises.splice(finishedIndex, 1);
+    const runTopLevelPartIndexes = async (partIndexes: number[], limitOverride?: number) => {
+      const activePromises: Promise<void>[] = [];
+      for (const partIndex of partIndexes) {
+        await controller?.waitIfPaused();
+        const p = processBatch(allParts[partIndex], partIndex);
+        activePromises.push(p);
+        while (activePromises.length >= Math.max(1, limitOverride || getConcurrencyLimit())) {
+          const finishedIndex = await Promise.race(activePromises.map((p, idx) => p.then(() => idx)));
+          activePromises.splice(finishedIndex, 1);
+        }
+      }
+      await Promise.all(activePromises);
+    };
+
+    const processablePartIndexes = getProcessablePartIndexes();
+    const shouldDeprioritizeResumeRetries = options.resumeMode && !(retryIndices && retryIndices.length > 0);
+    const lateResumePartIndexes = shouldDeprioritizeResumeRetries
+      ? processablePartIndexes.filter(partIndex => deprioritizedBatchSet.has(partIndex + 1))
+      : [];
+    const primaryPartIndexes = lateResumePartIndexes.length > 0
+      ? processablePartIndexes.filter(partIndex => !deprioritizedBatchSet.has(partIndex + 1))
+      : processablePartIndexes;
+
+    if (lateResumePartIndexes.length > 0) {
+      console.info(`Resume: deferring ${lateResumePartIndexes.length} previously failed batch(es) until fresh batches finish.`);
+    }
+
+    await runTopLevelPartIndexes(primaryPartIndexes);
+
+    if (lateResumePartIndexes.length > 0) {
+      if (isKeyConservationActive()) {
+        if (onProgress) {
+          onProgress(`Provider đang nóng; giữ ${lateResumePartIndexes.length} batch lỗi cũ để quét lại sau thay vì đốt key ngay.`, allQuestions.length);
+        }
+        lateResumePartIndexes.forEach((partIndex) => {
+          const batchNumber = partIndex + 1;
+          const error: any = new Error('503 Provider vẫn đang quá tải; batch lỗi cũ được giữ lại để quét sau.');
+          error.statusCode = 503;
+          recordBatchFailure(partIndex, String(batchNumber), error, 'rescue');
+        });
+      } else {
+        if (onProgress) {
+          onProgress(`Đang xử lý ${lateResumePartIndexes.length} batch lỗi cũ sau các batch mới (chạy tuần tự để bảo toàn key)...`, allQuestions.length);
+        }
+        await runTopLevelPartIndexes(lateResumePartIndexes, 1);
       }
     }
-    await Promise.all(activePromises);
+
     await runDeferredRecoveryQueue();
 
     if (options.onCheckpoint) {

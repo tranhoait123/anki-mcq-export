@@ -48,3 +48,19 @@ export const selectPreferredPhaseOutcome = ({
     forcedOcrMode: baselineMode,
   };
 };
+
+export const shouldDelayAutoRescue = (
+  failedBatchDetails: BatchFailureInfo[] = [],
+  failedBatchIndices: number[] = []
+): boolean => {
+  if (failedBatchIndices.length === 0) return false;
+  const pressureFailureCount = failedBatchDetails.filter(detail =>
+    detail.kind === 'rateLimit' || detail.kind === 'serverBusy'
+  ).length;
+  if (pressureFailureCount > 0) return true;
+
+  const recoveryHeavyCount = failedBatchDetails.filter(detail =>
+    detail.stage === 'partial' || detail.stage === 'split'
+  ).length;
+  return failedBatchIndices.length >= 3 && recoveryHeavyCount >= 2;
+};

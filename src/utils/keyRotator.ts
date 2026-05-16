@@ -53,6 +53,7 @@ interface KeyHealthRecord {
   lastUsedAt: number;
   lastSuccessAt: number;
   lastFailureAt: number;
+  usageHistory: number[]; // Lưu mốc thời gian (ms) các lần thành công gần đây
   lastError?: string;
 }
 
@@ -83,6 +84,7 @@ const createKeyHealthRecord = (): KeyHealthRecord => ({
   lastUsedAt: 0,
   lastSuccessAt: 0,
   lastFailureAt: 0,
+  usageHistory: [],
 });
 
 const getErrorText = (error: any): string => {
@@ -270,6 +272,8 @@ export class UserKeyRotator {
       record.suspectStrikeCount = Math.max(0, record.suspectStrikeCount - 1);
       record.lastSuccessAt = now;
       record.lastError = undefined;
+      record.usageHistory.push(now);
+      if (record.usageHistory.length > 50) record.usageHistory.shift();
       this.registerSuccess();
       return;
     }
@@ -383,6 +387,44 @@ export class UserKeyRotator {
     return Math.max(3, Math.min(MAX_KEYS_PER_OPERATION, Math.ceil(total * 0.25)));
   }
 
+  exportHealthState(): Record<string, any> {
+    const snapshot: Record<string, any> = {};
+    for (const key of this.keys) {
+      const record = this.getOrCreateRecord(key);
+      if (record.status !== 'healthy' || record.successCount > 0 || record.usageHistory.length > 0) {
+        snapshot[key] = {
+          status: record.status,
+          blockedUntil: record.blockedUntil,
+          lastFailureAt: record.lastFailureAt,
+          lastSuccessAt: record.lastSuccessAt,
+          successCount: record.successCount,
+          usageHistory: record.usageHistory,
+        };
+      }
+    }
+    return snapshot;
+  }
+
+  importHealthState(state: Record<string, any>) {
+    if (!state) return;
+    const now = this.now();
+    for (const [key, saved] of Object.entries(state)) {
+      const record = this.getOrCreateRecord(key);
+      if (record) {
+        const isStillRelevant = saved.blockedUntil === Number.POSITIVE_INFINITY || (saved.blockedUntil > now - 60 * 60 * 1000);
+        if (isStillRelevant) {
+          record.status = saved.status || 'healthy';
+          record.blockedUntil = saved.blockedUntil || 0;
+          record.lastFailureAt = saved.lastFailureAt || 0;
+          record.lastSuccessAt = saved.lastSuccessAt || 0;
+          record.successCount = saved.successCount || 0;
+          record.usageHistory = saved.usageHistory || [];
+        }
+      }
+    }
+    this.normalizeAllKeyStates(now);
+  }
+
   getKeyHealthSnapshot(): KeyHealthSnapshot[] {
     const now = this.now();
     this.normalizeAllKeyStates(now);
@@ -454,6 +496,9 @@ export class UserKeyRotator {
       record.status = 'healthy';
       record.blockedUntil = 0;
     }
+    if (record.usageHistory.length > 0) {
+      record.usageHistory = record.usageHistory.filter(ts => now - ts <= 60 * 1000);
+    }
   }
 
   private blockKey(key: string, record: KeyHealthRecord, status: KeyHealthStatus, durationMs: number): void {
@@ -491,11 +536,12 @@ export class UserKeyRotator {
       ? Math.min(120, record.successCount * 8)
       : 0;
 
-    // Thêm jitter ngẫu nhiên (0-60) để dàn đều tải giữa các key có sức khỏe tương đương,
-    // tránh việc luôn ưu tiên Key #1 khi nhiều key cùng rảnh.
+    const recentUsageCount = record.usageHistory.length;
+    const quotaPenalty = recentUsageCount >= 3 ? 2000 : 0;
+
     const jitter = this.random() * 60;
 
-    return 1000 + idleBonus + successBonus + jitter - recentFailurePenalty - record.inFlightCount * 250;
+    return 1000 + idleBonus + successBonus + jitter - recentFailurePenalty - quotaPenalty - record.inFlightCount * 250;
   }
 
   private getMaxUsefulConcurrency(): number {

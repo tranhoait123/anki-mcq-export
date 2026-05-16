@@ -8,6 +8,7 @@ import {
 } from '../../utils/retryStrategy';
 import { DEFAULT_GEMINI_MODEL } from '../../utils/models';
 import { getRetryDelayMsFromError } from './providerErrors';
+import { db } from '../db';
 
 export const userKeyRotator = new UserKeyRotator();
 
@@ -360,7 +361,13 @@ export async function executeWithUserRotation<T>(
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
       attemptAbortController.abort();
-      if (attemptedKey) userKeyRotator.releaseKeyInFlight(attemptedKey);
+      if (attemptedKey) {
+        userKeyRotator.releaseKeyInFlight(attemptedKey);
+        // Lưu trạng thái sức khỏe key sau mỗi lần thử để đảm bảo tính kiên định giữa các lần reload
+        db.saveKeyHealth(userKeyRotator.exportHealthState()).catch(err =>
+          console.error('Failed to persist key health:', err)
+        );
+      }
     }
   }
   throw withDiagnostics(new Error(`Dịch vụ AI đang bận hoặc quá tải sau ${ATTEMPTS_LIMIT} lần thử. Vui lòng chờ 1-2 phút rồi thử lại.`), currentKey);

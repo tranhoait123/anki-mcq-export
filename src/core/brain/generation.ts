@@ -48,6 +48,7 @@ import {
   executeWithUserRotation,
   userKeyRotator,
 } from './retryExecutor';
+import { db } from '../db';
 import {
   getPdfPageCount,
   getPdfPageRanges,
@@ -234,7 +235,12 @@ export const generateQuestions = async (
     const isRescueMode = retryProfile.name === 'rescue';
     const controller = options.controller;
     const requestedConcurrency = Math.max(1, runtimeSettings.concurrencyLimit || 1);
+    
     userKeyRotator.init(runtimeSettings.apiKey, requestedConcurrency);
+    
+    // Tải trạng thái sức khỏe key từ DB sau khi init để không bị resetState làm mất dữ liệu
+    const savedHealth = await db.getKeyHealth();
+    if (savedHealth) userKeyRotator.importHealthState(savedHealth);
     const adaptiveBatching = runtimeSettings.adaptiveBatching !== false;
     const tokenProfile = getModelTokenProfile(runtimeSettings.provider, runtimeSettings.model);
     let adaptiveQuestionCap = getStructuredQuestionBatchSize(tokenProfile, adaptiveBatching);

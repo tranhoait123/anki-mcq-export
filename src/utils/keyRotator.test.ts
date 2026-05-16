@@ -278,4 +278,31 @@ describe('UserKeyRotator scheduler v2', () => {
     for (let i = 0; i < 6; i++) rotator.reportSuccess('key-three-valid');
     expect(rotator.getRecommendedConcurrency()).toBe(3);
   });
+
+  it('can export and import health state across sessions', () => {
+    let now = 1_000;
+    const rotator1 = new UserKeyRotator(() => now, () => 0.5);
+    rotator1.init('key-1-valid,key-2-valid', 1);
+    
+    // Simulate some usage and a failure
+    rotator1.markKeyResult('key-1-valid', { kind: 'success' });
+    rotator1.markKeyResult('key-2-valid', { kind: 'rateLimit', durationMs: 60000 });
+    
+    const exportedState = rotator1.exportHealthState();
+    expect(exportedState['key-1-valid']).toBeDefined();
+    expect(exportedState['key-1-valid'].successCount).toBe(1);
+    expect(exportedState['key-2-valid'].status).toBe('cooldown');
+    
+    const rotator2 = new UserKeyRotator(() => now, () => 0.5);
+    rotator2.init('key-1-valid,key-2-valid', 1);
+    
+    // Before import, key-2 should be healthy (due to init resetting state)
+    expect(rotator2.isKeyAvailable('key-2-valid')).toBe(true);
+    
+    rotator2.importHealthState(exportedState);
+    
+    // After import, key-2 should be in cooldown (inherited from exportedState)
+    expect(rotator2.isKeyAvailable('key-2-valid')).toBe(false);
+    expect(rotator2.getKeyHealthSnapshot().find(s => s.keyNumber === 1)?.successCount).toBe(1);
+  });
 });

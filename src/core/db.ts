@@ -160,6 +160,29 @@ export class AppDB {
         });
     }
 
+    async saveKeyHealth(healthState: Record<string, any>): Promise<void> {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db!.transaction([STORES.SETTINGS], 'readwrite');
+            const store = transaction.objectStore(STORES.SETTINGS);
+            store.put(healthState, 'keyHealth');
+
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = (e: any) => reject(e.target.error);
+        });
+    }
+
+    async getKeyHealth(): Promise<Record<string, any> | null> {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db!.transaction([STORES.SETTINGS], 'readonly');
+            const store = transaction.objectStore(STORES.SETTINGS);
+            const request = store.get('keyHealth');
+            request.onsuccess = () => resolve(request.result || null);
+            request.onerror = (e: any) => reject(e.target.error);
+        });
+    }
+
     async getSettings(): Promise<AppSettings | null> {
         if (!this.db) await this.init();
         return new Promise((resolve, reject) => {

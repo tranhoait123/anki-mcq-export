@@ -28,7 +28,7 @@ import {
   joinSourceLabel,
   splitStructuredPartByBatchSize,
 } from './batching';
-import { BatchPostprocessInput, BatchPostprocessResult } from './batchPostprocess';
+import { BatchPostprocessInput, BatchPostprocessResult, applySharedCaseMetadata } from './batchPostprocess';
 import { createBatchPostprocessor } from './batchPostprocessor';
 import { createStreamingPreviewParser } from './streamingPreviewParser';
 import {
@@ -1016,6 +1016,7 @@ export const generateQuestions = async (
                   const emitPreviewQuestions = (previewQuestions: any[]) => {
                       if (!options.onPartialQuestions || previewQuestions.length === 0) return;
                       applyTrustedSourceMetadata(previewQuestions, part);
+                      applySharedCaseMetadata(previewQuestions, part);
                       previewQuestions.forEach((q) => {
                          if (!q.id) q.id = `mcq-stream-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
                       });

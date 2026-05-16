@@ -18,14 +18,19 @@ export const useMcqCollection = ({
 }: UseMcqCollectionOptions) => {
   const mcqPersistChainRef = React.useRef<Promise<void>>(Promise.resolve());
   const visibleLookupRef = React.useRef<{
-    identities: Set<string>;
+    identities: Map<string, MCQ>;
     ids: Set<string>;
     source: MCQ[] | null;
-  }>({ identities: new Set(), ids: new Set(), source: null });
+  }>({ identities: new Map(), ids: new Set(), source: null });
 
   const rebuildVisibleLookup = React.useCallback((items: MCQ[]) => {
+    const identities = new Map<string, MCQ>();
+    items.forEach(item => {
+      const identity = getVisibleMcqIdentity(item);
+      if (identity) identities.set(identity, item);
+    });
     visibleLookupRef.current = {
-      identities: new Set(items.map(getVisibleMcqIdentity).filter(Boolean)),
+      identities,
       ids: new Set(items.map(item => item.id).filter(Boolean)),
       source: items,
     };
@@ -78,20 +83,45 @@ export const useMcqCollection = ({
   }, [activeSessionRef, commitVisibleMcqs, persistMcqs]);
 
   const appendVisibleMcqs = React.useCallback(async (items: MCQ[], options: { persist?: boolean } = {}) => {
-    const uniqueNew = measureSync(`visible.appendUnique(${items.length}x${mcqsRef.current.length})`, () => {
+    const result = measureSync(`visible.appendUnique(${items.length}x${mcqsRef.current.length})`, () => {
       const lookup = getVisibleLookup();
       const unique: MCQ[] = [];
+      const idsToRemove = new Set<string>();
+      
       for (const item of items) {
         const identity = getVisibleMcqIdentity(item);
-        if ((item.id && lookup.ids.has(item.id)) || (identity && lookup.identities.has(identity))) continue;
+        const existingIdMatch = item.id && lookup.ids.has(item.id);
+        const existingIdentityMatch = identity ? lookup.identities.get(identity) : null;
+        
+        if (existingIdMatch) continue;
+        
+        if (existingIdentityMatch) {
+          const isStream = item.id?.startsWith('mcq-stream-');
+          const existingIsStream = existingIdentityMatch.id?.startsWith('mcq-stream-');
+          
+          // Replace stream questions with official ones when they match by identity
+          if (!isStream && existingIsStream) {
+            idsToRemove.add(existingIdentityMatch.id);
+          } else {
+            continue;
+          }
+        }
+        
         unique.push(item);
         if (item.id) lookup.ids.add(item.id);
-        if (identity) lookup.identities.add(identity);
+        if (identity) lookup.identities.set(identity, item);
       }
-      return unique;
+      return { unique, idsToRemove };
     });
-    if (uniqueNew.length === 0) return [];
-    const merged = mergeSortedMcqs(mcqsRef.current, uniqueNew);
+
+    const { unique: uniqueNew, idsToRemove } = result;
+    if (uniqueNew.length === 0 && idsToRemove.size === 0) return [];
+    
+    let baseList = mcqsRef.current;
+    if (idsToRemove.size > 0) {
+      baseList = baseList.filter(m => !idsToRemove.has(m.id));
+    }
+    const merged = mergeSortedMcqs(baseList, uniqueNew);
     commitVisibleMcqs(merged);
     if (activeSessionRef.current) {
       if (options.persist !== false) await db.upsertMCQs(uniqueNew);

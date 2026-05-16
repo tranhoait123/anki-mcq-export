@@ -106,7 +106,7 @@ const buildCoverageKey = (question: Partial<MCQ>): string => (
   question.id ? `id:${question.id}` : `fp:${buildMCQFingerprint(question)}`
 );
 
-const applySharedCaseMetadata = (questions: MCQ[], partMeta: BatchPostprocessPartMeta) => {
+export const applySharedCaseMetadata = (questions: MCQ[], partMeta: BatchPostprocessPartMeta) => {
   const sharedCaseContexts = partMeta.text ? extractSharedCaseContexts(partMeta.text) : [];
   if (sharedCaseContexts.length === 0) return;
 

@@ -54,10 +54,8 @@ export const shouldRotateKey = ({
   }
 
   if (cause === 'serverBusy') {
-    // 503/Timeout: Lỗi hệ thống provider. 
-    // Cho phép thử 15-20% dàn key (tối thiểu 2, tối đa 5) để tìm project/region không bị nghẽn.
-    const busyRotationLimit = Math.max(2, Math.min(5, rotationLimit));
-    return distinctKeysTried < busyRotationLimit;
+    // 503/Timeout: Không xoay key để tránh "đốt" cả dàn key khi provider lỗi hệ thống.
+    return false;
   }
 
   return false;

@@ -342,6 +342,28 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                     </p>
                                 </div>
 
+                                {/* Adaptive Batching */}
+                                <div className="flex items-start justify-between gap-4 border-t border-slate-200/70 pt-4 dark:border-slate-700">
+                                    <div className="flex-1">
+                                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                            <RefreshCw size={14} className="text-indigo-500" />
+                                            Adaptive Batch Sizing (Nâng cao)
+                                        </label>
+                                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                            Tự động giảm kích thước Batch (số câu/lần) khi hệ thống bị quá tải hoặc gặp lỗi. Giúp tăng độ ổn định tuyệt đối nhưng có thể tốn thêm Token.
+                                        </p>
+                                    </div>
+                                    <div className="relative inline-flex items-center cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={settings.adaptiveBatching !== false}
+                                            onChange={e => setSettings({ ...settings, adaptiveBatching: e.target.checked })}
+                                            className="sr-only peer"
+                                        />
+                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
+                                    </div>
+                                </div>
+
                                 {/* Storage Management */}
                                 <div className="pt-2 border-t dark:border-slate-700 space-y-3">
                                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">

@@ -305,4 +305,17 @@ describe('UserKeyRotator scheduler v2', () => {
     expect(rotator2.isKeyAvailable('key-2-valid')).toBe(false);
     expect(rotator2.getKeyHealthSnapshot().find(s => s.keyNumber === 1)?.successCount).toBe(1);
   });
+
+  it('does not apply quota penalty when only one key is present', () => {
+    const rotator = new UserKeyRotator(() => 1000, () => 0);
+    rotator.init('only-one-key', 1);
+    
+    // Fill usage history with more than 3 entries
+    for (let i = 0; i < 5; i++) {
+      rotator.markKeyResult('only-one-key', { kind: 'success' });
+    }
+    
+    // The key should still be selected (no 2000 penalty making it impossible)
+    expect(rotator.selectBestKey()).toBe('only-one-key');
+  });
 });

@@ -862,12 +862,35 @@ export const generateQuestions = async (
         await controller?.waitIfPaused();
 
         const expectedAtStart = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
-        if (adaptiveBatching && depth === 0 && part.nativeMcqBatch && expectedAtStart > adaptiveQuestionCap) {
-          const cappedParts = splitStructuredPartByBatchSize(part, adaptiveQuestionCap);
+        const currentScale = userKeyRotator.getAdaptiveBatchScale();
+        const effectiveCap = adaptiveBatching ? Math.max(2, Math.floor(adaptiveQuestionCap * currentScale)) : adaptiveQuestionCap;
+
+        // 1. Adaptive Splitting cho dữ liệu cấu trúc (DOCX Native/PDF Structured)
+        if (adaptiveBatching && depth < retryProfile.maxDepth && part.nativeMcqBatch && expectedAtStart > effectiveCap) {
+          const cappedParts = splitStructuredPartByBatchSize(part, effectiveCap);
           if (cappedParts.length > 1) {
+            if (currentScale < 1.0) console.info(`🔄 Adaptive Scaling (${currentScale}x): Chủ động chia Batch ${batchLabel} thành ${cappedParts.length} phần nhỏ hơn (${effectiveCap} câu/phần)...`);
             await runPartsWithLimit(cappedParts, getSplitConcurrencyLimit(), (p, i) => processBatch(p, index, depth + 1, forceJsonRepair, topLevelIndex, i));
             return;
           }
+        }
+
+        // 2. Adaptive Splitting cho dữ liệu văn bản thuần (Text-only)
+        const canAttemptSubdivision = depth < retryProfile.maxDepth;
+        if (adaptiveBatching && canAttemptSubdivision && part.text && currentScale <= 0.5 && part.text.length > (retryProfile.splitThresholdChars * 2)) {
+           const splitPartsCount = currentScale <= 0.25 ? 4 : 2;
+           const chunks = splitTextIntoNaturalParts(part.text, splitPartsCount, retryProfile.splitThresholdChars);
+           if (chunks.length > 1) {
+              console.info(`🔄 Adaptive Scaling (${currentScale}x): Chủ động chia Batch TEXT ${batchLabel} thành ${chunks.length} phần để giảm áp lực...`);
+              const subParts = chunks.map((chunk, i) => ({
+                ...part,
+                text: chunk,
+                sourceLabel: chunks.length > 1 ? joinSourceLabel(part.sourceLabel, `Phần ${i + 1}`) : part.sourceLabel,
+                expectedQuestions: 0, // Sẽ được đếm lại trong processBatch đệ quy
+              }));
+              await runPartsWithLimit(subParts, getSplitConcurrencyLimit(), (p, i) => processBatch(p, index, depth + 1, forceJsonRepair, topLevelIndex, i));
+              return;
+           }
         }
 
         if (onProgress) {

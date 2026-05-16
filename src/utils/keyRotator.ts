@@ -387,6 +387,13 @@ export class UserKeyRotator {
     return Math.max(3, Math.min(MAX_KEYS_PER_OPERATION, Math.ceil(total * 0.25)));
   }
 
+  getAdaptiveBatchScale(): number {
+    // Nếu áp lực cực cao (liên tục lỗi 429/503), giảm quy mô batch xuống 25% hoặc 50%
+    if (this.pressureStreak >= 3) return 0.25;
+    if (this.pressureStreak >= 1) return 0.5;
+    return 1.0;
+  }
+
   exportHealthState(): Record<string, any> {
     const snapshot: Record<string, any> = {};
     for (const key of this.keys) {
@@ -517,6 +524,9 @@ export class UserKeyRotator {
     }
 
     this.successStreak++;
+    if (this.successStreak >= 2 && this.pressureStreak > 0) {
+      this.pressureStreak--;
+    }
     const maxUsefulConcurrency = this.getMaxUsefulConcurrency();
     const recoveryThreshold = Math.max(4, this.recommendedConcurrency * 3);
     if (this.successStreak >= recoveryThreshold && this.recommendedConcurrency < maxUsefulConcurrency) {
@@ -537,7 +547,9 @@ export class UserKeyRotator {
       : 0;
 
     const recentUsageCount = record.usageHistory.length;
-    const quotaPenalty = recentUsageCount >= 3 ? 2000 : 0;
+    // Chỉ áp dụng hình phạt quota (3 RPM) nếu có nhiều key để xoay. 
+    // Nếu chỉ có 1 key, để key đó chạy tối đa công suất provider cho phép.
+    const quotaPenalty = (this.keys.length > 1 && recentUsageCount >= 3) ? 2000 : 0;
 
     const jitter = this.random() * 60;
 

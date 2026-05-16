@@ -55,9 +55,8 @@ export const shouldRotateKey = ({
   }
 
   if (cause === 'serverBusy') {
-    // 503/Timeout có thể là toàn hệ thống, nhưng xoay 1-2 lần vẫn tốt để loại trừ lỗi project-specific.
-    const limitForBusy = Math.max(1, Math.min(2, rotationLimit));
-    return distinctKeysTried < limitForBusy;
+    // 503/Timeout: Không xoay key để tránh "đốt" cả dàn key khi provider lỗi hệ thống.
+    return false;
   }
 
   return false;
@@ -158,7 +157,12 @@ export async function executeWithUserRotation<T>(
     }
 
     if (currentKey && !userKeyRotator.isKeyAvailable(currentKey)) {
-      currentKey = getUntriedAvailableKey();
+      // Chỉ tự động chọn key mới nếu chưa vượt quá giới hạn xoay key cho batch này
+      if (keysTried.size < userKeyRotator.getRecommendedRotationLimit()) {
+        currentKey = getUntriedAvailableKey();
+      } else {
+        currentKey = ''; // Buộc phải xuống logic đợi cooldown
+      }
     }
 
     if (!currentKey && userKeyRotator.keyCount > 0) {
@@ -167,10 +171,12 @@ export async function executeWithUserRotation<T>(
         const waitMs = Math.min(cooldownDelay, retryProfile.singleKeyBackoffCapMs, Math.max(250, getRemainingBudgetMs()));
         console.log(`⏳ All API keys are cooling down. Waiting ${Math.round(waitMs / 1000)}s before retrying.`);
         await waitWithController(waitMs, controller);
-        currentKey = getUntriedAvailableKey() || getRetriedAvailableKey();
+        const allowNewKey = keysTried.size < userKeyRotator.getRecommendedRotationLimit();
+        currentKey = allowNewKey ? (getUntriedAvailableKey() || getRetriedAvailableKey()) : getRetriedAvailableKey();
         continue;
       }
-      currentKey = getUntriedAvailableKey() || getRetriedAvailableKey();
+      const allowNewKey = keysTried.size < userKeyRotator.getRecommendedRotationLimit();
+      currentKey = allowNewKey ? (getUntriedAvailableKey() || getRetriedAvailableKey()) : getRetriedAvailableKey();
       if (!currentKey) {
         throw withDiagnostics(new Error(`RETRY_BUDGET_EXHAUSTED: Không còn API key khả dụng trong lượt thử hiện tại. Batch này sẽ được đánh dấu để quét lại sau.`), currentKey);
       }
@@ -313,7 +319,9 @@ export async function executeWithUserRotation<T>(
               currentKey = '';
             }
           } else {
-            currentKey = treatedAsProviderPressure ? attemptedKey : '';
+            // Nếu không xoay key, hãy giữ nguyên key hiện tại để retry sau backoff. 
+            // Việc gán '' sẽ khiến loop chọn key mới (không mong muốn khi đang gồng áp lực).
+            currentKey = attemptedKey;
             backoffMs = Math.max(backoffMs, Math.min(
               individualCooldownMs,
               retryProfile.singleKeyBackoffCapMs,

@@ -75,6 +75,9 @@ export default defineConfig(({ mode }) => {
       chunkSizeWarningLimit: 1000,
     },
     test: {
+      globals: true,
+      environment: 'node',
+      setupFiles: ['./vitest.setup.ts'],
       exclude: ['node_modules/**', 'dist/**', 'tests/e2e/**'],
     }
   };

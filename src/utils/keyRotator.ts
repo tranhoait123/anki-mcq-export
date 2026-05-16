@@ -13,6 +13,7 @@ export type KeyResultKind = 'success' | 'rateLimit' | 'quota' | 'auth' | 'suspec
 export interface KeySelectionOptions {
   excludeKeys?: Iterable<string>;
   allowRetriedKeys?: boolean;
+  onlyTriedKeys?: boolean;
 }
 
 export interface KeyResult {
@@ -218,7 +219,8 @@ export class UserKeyRotator {
       .map((key, index) => ({ key, index, record: this.getOrCreateRecord(key) }))
       .filter(({ key, record }) => (
         record.status === 'healthy' &&
-        (options.allowRetriedKeys || !excluded.has(key))
+        (options.allowRetriedKeys || !excluded.has(key)) &&
+        (!options.onlyTriedKeys || record.lastSelectedAt > 0)
       ))
       .map(candidate => ({
         ...candidate,
@@ -381,10 +383,10 @@ export class UserKeyRotator {
   getRecommendedRotationLimit(): number {
     const total = this.keys.length;
     if (total <= 1) return 1;
-    if (total <= 3) return 2;
-    if (total <= 8) return 3;
-    // Với số lượng lớn key (ví dụ 31), cho phép xoay khoảng 25-30% tổng số key (tối đa 8).
-    return Math.max(3, Math.min(MAX_KEYS_PER_OPERATION, Math.ceil(total * 0.25)));
+    if (total <= 6) return 2;
+    if (total <= 12) return 3;
+    // Với số lượng lớn key (ví dụ 31), cho phép xoay khoảng 20% tổng số key (tối đa 8).
+    return Math.max(3, Math.min(MAX_KEYS_PER_OPERATION, Math.ceil(total * 0.2)));
   }
 
   getAdaptiveBatchScale(): number {

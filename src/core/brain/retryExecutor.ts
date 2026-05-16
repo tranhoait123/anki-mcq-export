@@ -49,7 +49,7 @@ export const shouldRotateKey = ({
   if (cause === 'softRateLimit') {
     // 429: Lỗi quota theo key, cho phép xoay mạnh mẽ để tìm key rảnh.
     // Nếu dàn key lớn (ví dụ 31-50 key), cho phép xoay tối đa theo rotationLimit (thường là 8).
-    if (hadProviderPressure && distinctKeysTried >= Math.max(2, Math.min(4, rotationLimit))) return false;
+    if (hadProviderPressure && distinctKeysTried >= Math.max(2, Math.min(3, rotationLimit))) return false;
     return true;
   }
 
@@ -293,12 +293,10 @@ export async function executeWithUserRotation<T>(
 
         if (isSoftRateLimitRetry) {
           const individualCooldownMs = Math.max(45 * 1000, backoffMs);
-          let treatedAsProviderPressure = false;
           if (hadProviderPressureBeforeRateLimit) {
             // Khi đã có dấu hiệu nghẽn toàn provider, coi 429 tiếp theo là áp lực hệ thống
             // thay vì lần lượt đưa mọi key khỏe vào cooldown.
             userKeyRotator.markSoftRateLimit(individualCooldownMs);
-            treatedAsProviderPressure = true;
           } else {
             // 429 đầu tiên vẫn có thể là quota theo key, nên khóa key đó.
             userKeyRotator.markKeyResult(attemptedKey, { kind: 'rateLimit', durationMs: individualCooldownMs, error });
@@ -306,7 +304,7 @@ export async function executeWithUserRotation<T>(
 
           if (shouldRotateKey({
             cause: 'softRateLimit',
-            hadProviderPressure: hadProviderPressureBeforeRateLimit,
+            hadProviderPressure: userKeyRotator.hasRecentProviderPressure(),
             distinctKeysTried: keysTried.size,
             availableKeyCount: userKeyRotator.availableKeyCount,
             rotationLimit: getRotationLimit(),

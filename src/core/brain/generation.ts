@@ -860,8 +860,8 @@ export const generateQuestions = async (
     };
 
     // Hàm xử lý Batch chính có khả năng Đệ quy (Subdivision)
-    const processBatch = async (part: any, index: number, depth: number = 0, forceJsonRepair: boolean = false, topLevelIndex: number = index, subIndex: number = 0) => {
-      const batchLabel = depth === 0 ? `${index + 1}` : `${index + 1}${String.fromCharCode(96 + depth)}${subIndex > 0 ? `.${subIndex}` : ''}`;
+    const processBatch = async (part: any, index: number, depth: number = 0, forceJsonRepair: boolean = false, topLevelIndex: number = index, subIndex: number = 0, labelPrefix: string = `${index + 1}`) => {
+      const batchLabel = depth === 0 ? labelPrefix : `${labelPrefix}${String.fromCharCode(96 + depth)}.${subIndex + 1}`;
 
       try {
         await controller?.waitIfPaused();
@@ -875,7 +875,7 @@ export const generateQuestions = async (
           const cappedParts = splitStructuredPartByBatchSize(part, effectiveCap);
           if (cappedParts.length > 1) {
             if (currentScale < 1.0) console.info(`🔄 Adaptive Scaling (${currentScale}x): Chủ động chia Batch ${batchLabel} thành ${cappedParts.length} phần nhỏ hơn (${effectiveCap} câu/phần)...`);
-            await runPartsWithLimit(cappedParts, getSplitConcurrencyLimit(), (p, i) => processBatch(p, index, depth + 1, forceJsonRepair, topLevelIndex, i));
+            await runPartsWithLimit(cappedParts, getSplitConcurrencyLimit(), (p, i) => processBatch(p, index, depth + 1, forceJsonRepair, topLevelIndex, i, batchLabel));
             return;
           }
         }
@@ -893,7 +893,7 @@ export const generateQuestions = async (
                 sourceLabel: chunks.length > 1 ? joinSourceLabel(part.sourceLabel, `Phần ${i + 1}`) : part.sourceLabel,
                 expectedQuestions: 0, // Sẽ được đếm lại trong processBatch đệ quy
               }));
-              await runPartsWithLimit(subParts, getSplitConcurrencyLimit(), (p, i) => processBatch(p, index, depth + 1, forceJsonRepair, topLevelIndex, i));
+              await runPartsWithLimit(subParts, getSplitConcurrencyLimit(), (p, i) => processBatch(p, index, depth + 1, forceJsonRepair, topLevelIndex, i, batchLabel));
               return;
            }
         }
@@ -1129,7 +1129,7 @@ export const generateQuestions = async (
           }
           
           if (newQs.length > 0 || depth > 0) {
-            console.log(`✅ Batch ${batchLabel}: Hoàn tất (Tìm thấy ${newQs.length} câu).`);
+            console.info(`✅ Batch ${batchLabel}: Hoàn tất (Tìm thấy ${newQs.length} câu, tổng cộng: ${allQuestions.length}).`);
           }
 
           if (salvagedPartial && missingCount > 0 && !part.deferredRecovery) {
@@ -1171,7 +1171,7 @@ export const generateQuestions = async (
                   await runPartsWithLimit(
                     immediateParts.map((recoveryPart) => ({ ...recoveryPart, recoveryBudgetKey })),
                     getSplitConcurrencyLimit(),
-                    (recoveryPart, i) => processBatch(recoveryPart, index, depth + 1, true, topLevelIndex, i)
+                    (recoveryPart, i) => processBatch(recoveryPart, index, depth + 1, true, topLevelIndex, i, batchLabel)
                   );
                 }
                 const afterImmediateCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
@@ -1276,7 +1276,7 @@ export const generateQuestions = async (
             await runPartsWithLimit(
               recoveryParts,
               getSplitConcurrencyLimit(),
-              (recoveryPart, i) => processBatch(recoveryPart, index, depth + 1, true, topLevelIndex, i)
+              (recoveryPart, i) => processBatch(recoveryPart, index, depth + 1, true, topLevelIndex, i, batchLabel)
             );
             return;
           }
@@ -1284,13 +1284,13 @@ export const generateQuestions = async (
 
         if (part.sourceMode === 'docxImage' && !forceJsonRepair && recoveryPolicy.eligibility !== 'weak' && (errorKind === 'empty' || errorKind === 'format')) {
           console.info(`🔎 DOCX image batch ${batchLabel} returned empty/invalid. Retrying once with stricter Vision prompt...`);
-          await processBatch(part, index, depth, true, topLevelIndex);
+          await processBatch(part, index, depth, true, topLevelIndex, subIndex, labelPrefix);
           return;
         }
 
         if (adaptiveBatching && !forceJsonRepair && recoveryPolicy.eligibility !== 'weak' && batchDecision.cause !== 'requestTooLarge' && depth === 0 && errorKind === 'format' && (expectedQuestions > 10 || estimateTextTokens(part.text || '') > 4000)) {
           console.info(`🔧 Batch ${batchLabel} format failed. Retrying once with strict JSON repair before splitting...`);
-          await processBatch(part, index, depth, true, topLevelIndex);
+          await processBatch(part, index, depth, true, topLevelIndex, subIndex, labelPrefix);
           return;
         }
 
@@ -1356,7 +1356,7 @@ export const generateQuestions = async (
           ).filter(p => p.text.trim().length > 0)
             .slice(0, batchDecision.cause === 'requestTooLarge' ? Number.POSITIVE_INFINITY : Math.max(1, recoveryPolicy.maxRecoveryRequests));
 
-          await runPartsWithLimit(parts, getSplitConcurrencyLimit(), (p, i) => processBatch(p, index, depth + 1, false, topLevelIndex, i));
+          await runPartsWithLimit(parts, getSplitConcurrencyLimit(), (p, i) => processBatch(p, index, depth + 1, false, topLevelIndex, i, batchLabel));
           const progressAfterSplit = allQuestions.length + allDuplicates.length + autoSkippedCount;
           if (depth === 0 && progressAfterSplit === progressBeforeSplit && !failedBatches.includes(index + 1)) {
             recordBatchFailure(index, batchLabel, e, 'split');
@@ -1450,7 +1450,7 @@ export const generateQuestions = async (
             recoveryBudgetKey,
           })),
           1,
-          (recoveryPart, i) => processBatch(recoveryPart, item.index, item.depth, item.forceJsonRepair, item.topLevelIndex, i)
+          (recoveryPart, i) => processBatch(recoveryPart, item.index, item.depth, item.forceJsonRepair, item.topLevelIndex, i, item.label)
         );
 
         recoveryBudgets.delete(recoveryBudgetKey);
@@ -1476,7 +1476,11 @@ export const generateQuestions = async (
       const indexes: number[] = [];
       for (let i = 0; i < allParts.length; i++) {
         const batchNumber = i + 1;
-        if (skippedBatchSet.has(batchNumber)) continue;
+        if (skippedBatchSet.has(batchNumber)) {
+          // Chỉ log skip nếu không phải đang ở chế độ cứu hộ (để tránh log rác)
+          if (!isRescueMode) console.debug(`[Skip] Batch ${batchNumber}: Đã hoàn thành từ trước.`);
+          continue;
+        }
         if (retryIndices && retryIndices.length > 0 && !retryIndices.includes(batchNumber)) continue;
         indexes.push(i);
       }

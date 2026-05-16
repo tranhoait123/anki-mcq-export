@@ -5,7 +5,7 @@ import { measureAsync, yieldToMain } from './performance';
 // Local Assets Strategy:
 // CMaps and fonts are served locally from public/ for offline stability.
 const getAssetUrl = (path: string) => {
-    return typeof window !== 'undefined' ? `${window.location.origin}${path}` : path;
+    return typeof globalThis !== 'undefined' && 'location' in globalThis ? `${(globalThis as any).location.origin}${path}` : path;
 };
 
 const CMAP_URL = getAssetUrl('/cmaps/');
@@ -495,20 +495,20 @@ export const analyzePdfTextLayer = async (base64OrUrl: string, pagesPerChunk = 3
 };
 
 const convertPdfToImagesInWorker = async (base64OrUrl: string, pageRange?: PdfPageRange, options: PdfRasterOptions = {}): Promise<string[]> => {
-    if (pdfWorkerUnavailableForSession || typeof Worker === 'undefined' || typeof window === 'undefined') {
+    if (pdfWorkerUnavailableForSession || typeof Worker === 'undefined') {
         throw new Error('PDF worker unavailable');
     }
 
     return new Promise((resolve, reject) => {
         const worker = new Worker(new URL('../workers/pdfWorker.ts', import.meta.url), { type: 'module' });
         const jobId = `pdf-raster-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-        const timeoutId = window.setTimeout(() => {
+        const timeoutId = setTimeout(() => {
             worker.terminate();
             reject(new Error('PDF worker timed out'));
         }, 120000);
 
         const cleanup = () => {
-            window.clearTimeout(timeoutId);
+            clearTimeout(timeoutId);
             worker.terminate();
         };
 

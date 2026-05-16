@@ -747,18 +747,23 @@ export const generateQuestions = async (
     const extractionModel = isAdvancedMode || isRescueMode ? stableFallbackModel : runtimeSettings.model;
 
     const runPartsWithLimit = async <T,>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>): Promise<void> => {
-      const active: Promise<void>[] = [];
-      let i = 0;
-      for (const item of items) {
-        await controller?.waitIfPaused();
-        const p = worker(item, ++i);
-        active.push(p);
-        while (active.length >= Math.max(1, limit)) {
-          const finishedIndex = await Promise.race(active.map((promise, idx) => promise.then(() => idx)));
-          active.splice(finishedIndex, 1);
+      const concurrency = Math.max(1, limit);
+      const queue = items.map((item, idx) => ({ item, index: idx + 1 }));
+      let nextIndex = 0;
+
+      const runners = Array(concurrency).fill(null).map(async () => {
+        while (nextIndex < queue.length) {
+          const task = queue[nextIndex++];
+          if (!task) break;
+          await controller?.waitIfPaused();
+          try {
+            await worker(task.item, task.index);
+          } catch (e) {
+            console.error(`Sub-task Runner Error [${task.index}]:`, e);
+          }
         }
-      }
-      await Promise.all(active);
+      });
+      await Promise.all(runners);
     };
 
     const getSplitConcurrencyLimit = () => {
@@ -1117,10 +1122,14 @@ export const generateQuestions = async (
             allQuestions.push(...newQs);
             appendBatchQuestions(topLevelBatchNumber, newQs);
             if (onProgress) {
-              onProgress(`Quét Batch ${batchLabel}/${totalBatches}${depth > 0 ? ' (Đang chia nhỏ)' : ''}... đã xử lý ${allQuestions.length} câu`, allQuestions.length);
+              const subInfo = depth > 0 ? ` [Phần ${batchLabel.split(/[0-9]+/)[1] || batchLabel}]` : '';
+              onProgress(`Đang quét Batch ${depth === 0 ? batchLabel : index + 1}${subInfo}/${totalBatches}... đã tìm thấy ${allQuestions.length} câu`, allQuestions.length);
             }
             if (onBatchComplete) onBatchComplete(newQs);
-            console.log(`✅ Batch ${batchLabel}: Found ${newQs.length} questions.`);
+          }
+          
+          if (newQs.length > 0 || depth > 0) {
+            console.log(`✅ Batch ${batchLabel}: Hoàn tất (Tìm thấy ${newQs.length} câu).`);
           }
 
           if (salvagedPartial && missingCount > 0 && !part.deferredRecovery) {
@@ -1355,11 +1364,30 @@ export const generateQuestions = async (
           return;
         }
 
+        const isServerBusyError = batchDecision.cause === 'softRateLimit' || batchDecision.cause === 'serverBusy';
+        if (isServerBusyError && !part.deferredRecovery) {
+          console.warn(`⚠️ Batch ${batchLabel} tạm lỗi (${errorKind}) sau khi đã chia nhỏ; đưa vào danh sách cứu hộ trì hoãn.`);
+          enqueueDeferredRecovery({
+            index,
+            topLevelIndex,
+            label: batchLabel,
+            stage: 'partial',
+            parts: [part],
+            missingCount: expectedQuestions || 1,
+            expectedQuestions,
+            beforeCoverageCount: getBatchCoveredQuestionCount(topLevelIndex + 1),
+            forceJsonRepair: true,
+            depth: depth + 1,
+          });
+          return;
+        }
+
         console.error(`❌ Batch ${batchLabel} FAILED after all retries & sub-batching (${errorKind}):`, e);
         if (depth === 0) recordBatchFailure(index, batchLabel, e, isRescueMode ? 'rescue' : 'normal');
         if (onProgress) {
           const detail = describeBatchError(e, retryProfile.name);
-          onProgress(`⚠️ Phần ${batchLabel} lỗi: ${detail.message}. Đang tiếp tục...`, allQuestions.length);
+          const subInfo = depth > 0 ? ` (Phần ${batchLabel})` : '';
+          onProgress(`⚠️ Batch ${depth === 0 ? batchLabel : index + 1}${subInfo} gặp sự cố: ${detail.message}. Đang tìm cách xử lý...`, allQuestions.length);
         }
       } finally {
         if (depth === 0) {

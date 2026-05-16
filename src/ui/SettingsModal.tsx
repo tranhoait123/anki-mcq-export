@@ -301,6 +301,24 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                         className="w-5 h-5 text-indigo-600 border-gray-300 rounded-md focus:ring-indigo-500 cursor-pointer"
                                     />
                                 </div>
+                                
+                                <div className="flex items-start justify-between gap-4 border-t border-slate-200/70 pt-4 dark:border-slate-700">
+                                    <div className="flex-1">
+                                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                            <ShieldAlert size={14} className="text-amber-500" />
+                                            Chỉ xử lý batch chính (Tắt cứu câu)
+                                        </label>
+                                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                            Không tự động chia nhỏ để quét lại các câu bị thiếu. Giúp tiết kiệm Token và tránh request quá nhiều.
+                                        </p>
+                                    </div>
+                                    <input
+                                        type="checkbox"
+                                        checked={settings.mainBatchOnlyRescue === true}
+                                        onChange={e => setSettings({ ...settings, mainBatchOnlyRescue: e.target.checked })}
+                                        className="w-5 h-5 text-indigo-600 border-gray-300 rounded-md focus:ring-indigo-500 cursor-pointer"
+                                    />
+                                </div>
 
                                 {/* Concurrency */}
                                 <div className="space-y-2">

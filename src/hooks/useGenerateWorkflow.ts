@@ -214,7 +214,7 @@ export const useGenerateWorkflow = ({
       }
 
       let autoRescuedCount = 0;
-      if (res.failedBatches && res.failedBatches.length > 0) {
+      if (!settingsSnapshot.mainBatchOnlyRescue && res.failedBatches && res.failedBatches.length > 0) {
         const initialFailed = [...res.failedBatches];
         if (shouldDelayAutoRescue(res.failedBatchDetails || [], initialFailed)) {
           setProgressStatus(`Provider đang nóng hoặc còn nhiều batch cứu thiếu; giữ ${initialFailed.length} phần lỗi để quét lại sau thay vì chạy cứu ngay.`);

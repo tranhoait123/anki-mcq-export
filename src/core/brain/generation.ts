@@ -152,8 +152,20 @@ export const isGoogleKeyConservationActive = (
 
 export const getRecoveryPolicyForPart = (
   part: any,
-  expectedQuestions: number = 0
+  expectedQuestions: number = 0,
+  mainBatchOnlyRescue: boolean = false
 ): RecoveryPolicy => {
+  if (mainBatchOnlyRescue) {
+    return {
+      allowEmpty: true,
+      eligibility: 'weak',
+      maxRecoveryRequests: 0,
+      reason: 'main-batch-only-enforced',
+      shouldRecoverMissing: false,
+      shouldSplitEmpty: false,
+    };
+  }
+
   const text = String(part?.text || '');
   const nativeExpectedCount = getNativeBatchExpectedCount(text);
   const expectedCount = Math.max(0, Number(expectedQuestions || part?.expectedQuestions || nativeExpectedCount || 0));
@@ -864,7 +876,7 @@ export const generateQuestions = async (
         // Per-batch key assignment: Mỗi batch nhận key riêng theo round-robin
         const batchStartingKey = runtimeSettings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
         const expectedQuestions = expectedAtStart;
-        const recoveryPolicy = getRecoveryPolicyForPart(part, expectedQuestions);
+        const recoveryPolicy = getRecoveryPolicyForPart(part, expectedQuestions, runtimeSettings.mainBatchOnlyRescue);
         const topLevelBatchNumber = topLevelIndex + 1;
         const recoveryBudgetKey = typeof part.recoveryBudgetKey === 'string' ? part.recoveryBudgetKey : '';
         const createPostprocessInput = (fullText: string): BatchPostprocessInput => ({
@@ -1169,7 +1181,7 @@ export const generateQuestions = async (
         const errorKind = classifyBatchError(e);
         const batchDecision = getRetryDecision(e, retryProfile);
         const expectedQuestions = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
-        const recoveryPolicy = getRecoveryPolicyForPart(part, expectedQuestions);
+        const recoveryPolicy = getRecoveryPolicyForPart(part, expectedQuestions, runtimeSettings.mainBatchOnlyRescue);
 
         if (
           errorKind === 'empty' &&

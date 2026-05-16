@@ -158,7 +158,7 @@ export const useResumeWorkflow = ({
           }
         }
 
-        if (res.failedBatches && res.failedBatches.length > 0) {
+        if (!session.settingsSnapshot.mainBatchOnlyRescue && res.failedBatches && res.failedBatches.length > 0) {
           if (shouldDelayAutoRescue(res.failedBatchDetails || [], res.failedBatches)) {
             setProgressStatus(`Provider đang nóng hoặc còn nhiều batch cứu thiếu; giữ ${res.failedBatches.length} phần lỗi để quét lại sau.`);
           } else {
@@ -247,7 +247,7 @@ export const useResumeWorkflow = ({
           await setVisibleMcqs(sortMcqsByQuestionNumber(preferredOutcome.questions));
         }
 
-        if (selectedRes.failedBatches && selectedRes.failedBatches.length > 0) {
+        if (!session.settingsSnapshot.mainBatchOnlyRescue && selectedRes.failedBatches && selectedRes.failedBatches.length > 0) {
           if (shouldDelayAutoRescue(selectedRes.failedBatchDetails || [], selectedRes.failedBatches)) {
             setProgressStatus(`Provider đang nóng hoặc còn nhiều batch cứu thiếu; giữ ${selectedRes.failedBatches.length} phần lỗi để quét lại sau.`);
           } else {

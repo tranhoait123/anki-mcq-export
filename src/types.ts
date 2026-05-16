@@ -253,6 +253,7 @@ export interface AppSettings {
   batchingMode?: 'safe';
   projectLibraryEnabled?: boolean;
   realtimePreviewEnabled?: boolean;
+  mainBatchOnlyRescue?: boolean;
 }
 
 export interface ProjectSettingsSummary {
@@ -263,6 +264,7 @@ export interface ProjectSettingsSummary {
   adaptiveBatching?: boolean;
   projectLibraryEnabled?: boolean;
   realtimePreviewEnabled?: boolean;
+  mainBatchOnlyRescue?: boolean;
   hasCustomPrompt: boolean;
 }
 

@@ -47,16 +47,17 @@ export const shouldRotateKey = ({
   if (distinctKeysTried >= rotationLimit) return false;
 
   if (cause === 'softRateLimit') {
-    // 429 thường là lỗi quota theo key, nên ưu tiên xoay mạnh mẽ.
-    // Nếu đang có áp lực hệ thống (timeout), giới hạn xoay lại một chút (ví dụ 3 key) để tránh burn pool.
-    const limitForPressured = Math.max(2, Math.min(3, rotationLimit));
-    if (hadProviderPressure && distinctKeysTried >= limitForPressured) return false;
+    // 429: Lỗi quota theo key, cho phép xoay mạnh mẽ để tìm key rảnh.
+    // Nếu dàn key lớn (ví dụ 31-50 key), cho phép xoay tối đa theo rotationLimit (thường là 8).
+    if (hadProviderPressure && distinctKeysTried >= Math.max(2, Math.min(4, rotationLimit))) return false;
     return true;
   }
 
   if (cause === 'serverBusy') {
-    // 503/Timeout: Không xoay key để tránh "đốt" cả dàn key khi provider lỗi hệ thống.
-    return false;
+    // 503/Timeout: Lỗi hệ thống provider. 
+    // Cho phép thử 15-20% dàn key (tối thiểu 2, tối đa 5) để tìm project/region không bị nghẽn.
+    const busyRotationLimit = Math.max(2, Math.min(5, rotationLimit));
+    return distinctKeysTried < busyRotationLimit;
   }
 
   return false;
@@ -341,9 +342,16 @@ export async function executeWithUserRotation<T>(
             const nextKey = getUntriedAvailableKey();
             if (nextKey) {
               currentKey = nextKey;
-              // Xoay key khi server busy vẫn nên giữ backoff nguyên bản để tránh spam provider đang nghẽn.
-              console.log(`🔄 Server Busy: Thử xoay sang API Key khác: #${userKeyRotator.getKeyNumber(currentKey)}`);
+              // Khi có key mới, dùng backoff ngắn (jitter) để thử nhanh
+              backoffMs = Math.max(250, getBackoffDelayMs(retryProfile, 1, 0, false, false, false, true));
+              console.log(`🔄 Server Busy: Thử xoay sang API Key dự phòng: #${userKeyRotator.getKeyNumber(currentKey)}`);
+            } else {
+              // Hết key sạch thì đứng yên tại key cũ và chờ backoff dài
+              currentKey = attemptedKey;
             }
+          } else {
+            // Đã thử đủ số key giới hạn, giữ nguyên key hiện tại để chờ server hồi phục
+            currentKey = attemptedKey;
           }
         } else {
           const cooldownDelay = userKeyRotator.getNextCooldownDelayMs();

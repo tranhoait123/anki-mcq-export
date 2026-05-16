@@ -64,6 +64,27 @@ export interface GeneratedResponse {
 
 export type BatchFailureKind = 'format' | 'empty' | 'rateLimit' | 'serverBusy' | 'auth' | 'fatal';
 
+export interface BatchFailureKeyHealth {
+  keyNumber: number;
+  status: string;
+  remainingMs: number;
+  inFlightCount: number;
+  failureCount: number;
+  successCount: number;
+  lastError?: string;
+}
+
+export interface BatchFailureDiagnostics {
+  attempts?: number;
+  distinctKeysTried?: number;
+  maxKeysPerOperation?: number;
+  lastKeyNumber?: number;
+  modelName?: string;
+  providerStatus?: number;
+  retryAfterMs?: number;
+  keyHealth?: BatchFailureKeyHealth[];
+}
+
 export interface BatchFailureInfo {
   index: number;
   label: string;
@@ -73,6 +94,7 @@ export interface BatchFailureInfo {
   advice: string;
   missingCount?: number;
   recoveredCount?: number;
+  diagnostics?: BatchFailureDiagnostics;
 }
 
 export interface DuplicateInfo {

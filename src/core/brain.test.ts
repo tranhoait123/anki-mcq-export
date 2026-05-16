@@ -8,6 +8,7 @@ import {
   getStructuredQuestionBatchSize,
   getModelConfig,
   getRetryDelayMsFromError,
+  parseRetryAfterHeaderMs,
   STRUCTURED_QUESTION_BATCH_CAP,
   applyTrustedSourceLabel,
   applyTrustedSourceMetadata,
@@ -151,6 +152,20 @@ describe('Core Logic', () => {
     })).toBe(7000);
   });
 
+  it('parses retry-after-ms before retry-after and supports HTTP-date retry-after', () => {
+    expect(parseRetryAfterHeaderMs(new Headers({
+      'retry-after-ms': '2500',
+      'retry-after': '10',
+    }))).toBe(2500);
+    expect(parseRetryAfterHeaderMs(new Headers({
+      'retry-after-ms': '999999',
+      'retry-after': '2',
+    }))).toBe(2000);
+    expect(parseRetryAfterHeaderMs(new Headers({
+      'retry-after': new Date(10_000).toUTCString(),
+    }), 5_000)).toBe(5000);
+  });
+
   it('keeps 503 provider pressure on the same key and leaves keys available', async () => {
     userKeyRotator.init('key-one-valid,key-two-valid,key-three-valid', 3);
     const calls: string[] = [];
@@ -258,6 +273,34 @@ describe('Core Logic', () => {
     ]));
     expect(userKeyRotator.availableKeyCount).toBe(2); // circuit breaker keeps fresh keys unburned
     expect(userKeyRotator.getRecommendedConcurrency()).toBe(1);
+  });
+
+  it('aborts timed-out attempts and releases in-flight keys without hard-failing them', async () => {
+    userKeyRotator.init('key-one-valid', 1);
+    let signal: AbortSignal | undefined;
+    const timeoutProfile: RetryProfile = {
+      ...tinyRetryProfile,
+      minAttempts: 1,
+      attemptBuffer: 0,
+      maxElapsedMs: 20,
+      backoffCapMs: 1,
+      singleKeyBackoffCapMs: 1,
+    };
+
+    await expect(executeWithUserRotation(
+      'gemini-test',
+      async (_apiKey, _model, attemptContext) => {
+        signal = attemptContext.signal;
+        return new Promise<string>(() => {});
+      },
+      'key-one-valid',
+      'gemini-fallback',
+      timeoutProfile
+    )).rejects.toThrow(/quá tải|bận|RETRY_BUDGET/i);
+
+    expect(signal?.aborted).toBe(true);
+    expect(userKeyRotator.getKeyHealthSnapshot()[0].inFlightCount).toBe(0);
+    expect(userKeyRotator.hardFailedKeyCount).toBe(0);
   });
 
   it('caps PDF recovery accounting to questions added by the same batch', () => {
@@ -604,6 +647,22 @@ describe('Core Logic', () => {
     expect(config.config.responseSchema).toBe(schema);
     expect(config.config.cachedContent).toBe('cachedContents/abc');
     expect(config.config.maxOutputTokens).toBe(49152);
+    expect(config.config.httpOptions.retryOptions.attempts).toBe(1);
+  });
+
+  it('adds Google provider timeout and abort signal while disabling inner retries', () => {
+    const schema = { type: 'object', properties: { questions: { type: 'array' } } };
+    const controller = new AbortController();
+    const config = getModelConfig('key', 'system', schema, 'gemini-2.5-flash', undefined, undefined, {
+      timeoutMs: 1234,
+      signal: controller.signal,
+    });
+
+    expect(config.config.abortSignal).toBe(controller.signal);
+    expect(config.config.httpOptions).toEqual({
+      timeout: 1234,
+      retryOptions: { attempts: 1 },
+    });
   });
 
   it('salvages complete MCQs from malformed partial JSON', () => {

@@ -40,6 +40,7 @@ export {
 
 export {
   getRetryDelayMsFromError,
+  parseRetryAfterHeaderMs,
   translateErrorForUser,
 } from './providerErrors';
 

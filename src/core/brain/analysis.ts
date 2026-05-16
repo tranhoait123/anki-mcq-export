@@ -68,7 +68,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
   }
 
   userKeyRotator.init(runtimeSettings.apiKey, 1);
-  return await executeWithUserRotation(runtimeSettings.model, async (apiKey, activeModel) => {
+  return await executeWithUserRotation(runtimeSettings.model, async (apiKey, activeModel, attemptContext) => {
     if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
     const ai = new GoogleGenAI({ apiKey });
     const parts: any[] = files.map(toGoogleContentFromFile);
@@ -85,10 +85,13 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
       required: ['estimatedCount', 'specialty', 'confidence', 'hasAnswers', 'structureNote']
     };
 
-    const chat = ai.chats.create(getModelConfig(apiKey, finalPrompt, schema, activeModel));
+    const chat = ai.chats.create(getModelConfig(apiKey, finalPrompt, schema, activeModel, undefined, undefined, {
+      timeoutMs: attemptContext.timeoutMs,
+      signal: attemptContext.signal,
+    }));
     const result = await chat.sendMessage({ message: parts });
     return normalizeAnalysisResult(parseJsonFromModelText(requireModelText(result.text, 'Phân tích tài liệu')));
-  }, undefined, getProviderFallbackModel(runtimeSettings.provider));
+  }, undefined, getProviderFallbackModel(runtimeSettings.provider, runtimeSettings.model));
 };
 
 export const auditMissingQuestions = async (files: UploadedFile[], count: number, settings: AppSettings): Promise<AuditResult> => {
@@ -116,7 +119,7 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
   }
 
   userKeyRotator.init(runtimeSettings.apiKey, 1);
-  return await executeWithUserRotation(runtimeSettings.model, async (apiKey, activeModel) => {
+  return await executeWithUserRotation(runtimeSettings.model, async (apiKey, activeModel, attemptContext) => {
     if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
     const parts: any[] = files.map(toGoogleContentFromFile);
 
@@ -133,7 +136,10 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
       required: ['status', 'reasons', 'advice', 'problematicSections']
     };
 
-    const chat = ai.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_AUDIT, schema, activeModel));
+    const chat = ai.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_AUDIT, schema, activeModel, undefined, undefined, {
+      timeoutMs: attemptContext.timeoutMs,
+      signal: attemptContext.signal,
+    }));
     const res = await chat.sendMessage({
       message: [
         ...parts,
@@ -141,5 +147,5 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
       ]
     });
     return parseJsonFromModelText<AuditResult>(requireModelText(res.text, 'Audit câu hỏi thiếu'));
-  }, undefined, getProviderFallbackModel(runtimeSettings.provider));
+  }, undefined, getProviderFallbackModel(runtimeSettings.provider, runtimeSettings.model));
 };

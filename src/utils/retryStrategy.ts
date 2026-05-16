@@ -76,12 +76,14 @@ export const classifyBatchError = (error: any): BatchErrorKind => {
   const statusCode = error?.status || error?.statusCode || 0;
 
   const hasAuthStatus = statusCode === 401 || statusCode === 403 || /\b(?:401|403)\b/.test(msg) || msg.includes('permission denied') || msg.includes('forbidden');
-  const hasExplicitInvalidKey = msg.includes('api_key_invalid') || msg.includes('api key invalid') || msg.includes('invalid api key') || msg.includes('api-key invalid') || msg.includes('api key not valid') || msg.includes('api-key not valid') || msg.includes('key not valid');
+  const hasExplicitInvalidKey = msg.includes('api_key_invalid') || msg.includes('api key invalid') || msg.includes('invalid api key') || msg.includes('api-key invalid') || msg.includes('api key not valid') || msg.includes('api-key not valid') || msg.includes('key not valid') || msg.includes('reported as leaked') || msg.includes('known leaked');
   const hasExpiredAuthToken = msg.includes('invalid_grant') || (msg.includes('token') && (msg.includes('expired') || msg.includes('hết hạn')));
-  if (hasAuthStatus || hasExplicitInvalidKey || hasExpiredAuthToken) return 'auth';
+  const hasRateLimitSignal = statusCode === 429 || msg.includes('429') || msg.includes('quota') || msg.includes('exhausted') || msg.includes('resource_exhausted') || msg.includes('too many requests') || msg.includes('rate limit') || msg.includes('ratelimit') || msg.includes('userratelimitexceeded');
+  if (hasExplicitInvalidKey || hasExpiredAuthToken) return 'auth';
   if (msg.includes('context length') || msg.includes('context_length') || msg.includes('context too long') || msg.includes('context too large') || msg.includes('token limit') || msg.includes('max tokens') || msg.includes('maximum tokens') || msg.includes('request too large') || msg.includes('payload too large') || statusCode === 413) return 'format';
   if (statusCode === 400 || msg.includes('400 invalid_argument') || msg.includes('invalid_argument')) return 'fatal';
-  if (statusCode === 429 || msg.includes('429') || msg.includes('quota') || msg.includes('exhausted') || msg.includes('resource_exhausted') || msg.includes('too many requests') || msg.includes('rate limit')) return 'rateLimit';
+  if (hasRateLimitSignal) return 'rateLimit';
+  if (hasAuthStatus) return 'auth';
   if (statusCode === 503 || statusCode === 504 || msg.includes('503') || msg.includes('504') || msg.includes('unavailable') || msg.includes('overloaded') || msg.includes('deadline') || msg.includes('timeout') || msg.includes('econnreset') || msg.includes('failed to fetch') || msg.includes('network_error') || msg.includes('networkerror') || msg.includes('net::')) return 'serverBusy';
   if (msg.includes('không tìm thấy câu hỏi') || msg.includes('khong tim thay cau hoi') || msg.includes('questions.length') || msg.includes('empty')) return 'empty';
   if (msg.includes('ai_format_error') || msg.includes('json') || msg.includes('định dạng') || msg.includes('dinh dang') || msg.includes('format') || msg.includes('unexpected token') || msg.includes('truncated')) return 'format';
@@ -98,6 +100,17 @@ export const getRetryDelayHintMs = (error: any): number | undefined => {
 export const isHardQuotaError = (error: any): boolean => {
   const msg = getRetryText(error);
   if (!msg) return false;
+  const hasTransientQuotaWindow = (
+    msg.includes('per minute') ||
+    msg.includes('requests per minute') ||
+    msg.includes('tokens per minute') ||
+    msg.includes('rpm') ||
+    msg.includes('tpm') ||
+    msg.includes('rate limit') ||
+    msg.includes('ratelimit') ||
+    msg.includes('userratelimitexceeded')
+  );
+  if (hasTransientQuotaWindow) return false;
   return (
     msg.includes('daily') ||
     msg.includes('per day') ||

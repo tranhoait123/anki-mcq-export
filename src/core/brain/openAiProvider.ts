@@ -23,6 +23,11 @@ export interface ShopAIKeyValidationResult {
   status?: number;
 }
 
+export interface OpenAICompatibleCallOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
 const JSON_MODE_FALLBACK_INSTRUCTION = 'QUAN TRỌNG: Endpoint hiện tại không hỗ trợ response_format. Bạn vẫn PHẢI trả về JSON hợp lệ duy nhất, không markdown, không giải thích ngoài JSON.';
 
 export const isOpenAICompatibleProvider = (provider: AppSettings['provider']): provider is OpenAICompatibleProvider =>
@@ -229,26 +234,34 @@ export const callOpenAICompatibleProvider = async (
   settings: AppSettings,
   modelName: string,
   messages: any[],
-  includeResponseFormat: boolean = true
+  includeResponseFormat: boolean = true,
+  options: OpenAICompatibleCallOptions = {}
 ): Promise<string> => {
   const request = buildOpenAICompatibleProviderRequest(settings, modelName, messages, includeResponseFormat);
+  const localAbortController = !options.signal && options.timeoutMs ? new AbortController() : null;
+  const timeoutId = localAbortController && options.timeoutMs
+    ? setTimeout(() => localAbortController.abort(), options.timeoutMs)
+    : undefined;
   let response: Response;
   try {
     response = await fetch(request.url, {
       method: 'POST',
       headers: request.headers,
       body: JSON.stringify(request.body),
+      signal: options.signal || localAbortController?.signal,
     });
   } catch (error: any) {
     const detail = error?.message || String(error) || 'Network request failed';
     throw new Error(`${request.providerName} NETWORK_ERROR: ${detail} | model=${request.model}`);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 
   if (!response.ok) {
     const error = await createProviderApiError(request.providerName, response, request.model);
     if (includeResponseFormat && isResponseFormatUnsupportedError(error)) {
       console.warn(`${request.providerName}: response_format unsupported for ${request.model}. Retrying with prompt-only JSON mode.`);
-      return callOpenAICompatibleProvider(settings, modelName, withJsonModeFallbackPrompt(messages), false);
+      return callOpenAICompatibleProvider(settings, modelName, withJsonModeFallbackPrompt(messages), false, options);
     }
     throw error;
   }

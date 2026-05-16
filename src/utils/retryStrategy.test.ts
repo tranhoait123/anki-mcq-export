@@ -31,6 +31,8 @@ describe('batch retry strategy', () => {
   it('separates hard quota from soft throttling decisions', () => {
     const hardQuota = getRetryDecision(new Error('429 RESOURCE_EXHAUSTED: exceeded your current quota, check billing'), getRetryProfile('normal'), 1);
     const softThrottle = getRetryDecision({ statusCode: 429, message: 'too many requests', retryAfterMs: 12000 }, getRetryProfile('normal'), 1);
+    const quota403 = getRetryDecision({ statusCode: 403, message: 'PERMISSION_DENIED: userRateLimitExceeded rate limit exceeded', retryAfterMs: 12000 }, getRetryProfile('normal'), 1);
+    const perMinuteQuota = getRetryDecision({ statusCode: 429, message: 'Quota exceeded for quota metric GenerateRequestsPerMinute per minute' }, getRetryProfile('normal'), 1);
 
     expect(hardQuota.kind).toBe('rateLimit');
     expect(hardQuota.cause).toBe('hardQuota');
@@ -38,6 +40,13 @@ describe('batch retry strategy', () => {
     expect(softThrottle.cause).toBe('softRateLimit');
     expect(softThrottle.action).toBe('retry');
     expect(softThrottle.retryDelayMs).toBe(12000);
+    expect(classifyBatchError({ statusCode: 403, message: 'quota exceeded for quota metric userRateLimitExceeded' })).toBe('rateLimit');
+    expect(quota403.kind).toBe('rateLimit');
+    expect(quota403.cause).toBe('softRateLimit');
+    expect(quota403.action).toBe('retry');
+    expect(perMinuteQuota.kind).toBe('rateLimit');
+    expect(perMinuteQuota.cause).toBe('softRateLimit');
+    expect(perMinuteQuota.action).toBe('retry');
   });
 
   it('splits oversized requests immediately instead of retrying the same payload', () => {

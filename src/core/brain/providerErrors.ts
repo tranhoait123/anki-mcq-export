@@ -36,6 +36,11 @@ export const translateErrorForUser = (error: any, context?: string): string => {
     return `${prefix}🤖 Lỗi ShopAIKey: ${shopMsgs[code] || `Server phản hồi mã ${code}. Vui lòng thử lại sau.`}${providerSuffix}`;
   }
 
+  const hasRateLimitSignal = statusCode === 429 || msgLow.includes("429") || msgLow.includes("quota") || msgLow.includes("resource_exhausted") || msgLow.includes("exhausted") || msgLow.includes("too many requests") || msgLow.includes("rate limit") || msgLow.includes("userratelimitexceeded");
+  if (hasRateLimitSignal) {
+    return `${prefix}⏳ Hệ thống đang nhận quá nhiều yêu cầu (hết hạn mức). Vui lòng chờ 1-2 phút rồi thử lại. Nếu lỗi tiếp tục, hãy thêm nhiều API Key trong Cài đặt.`;
+  }
+
   if (statusCode === 403 || msgLow.includes("403") || msgLow.includes("permission denied") || msgLow.includes("forbidden")) {
     return `${prefix}🔑 API Key không có quyền truy cập. Hãy kiểm tra: Key đã bật Gemini API chưa? Key có bị vô hiệu hóa không? (Mã lỗi: 403)`;
   }
@@ -44,10 +49,6 @@ export const translateErrorForUser = (error: any, context?: string): string => {
   }
   if (msgLow.includes("401") || msgLow.includes("unauthenticated") || statusCode === 401) {
     return `${prefix}🔑 Xác thực thất bại. Vui lòng kiểm tra API Key trong phần Cài đặt.`;
-  }
-
-  if (statusCode === 429 || msgLow.includes("429") || msgLow.includes("quota") || msgLow.includes("resource_exhausted") || msgLow.includes("exhausted")) {
-    return `${prefix}⏳ Hệ thống đang nhận quá nhiều yêu cầu (hết hạn mức). Vui lòng chờ 1-2 phút rồi thử lại. Nếu lỗi tiếp tục, hãy thêm nhiều API Key trong Cài đặt.`;
   }
 
   if (statusCode === 503 || msgLow.includes("503") || msgLow.includes("unavailable") || msgLow.includes("overloaded")) {
@@ -112,16 +113,28 @@ export const translateErrorForUser = (error: any, context?: string): string => {
   return `${prefix}❌ Đã xảy ra lỗi không mong muốn: ${shortMsg}. Vui lòng thử lại hoặc liên hệ hỗ trợ.`;
 };
 
-export const parseRetryAfterHeaderMs = (headers?: Headers): number | undefined => {
+const MAX_REASONABLE_RETRY_AFTER_MS = 60 * 1000;
+
+const isReasonableRetryDelayMs = (delayMs: number | undefined): delayMs is number =>
+  typeof delayMs === 'number' && Number.isFinite(delayMs) && delayMs > 0 && delayMs <= MAX_REASONABLE_RETRY_AFTER_MS;
+
+export const parseRetryAfterHeaderMs = (headers?: Headers, nowMs: number = Date.now()): number | undefined => {
+  const retryAfterMsValue = headers?.get('retry-after-ms');
+  if (retryAfterMsValue) {
+    const asMilliseconds = Number(retryAfterMsValue);
+    if (isReasonableRetryDelayMs(asMilliseconds)) return Math.round(asMilliseconds);
+  }
+
   const rawValue = headers?.get('retry-after');
   if (!rawValue) return undefined;
   const asSeconds = Number(rawValue);
-  if (Number.isFinite(asSeconds) && asSeconds > 0) return Math.round(asSeconds * 1000);
+  const secondsDelayMs = Number.isFinite(asSeconds) && asSeconds > 0 ? Math.round(asSeconds * 1000) : undefined;
+  if (isReasonableRetryDelayMs(secondsDelayMs)) return secondsDelayMs;
 
   const retryDate = Date.parse(rawValue);
   if (Number.isFinite(retryDate)) {
-    const delayMs = retryDate - Date.now();
-    return delayMs > 0 ? delayMs : undefined;
+    const delayMs = retryDate - nowMs;
+    return isReasonableRetryDelayMs(delayMs) ? delayMs : undefined;
   }
 
   return undefined;

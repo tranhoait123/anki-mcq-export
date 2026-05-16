@@ -81,6 +81,25 @@ describe('OpenAI-compatible provider vision payloads', () => {
     expect(secondBody.response_format).toBeUndefined();
   });
 
+  it('passes external abort signals through provider fetch calls', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: '{"questions":[]}' } }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+
+    const result = await callOpenAICompatibleProvider(
+      shopAIKeySettings,
+      'openai/gpt-5.4-mini',
+      [{ role: 'user', content: 'Scan this.' }],
+      true,
+      { signal: controller.signal, timeoutMs: 123 }
+    );
+
+    expect(result).toBe('{"questions":[]}');
+    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal);
+  });
+
   it('wraps browser network/CORS failures with provider and model context', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
 

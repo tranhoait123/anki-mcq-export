@@ -234,9 +234,14 @@ export const isModelAllowedForProvider = (provider: AIProvider, model: string): 
   return true;
 };
 
-export const getProviderFallbackModel = (provider: AIProvider): string => {
+export const getProviderFallbackModel = (provider: AIProvider, selectedModel: string = ''): string => {
+  const normalizedSelectedModel = normalizeModelForProvider(provider, selectedModel);
+  if (provider === 'google') {
+    return isModelAllowedForProvider(provider, normalizedSelectedModel)
+      ? normalizedSelectedModel
+      : DEFAULT_GEMINI_MODEL;
+  }
   if (provider === 'openrouter') return OPENROUTER_VISION_FALLBACK_MODEL;
-  if (provider === 'google') return 'gemini-2.5-flash';
   return DEFAULT_GEMINI_MODEL;
 };
 

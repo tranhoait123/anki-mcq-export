@@ -19,6 +19,7 @@ export interface KeyResult {
   kind: KeyResultKind;
   durationMs?: number;
   error?: any;
+  permanent?: boolean;
 }
 
 export interface KeyHealthSnapshot {
@@ -89,6 +90,21 @@ const getErrorText = (error: any): string => {
   return text.length > 160 ? `${text.slice(0, 160)}...` : text;
 };
 
+const isPermanentAuthError = (error: any): boolean => {
+  const text = getErrorText(error).toLowerCase();
+  return (
+    text.includes('api_key_invalid') ||
+    text.includes('api key invalid') ||
+    text.includes('invalid api key') ||
+    text.includes('api-key invalid') ||
+    text.includes('api key not valid') ||
+    text.includes('api-key not valid') ||
+    text.includes('key not valid') ||
+    text.includes('reported as leaked') ||
+    text.includes('known leaked')
+  );
+};
+
 const clampDuration = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(value, max));
 
@@ -117,8 +133,15 @@ export class UserKeyRotator {
       return;
     }
 
+    const seenKeys = new Set<string>();
     const parts = apiKeyString.split(/[,;\n\r]+/);
-    this.keys = parts.map(k => k.trim()).filter(k => k.length > 5);
+    this.keys = parts
+      .map(k => k.trim())
+      .filter(k => {
+        if (k.length <= 5 || seenKeys.has(k)) return false;
+        seenKeys.add(k);
+        return true;
+      });
     this.keys.forEach(key => this.keyHealth.set(key, createKeyHealthRecord()));
     this.recommendedConcurrency = this.getMaxUsefulConcurrency();
     console.log(`🔑 Loaded ${this.keys.length} API Keys.`);
@@ -275,10 +298,17 @@ export class UserKeyRotator {
 
     if (result.kind === 'auth') {
       record.authStrikeCount++;
-      const durationMs = clampDuration(result.durationMs ?? AUTH_BLOCK_BASE_MS * record.authStrikeCount, AUTH_BLOCK_BASE_MS, AUTH_BLOCK_MAX_MS);
+      const isPermanent = result.permanent ?? isPermanentAuthError(result.error);
+      const durationMs = isPermanent
+        ? Number.POSITIVE_INFINITY
+        : clampDuration(result.durationMs ?? AUTH_BLOCK_BASE_MS * record.authStrikeCount, AUTH_BLOCK_BASE_MS, AUTH_BLOCK_MAX_MS);
       this.blockKey(key, record, 'authBlocked', durationMs);
       this.recommendedConcurrency = Math.min(this.recommendedConcurrency, this.getMaxUsefulConcurrency());
-      console.warn(`🚫 API Key #${this.getKeyNumber(key)} auth-blocked for ${Math.round(durationMs / 60000)}m. ${this.availableKeyCount} keys available now.`);
+      if (isPermanent) {
+        console.warn(`🚫 API Key #${this.getKeyNumber(key)} auth-blocked until it is replaced. ${this.availableKeyCount} keys available now.`);
+      } else {
+        console.warn(`🚫 API Key #${this.getKeyNumber(key)} auth-blocked for ${Math.round(durationMs / 60000)}m. ${this.availableKeyCount} keys available now.`);
+      }
       return;
     }
 
@@ -310,7 +340,7 @@ export class UserKeyRotator {
     const globalDelay = this.globalCooldownUntil > now ? this.globalCooldownUntil - now : 0;
     const waits = this.keys
       .map(key => this.getOrCreateRecord(key).blockedUntil - now)
-      .filter(delay => delay > 0);
+      .filter(delay => Number.isFinite(delay) && delay > 0);
     if (globalDelay > 0) waits.push(globalDelay);
     return waits.length > 0 ? Math.min(...waits) : 0;
   }

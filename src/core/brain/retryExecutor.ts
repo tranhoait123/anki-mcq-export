@@ -1,5 +1,5 @@
 import { ProcessingController } from '../../types';
-import { UserKeyRotator } from '../../utils/keyRotator';
+import { KeyHealthSnapshot, UserKeyRotator } from '../../utils/keyRotator';
 import {
   getBackoffDelayMs,
   getRetryDecision,
@@ -11,6 +11,24 @@ import { getRetryDelayMsFromError } from './providerErrors';
 
 export const userKeyRotator = new UserKeyRotator();
 
+export interface RetryAttemptContext {
+  attempt: number;
+  timeoutMs: number;
+  signal: AbortSignal;
+  keyNumber: number;
+}
+
+export interface RetryExecutionDiagnostics {
+  attempts: number;
+  distinctKeysTried: number;
+  maxKeysPerOperation: number;
+  lastKeyNumber: number;
+  modelName: string;
+  providerStatus?: number;
+  retryAfterMs?: number;
+  keyHealth: KeyHealthSnapshot[];
+}
+
 const waitWithController = async (ms: number, controller?: ProcessingController): Promise<void> => {
   let remaining = Math.max(0, ms);
   while (remaining > 0) {
@@ -19,6 +37,16 @@ const waitWithController = async (ms: number, controller?: ProcessingController)
     await new Promise((resolve) => setTimeout(resolve, step));
     remaining -= step;
   }
+};
+
+const createAttemptTimeoutError = (timeoutMs: number): Error & { status?: number; statusCode?: number; isRetryTimeout?: boolean } => {
+  const error: Error & { status?: number; statusCode?: number; isRetryTimeout?: boolean } = new Error(
+    `AI_REQUEST_TIMEOUT: Provider request exceeded ${Math.round(timeoutMs / 1000)}s and was aborted for retry.`
+  );
+  error.status = 504;
+  error.statusCode = 504;
+  error.isRetryTimeout = true;
+  return error;
 };
 
 export async function executeWithRetry<T>(fn: () => Promise<T>, retries: number = 3): Promise<T> {
@@ -49,7 +77,7 @@ export async function executeWithRetry<T>(fn: () => Promise<T>, retries: number 
 
 export async function executeWithUserRotation<T>(
   initialModel: string,
-  operation: (apiKey: string, modelName: string) => Promise<T>,
+  operation: (apiKey: string, modelName: string, context: RetryAttemptContext) => Promise<T>,
   startingKey?: string,
   fallbackModel: string = DEFAULT_GEMINI_MODEL,
   retryProfile: RetryProfile = getRetryProfile('normal'),
@@ -65,12 +93,33 @@ export async function executeWithUserRotation<T>(
   const getRemainingBudgetMs = () => retryProfile.maxElapsedMs - (Date.now() - startedAt);
   const getUntriedAvailableKey = () => userKeyRotator.selectBestKey({ excludeKeys: keysTried });
   const getRetriedAvailableKey = () => userKeyRotator.selectBestKey({ allowRetriedKeys: true });
+  const getAttemptTimeoutMs = () => Math.max(1, Math.ceil(getRemainingBudgetMs()));
+  const getDiagnostics = (attemptedKey: string, error?: any, retryAfterMs?: number): RetryExecutionDiagnostics => ({
+    attempts,
+    distinctKeysTried: keysTried.size,
+    maxKeysPerOperation: userKeyRotator.getMaxKeysPerOperation(),
+    lastKeyNumber: userKeyRotator.getKeyNumber(attemptedKey || currentKey),
+    modelName: currentModel,
+    providerStatus: error?.status || error?.statusCode,
+    retryAfterMs,
+    keyHealth: userKeyRotator.getKeyHealthSnapshot(),
+  });
+  const withDiagnostics = <E>(error: E, attemptedKey: string, retryAfterMs?: number): E => {
+    if (error && typeof error === 'object') {
+      try {
+        (error as any).retryDiagnostics = getDiagnostics(attemptedKey, error, retryAfterMs);
+      } catch {
+        // Ignore non-extensible errors; the original error is still more useful.
+      }
+    }
+    return error;
+  };
 
   while (attempts < ATTEMPTS_LIMIT) {
     await controller?.waitIfPaused();
 
     if (getRemainingBudgetMs() <= 0) {
-      throw new Error(`RETRY_BUDGET_EXHAUSTED: Dịch vụ AI vẫn bận sau ${Math.round(retryProfile.maxElapsedMs / 1000)}s. Batch này sẽ được đánh dấu để quét lại sau.`);
+      throw withDiagnostics(new Error(`RETRY_BUDGET_EXHAUSTED: Dịch vụ AI vẫn bận sau ${Math.round(retryProfile.maxElapsedMs / 1000)}s. Batch này sẽ được đánh dấu để quét lại sau.`), currentKey);
     }
 
     if (currentKey && !userKeyRotator.isKeyAvailable(currentKey)) {
@@ -88,19 +137,35 @@ export async function executeWithUserRotation<T>(
       }
       currentKey = getUntriedAvailableKey() || getRetriedAvailableKey();
       if (!currentKey) {
-        throw new Error(`RETRY_BUDGET_EXHAUSTED: Không còn API key khả dụng trong lượt thử hiện tại. Batch này sẽ được đánh dấu để quét lại sau.`);
+        throw withDiagnostics(new Error(`RETRY_BUDGET_EXHAUSTED: Không còn API key khả dụng trong lượt thử hiện tại. Batch này sẽ được đánh dấu để quét lại sau.`), currentKey);
       }
     }
 
     attempts++;
     const attemptedKey = currentKey;
+    const attemptTimeoutMs = getAttemptTimeoutMs();
+    const attemptAbortController = new AbortController();
+    const attemptContext: RetryAttemptContext = {
+      attempt: attempts,
+      timeoutMs: attemptTimeoutMs,
+      signal: attemptAbortController.signal,
+      keyNumber: userKeyRotator.getKeyNumber(attemptedKey),
+    };
     if (attemptedKey) {
       keysTried.add(attemptedKey);
       userKeyRotator.markKeyInFlight(attemptedKey);
     }
 
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
-      const result = await operation(attemptedKey, currentModel);
+      const timeoutPromise = new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          attemptAbortController.abort();
+          reject(createAttemptTimeoutError(attemptTimeoutMs));
+        }, attemptTimeoutMs);
+      });
+      const operationPromise = operation(attemptedKey, currentModel, attemptContext);
+      const result = await Promise.race([operationPromise, timeoutPromise]);
       userKeyRotator.markKeyResult(attemptedKey, { kind: 'success' });
       return result;
     } catch (error: any) {
@@ -117,16 +182,16 @@ export async function executeWithUserRotation<T>(
       if (decision.action === 'split') {
         if (decision.cause === 'requestTooLarge') {
           console.warn(`📦 Request quá lớn ở lần ${attempts}; dừng retry cùng payload để chia nhỏ batch.`);
-          throw new Error("AI_FORMAT_ERROR_REQUEST_TOO_LARGE");
+          throw withDiagnostics(new Error("AI_FORMAT_ERROR_REQUEST_TOO_LARGE"), attemptedKey, retryHintMs);
         }
         console.warn(`🚀 ${decision.message} Failing fast after ${attempts} attempt(s) to trigger subdivision...`);
-        throw new Error("AI_FORMAT_ERROR_TRUNCATED");
+        throw withDiagnostics(new Error("AI_FORMAT_ERROR_TRUNCATED"), attemptedKey, retryHintMs);
       }
 
       if (decision.action === 'fail') {
         if (decision.cause === 'auth') {
           if (msg.includes("openrouter api error") || msg.includes("shopaikey api error")) {
-            throw error;
+            throw withDiagnostics(error, attemptedKey, retryHintMs);
           }
           console.warn(`🚫 Auth/Invalid Key detected! Key #${userKeyRotator.getKeyNumber(attemptedKey)} is blocked temporarily. Rotating IMMEDIATELY...`);
           userKeyRotator.markKeyResult(attemptedKey, { kind: 'auth', error });
@@ -134,7 +199,7 @@ export async function executeWithUserRotation<T>(
             currentKey = getUntriedAvailableKey() || getRetriedAvailableKey();
             continue;
           }
-          throw new Error(`API Key hoặc Token bị từ chối truy cập (403/Invalid). Vui lòng vào Cài đặt kiểm tra lại (Có thể Key hết hạn hoặc sai).`);
+          throw withDiagnostics(new Error(`API Key hoặc Token bị từ chối truy cập (403/Invalid). Vui lòng vào Cài đặt kiểm tra lại (Có thể Key hết hạn hoặc sai).`), attemptedKey, retryHintMs);
         }
 
         if (decision.cause === 'hardQuota') {
@@ -144,13 +209,13 @@ export async function executeWithUserRotation<T>(
             currentKey = getUntriedAvailableKey() || getRetriedAvailableKey();
             continue;
           }
-          throw new Error("AI_HARD_QUOTA_EXHAUSTED: Hết quota/billing hoặc free-tier cho key hiện tại. Batch này được giữ lại để quét sau khi đổi/thêm key.");
+          throw withDiagnostics(new Error("AI_HARD_QUOTA_EXHAUSTED: Hết quota/billing hoặc free-tier cho key hiện tại. Batch này được giữ lại để quét sau khi đổi/thêm key."), attemptedKey, retryHintMs);
         }
 
         if (decision.cause === 'fatal' && (msg.includes('400') || msg.includes('invalid_argument'))) {
           userKeyRotator.markKeyResult(attemptedKey, { kind: 'suspect', durationMs: 30 * 1000, error });
         }
-        throw error;
+        throw withDiagnostics(error, attemptedKey, retryHintMs);
       }
 
       if (decision.action === 'retry') {
@@ -228,10 +293,12 @@ export async function executeWithUserRotation<T>(
         await waitWithController(backoffMs, controller);
         continue;
       }
-      throw error;
+      throw withDiagnostics(error, attemptedKey, retryHintMs);
     } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+      attemptAbortController.abort();
       if (attemptedKey) userKeyRotator.releaseKeyInFlight(attemptedKey);
     }
   }
-  throw new Error(`Dịch vụ AI đang bận hoặc quá tải sau ${ATTEMPTS_LIMIT} lần thử. Vui lòng chờ 1-2 phút rồi thử lại.`);
+  throw withDiagnostics(new Error(`Dịch vụ AI đang bận hoặc quá tải sau ${ATTEMPTS_LIMIT} lần thử. Vui lòng chờ 1-2 phút rồi thử lại.`), currentKey);
 }

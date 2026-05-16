@@ -2,6 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { UserKeyRotator } from './keyRotator';
 
 describe('UserKeyRotator scheduler v2', () => {
+  it('dedupes pasted keys before computing availability and concurrency', () => {
+    const rotator = new UserKeyRotator();
+
+    rotator.init('key-one-valid,key-two-valid\nkey-one-valid; key-two-valid', 4);
+
+    expect(rotator.keyCount).toBe(2);
+    expect(rotator.availableKeyCount).toBe(2);
+    expect(rotator.getMaxKeysPerOperation()).toBe(2);
+    expect(rotator.getRecommendedConcurrency()).toBe(2);
+  });
+
   it('auth-blocks invalid keys temporarily and lets them recover', () => {
     let now = 1_000;
     const rotator = new UserKeyRotator(() => now);
@@ -18,6 +29,41 @@ describe('UserKeyRotator scheduler v2', () => {
     expect(rotator.hardFailedKeyCount).toBe(0);
     expect(rotator.availableKeyCount).toBe(3);
     expect(rotator.getKeyForBatch(new Set(['key-two-valid', 'key-three-valid']))).toBe('key-one-valid');
+  });
+
+  it('keeps explicit invalid or leaked keys auth-blocked until replaced', () => {
+    let now = 1_000;
+    const rotator = new UserKeyRotator(() => now);
+    rotator.init('key-one-valid,key-two-valid');
+
+    rotator.markKeyResult('key-one-valid', {
+      kind: 'auth',
+      error: new Error('403 permission denied: API key not valid'),
+    });
+
+    expect(rotator.availableKeyCount).toBe(1);
+    expect(rotator.hardFailedKeyCount).toBe(1);
+
+    now += 61 * 60 * 1000;
+    expect(rotator.availableKeyCount).toBe(1);
+    expect(rotator.hardFailedKeyCount).toBe(1);
+    expect(rotator.getNextCooldownDelayMs()).toBe(0);
+  });
+
+  it('temporary 403 auth blocks recover when the message is ambiguous', () => {
+    let now = 1_000;
+    const rotator = new UserKeyRotator(() => now);
+    rotator.init('key-one-valid,key-two-valid');
+
+    rotator.markKeyResult('key-one-valid', {
+      kind: 'auth',
+      error: new Error('403 permission denied'),
+    });
+
+    expect(rotator.availableKeyCount).toBe(1);
+    now += 15 * 60 * 1000 + 1;
+    expect(rotator.availableKeyCount).toBe(2);
+    expect(rotator.hardFailedKeyCount).toBe(0);
   });
 
   it('puts rate-limited keys on cooldown and reuses them after cooldown expires', () => {

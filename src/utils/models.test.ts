@@ -91,7 +91,8 @@ describe('AI model registry', () => {
   });
 
   it('uses provider-specific fallback models', () => {
-    expect(getProviderFallbackModel('google')).toBe('gemini-2.5-flash');
+    expect(getProviderFallbackModel('google')).toBe('gemini-3.1-flash-lite-preview');
+    expect(getProviderFallbackModel('google', 'gemini-2.5-flash-lite')).toBe('gemini-2.5-flash-lite');
     expect(getProviderFallbackModel('shopaikey')).toBe('gemini-3.1-flash-lite-preview');
     expect(getProviderFallbackModel('openrouter')).toBe('google/gemini-2.5-flash');
   });

@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { UploadedFile, ProgressCallback, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, SourceTrace } from "../../types";
+import { UploadedFile, ProgressCallback, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, BatchFailureDiagnostics, SourceTrace } from "../../types";
 import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage } from '../../utils/models';
 import { analyzePdfTextLayer, convertPdfToImages, countPdfQuestionMarkers, splitPdfRangeForVisionRecovery } from '../../utils/pdfProcessor';
 import {
@@ -545,11 +545,44 @@ export const generateQuestions = async (
       });
     };
 
-    const recordBatchFailure = (index: number, label: string, error: any, stage: BatchFailureInfo['stage'], extras: Partial<Pick<BatchFailureInfo, 'missingCount' | 'recoveredCount'>> = {}) => {
+    const mapKeyHealthDiagnostics = (items: any[] | undefined): BatchFailureDiagnostics['keyHealth'] | undefined => {
+      if (!Array.isArray(items) || items.length === 0) return undefined;
+      return items.map(item => ({
+        keyNumber: Number(item.keyNumber || 0),
+        status: String(item.status || 'unknown'),
+        remainingMs: Number.isFinite(Number(item.remainingMs)) ? Number(item.remainingMs) : 0,
+        inFlightCount: Number(item.inFlightCount || 0),
+        failureCount: Number(item.failureCount || 0),
+        successCount: Number(item.successCount || 0),
+        lastError: item.lastError,
+      }));
+    };
+
+    const buildBatchFailureDiagnostics = (error: any): BatchFailureInfo['diagnostics'] | undefined => {
+      const retryDiagnostics = error?.retryDiagnostics || {};
+      const keyHealth = runtimeSettings.provider === 'google'
+        ? mapKeyHealthDiagnostics(userKeyRotator.getKeyHealthSnapshot())
+        : mapKeyHealthDiagnostics(retryDiagnostics.keyHealth);
+      const diagnostics: BatchFailureInfo['diagnostics'] = {
+        attempts: retryDiagnostics.attempts,
+        distinctKeysTried: retryDiagnostics.distinctKeysTried,
+        maxKeysPerOperation: retryDiagnostics.maxKeysPerOperation,
+        lastKeyNumber: retryDiagnostics.lastKeyNumber,
+        modelName: retryDiagnostics.modelName,
+        providerStatus: retryDiagnostics.providerStatus,
+        retryAfterMs: retryDiagnostics.retryAfterMs,
+        keyHealth,
+      };
+      return Object.values(diagnostics).some(value => value !== undefined) ? diagnostics : undefined;
+    };
+
+    const recordBatchFailure = (index: number, label: string, error: any, stage: BatchFailureInfo['stage'], extras: Partial<Pick<BatchFailureInfo, 'missingCount' | 'recoveredCount' | 'diagnostics'>> = {}) => {
       const batchNumber = index + 1;
       if (!failedBatches.includes(batchNumber)) failedBatches.push(batchNumber);
       if (failedBatchDetails.some(item => item.index === batchNumber && item.label === label && item.stage === stage)) return;
       const detail = describeBatchError(error, retryProfile.name);
+      const { diagnostics: extraDiagnostics, ...failureExtras } = extras;
+      const diagnostics = extraDiagnostics || buildBatchFailureDiagnostics(error);
       failedBatchDetails.push({
         index: batchNumber,
         label,
@@ -557,7 +590,8 @@ export const generateQuestions = async (
         stage,
         message: detail.message,
         advice: detail.advice,
-        ...extras,
+        ...failureExtras,
+        ...(diagnostics ? { diagnostics } : {}),
       });
     };
 
@@ -569,7 +603,7 @@ export const generateQuestions = async (
     );
 
     const totalBatches = totalTopLevelBatches;
-    const stableFallbackModel = getProviderFallbackModel(runtimeSettings.provider);
+    const stableFallbackModel = getProviderFallbackModel(runtimeSettings.provider, runtimeSettings.model);
     const extractionModel = isAdvancedMode || isRescueMode ? stableFallbackModel : runtimeSettings.model;
 
     const runPartsWithLimit = async <T,>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>): Promise<void> => {
@@ -727,7 +761,7 @@ export const generateQuestions = async (
         const postprocessResult: BatchPostprocessResult = await (isOpenAICompatibleProvider(runtimeSettings.provider)
           ? executeWithUserRotation(
               extractionModel,
-              async (dummyKey, activeModel) => {
+              async (dummyKey, activeModel, attemptContext) => {
                   const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
 
                   const messages = [
@@ -735,7 +769,10 @@ export const generateQuestions = async (
                     { role: "user", content: [{ type: "text", text: scanPrompt }, ...toOpenAIContentFromPart(part)] }
                   ];
 
-                  const text = await callOpenAICompatibleProvider(runtimeSettings, activeModel, messages);
+                  const text = await callOpenAICompatibleProvider(runtimeSettings, activeModel, messages, true, {
+                    signal: attemptContext.signal,
+                    timeoutMs: attemptContext.timeoutMs,
+                  });
                   return batchPostprocessor!.processBatch(createPostprocessInput(text));
               }
               ,
@@ -746,7 +783,7 @@ export const generateQuestions = async (
             )
           : executeWithUserRotation(
               extractionModel,
-              async (currentKey, activeModel) => {
+              async (currentKey, activeModel, attemptContext) => {
                   if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
                   const aiInstance = new GoogleGenAI({ apiKey: currentKey });
                   const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
@@ -760,7 +797,10 @@ export const generateQuestions = async (
                   }
                   const kCacheName = part.text || hasInlineVisionInput ? null : await sessionCache[cacheSessionKey];
                   const activeProfile = getModelTokenProfile(runtimeSettings.provider, activeModel);
-                  const config = getModelConfig(currentKey, (isAdvancedMode || forceJsonRepair) ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction, questionSchema, activeModel, kCacheName || undefined, activeProfile.safeOutputBudget);
+                  const config = getModelConfig(currentKey, (isAdvancedMode || forceJsonRepair) ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction, questionSchema, activeModel, kCacheName || undefined, activeProfile.safeOutputBudget, {
+                    timeoutMs: attemptContext.timeoutMs,
+                    signal: attemptContext.signal,
+                  });
                   const chat = aiInstance.chats.create(config);
                   const batchPrompt = kCacheName ? `${sourceInstruction}\n\nDựa trên tài liệu đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${batchLabel}.` : scanPrompt;
                   

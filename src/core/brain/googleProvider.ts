@@ -1,6 +1,19 @@
 import { Type } from "@google/genai";
 
-export const getModelConfig = (apiKey: string, systemInstruction: string, schema?: any, modelName: string = 'gemini-2.0-flash', cachedContent?: string, maxOutputTokens?: number) => {
+export interface GoogleRequestRuntimeOptions {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+export const getModelConfig = (
+  apiKey: string,
+  systemInstruction: string,
+  schema?: any,
+  modelName: string = 'gemini-2.0-flash',
+  cachedContent?: string,
+  maxOutputTokens?: number,
+  runtimeOptions: GoogleRequestRuntimeOptions = {}
+) => {
   return {
     model: modelName,
     config: {
@@ -9,7 +22,12 @@ export const getModelConfig = (apiKey: string, systemInstruction: string, schema
       responseMimeType: "application/json",
       responseSchema: schema,
       cachedContent,
-      maxOutputTokens
+      maxOutputTokens,
+      abortSignal: runtimeOptions.signal,
+      httpOptions: {
+        ...(runtimeOptions.timeoutMs ? { timeout: runtimeOptions.timeoutMs } : {}),
+        retryOptions: { attempts: 1 },
+      },
     }
   };
 };

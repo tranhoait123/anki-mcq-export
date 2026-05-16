@@ -74,6 +74,7 @@ const FULL_CHECKPOINT_INTERVAL_MS = 30000;
 const KEY_CONSERVATION_PRESSURE_WINDOW_MS = 60 * 1000;
 const MAX_IMMEDIATE_RECOVERY_PARTS = 3;
 const DEFERRED_RECOVERY_MIN_SETTLE_MS = 1000;
+const PDF_VISION_OPTION_MARKER_THRESHOLD = 3;
 
 const getNowMs = () => (
   typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -124,6 +125,81 @@ export const splitRecoveryPartsForImmediateRun = <T,>(
   return {
     immediateParts: recoveryParts.slice(0, limit),
     deferredParts: recoveryParts.slice(limit),
+  };
+};
+
+export type RecoveryEligibility = 'strong' | 'medium' | 'weak';
+
+export interface RecoveryPolicy {
+  allowEmpty: boolean;
+  eligibility: RecoveryEligibility;
+  maxRecoveryRequests: number;
+  reason: string;
+  shouldRecoverMissing: boolean;
+  shouldSplitEmpty: boolean;
+}
+
+const OPTION_MARKER_PATTERN = /(?:^|\n)\s*(?:[A-Ha-h]|[①-⑧])[\).:\-]\s+\S/g;
+
+export const countOptionMarkersForRecoveryEvidence = (text: string = ''): number => (
+  String(text || '').match(OPTION_MARKER_PATTERN)?.length || 0
+);
+
+export const isGoogleKeyConservationActive = (
+  provider: AppSettings['provider'],
+  hasRecentProviderPressure: boolean
+): boolean => provider === 'google' && hasRecentProviderPressure;
+
+export const getRecoveryPolicyForPart = (
+  part: any,
+  expectedQuestions: number = 0
+): RecoveryPolicy => {
+  const text = String(part?.text || '');
+  const nativeExpectedCount = getNativeBatchExpectedCount(text);
+  const expectedCount = Math.max(0, Number(expectedQuestions || part?.expectedQuestions || nativeExpectedCount || 0));
+  const questionMarkerCount = countPdfQuestionMarkers(text);
+  const optionMarkerCount = countOptionMarkersForRecoveryEvidence(text);
+  const hasStructuredEvidence = expectedCount > 0 && (
+    Boolean(part?.nativeMcqBatch) ||
+    Boolean(part?.structuredMcqBatch) ||
+    part?.sourceMode === 'pdfText' ||
+    nativeExpectedCount > 0
+  );
+
+  if (hasStructuredEvidence) {
+    return {
+      allowEmpty: false,
+      eligibility: 'strong',
+      maxRecoveryRequests: 3,
+      reason: 'structured-count',
+      shouldRecoverMissing: true,
+      shouldSplitEmpty: true,
+    };
+  }
+
+  if (part?.sourceMode === 'pdfVision') {
+    const hasMediumEvidence = expectedCount > 0 ||
+      questionMarkerCount > 0 ||
+      optionMarkerCount >= PDF_VISION_OPTION_MARKER_THRESHOLD;
+    if (hasMediumEvidence) {
+      return {
+        allowEmpty: false,
+        eligibility: 'medium',
+        maxRecoveryRequests: 1,
+        reason: 'pdf-vision-marker',
+        shouldRecoverMissing: true,
+        shouldSplitEmpty: true,
+      };
+    }
+  }
+
+  return {
+    allowEmpty: true,
+    eligibility: 'weak',
+    maxRecoveryRequests: 0,
+    reason: expectedCount <= 0 ? 'no-expected-count-or-marker' : 'weak-local-evidence',
+    shouldRecoverMissing: false,
+    shouldSplitEmpty: false,
   };
 };
 
@@ -662,16 +738,19 @@ export const generateQuestions = async (
     };
 
     const getSplitConcurrencyLimit = () => {
-      if (isRescueMode || userKeyRotator.hasRecentProviderPressure()) return 1;
+      if (isRescueMode || isGoogleKeyConservationActive(runtimeSettings.provider, userKeyRotator.hasRecentProviderPressure())) return 1;
       return Math.max(1, Math.min(getConcurrencyLimit(), 2));
     };
 
-    const isKeyConservationActive = () => userKeyRotator.hasRecentProviderPressure(KEY_CONSERVATION_PRESSURE_WINDOW_MS);
+    const isKeyConservationActive = () => isGoogleKeyConservationActive(
+      runtimeSettings.provider,
+      userKeyRotator.hasRecentProviderPressure(KEY_CONSERVATION_PRESSURE_WINDOW_MS)
+    );
 
-    const getImmediateRecoveryPartLimit = () => (
+    const getImmediateRecoveryPartLimit = (recoveryPolicy: RecoveryPolicy) => (
       isKeyConservationActive()
         ? 0
-        : (isRescueMode ? 1 : MAX_IMMEDIATE_RECOVERY_PARTS)
+        : Math.min(recoveryPolicy.maxRecoveryRequests, isRescueMode ? 1 : MAX_IMMEDIATE_RECOVERY_PARTS)
     );
 
     const enqueueDeferredRecovery = (item: DeferredRecoveryItem) => {
@@ -703,10 +782,12 @@ export const generateQuestions = async (
     const buildPdfVisionRecoveryParts = async (
       part: any,
       salvagedQuestions: Array<{ question?: string }>,
-      missingCount: number
+      missingCount: number,
+      maxParts: number = Number.POSITIVE_INFINITY
     ): Promise<any[]> => {
       const sourceRange = part.trace?.pageRange;
       if (part.sourceMode !== 'pdfVision' || !part.pdfDataUrl || !sourceRange) return [];
+      if (maxParts <= 0) return [];
 
       const ranges = splitPdfRangeForVisionRecovery(sourceRange);
       const existingQuestionFingerprints = buildSeenQuestionFingerprints(salvagedQuestions);
@@ -714,6 +795,7 @@ export const generateQuestions = async (
       const recoveryParts: any[] = [];
 
       for (const range of ranges) {
+        if (recoveryParts.length >= maxParts) break;
         const rangeText = getPdfVisionRangeText(part, range);
         const expectedFromText = countPdfQuestionMarkers(rangeText);
         const expectedQuestions = Math.max(1, Math.min(missingCount, expectedFromText || missingCount));
@@ -776,11 +858,11 @@ export const generateQuestions = async (
         // Per-batch key assignment: Mỗi batch nhận key riêng theo round-robin
         const batchStartingKey = runtimeSettings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
         const expectedQuestions = expectedAtStart;
-        const isDocxImageBatch = part.sourceMode === 'docxImage';
+        const recoveryPolicy = getRecoveryPolicyForPart(part, expectedQuestions);
         const topLevelBatchNumber = topLevelIndex + 1;
         const recoveryBudgetKey = typeof part.recoveryBudgetKey === 'string' ? part.recoveryBudgetKey : '';
         const createPostprocessInput = (fullText: string): BatchPostprocessInput => ({
-          allowEmpty: !isDocxImageBatch,
+          allowEmpty: recoveryPolicy.allowEmpty,
           batchIndex: index,
           duplicateCounterStart: duplicateCounter,
           expectedQuestions,
@@ -996,15 +1078,16 @@ export const generateQuestions = async (
 
           if (salvagedPartial && missingCount > 0 && !part.deferredRecovery) {
             const missingRatio = expectedQuestions > 0 ? missingCount / expectedQuestions : 0;
-            const canRecoverPdfVision = part.sourceMode === 'pdfVision' && !part.partialRecovery && part.pdfDataUrl;
+            const canRecoverPdfVision = recoveryPolicy.shouldRecoverMissing && part.sourceMode === 'pdfVision' && !part.partialRecovery && part.pdfDataUrl;
+            const canRecoverPartial = recoveryPolicy.shouldRecoverMissing && recoveryPolicy.maxRecoveryRequests > 0;
             if (missingRatio > 0.4 && !canRecoverPdfVision && !isKeyConservationActive()) {
               throw new Error(`AI_FORMAT_ERROR_PARTIAL_SALVAGE: Đã cứu ${rawNewQs.length} câu hợp lệ nhưng còn thiếu khoảng ${missingCount} câu (>${Math.round(missingRatio * 100)}%).`);
-            } else if (!part.partialRecovery) {
+            } else if (!part.partialRecovery && canRecoverPartial) {
               console.info(`Batch ${batchLabel}: Salvage lấy được ${rawNewQs.length}/${expectedQuestions} câu (thiếu ${missingCount}). Đang cứu chọn lọc phần thiếu.`);
               const topLevelBatchNumber = topLevelIndex + 1;
               const beforeRecoveryCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
               const recoveryParts = canRecoverPdfVision
-                ? await buildPdfVisionRecoveryParts(part, rawNewQs, missingCount)
+                ? await buildPdfVisionRecoveryParts(part, rawNewQs, missingCount, recoveryPolicy.maxRecoveryRequests)
                 : part.nativeMcqBatch
                 ? buildPartialSalvageRecoveryParts(part, rawNewQs, missingCount <= 2 ? 1 : 2)
                 : [{
@@ -1017,10 +1100,14 @@ export const generateQuestions = async (
                   }];
 
               if (recoveryParts.length > 0) {
-                const recoveryPartLimit = getImmediateRecoveryPartLimit();
-                const { immediateParts, deferredParts } = splitRecoveryPartsForImmediateRun(recoveryParts, recoveryPartLimit);
-                if (immediateParts.length < recoveryParts.length) {
-                  console.info(`Batch ${batchLabel}: Giới hạn cứu chọn lọc ${immediateParts.length}/${recoveryParts.length} phần để bảo toàn API key; phần còn lại sẽ chạy tuần tự sau cooldown.`);
+                const budgetedRecoveryParts = recoveryParts.slice(0, recoveryPolicy.maxRecoveryRequests);
+                const recoveryPartLimit = getImmediateRecoveryPartLimit(recoveryPolicy);
+                const { immediateParts, deferredParts } = splitRecoveryPartsForImmediateRun(budgetedRecoveryParts, recoveryPartLimit);
+                if (budgetedRecoveryParts.length < recoveryParts.length) {
+                  console.info(`Batch ${batchLabel}: Cắt cứu chọn lọc còn ${budgetedRecoveryParts.length}/${recoveryParts.length} phần theo evidence budget (${recoveryPolicy.eligibility}).`);
+                }
+                if (immediateParts.length < budgetedRecoveryParts.length) {
+                  console.info(`Batch ${batchLabel}: Giới hạn cứu chọn lọc ${immediateParts.length}/${budgetedRecoveryParts.length} phần để bảo toàn API key; phần còn lại sẽ chạy tuần tự sau cooldown.`);
                 }
                 const recoveryBudgetKey = `batch-${topLevelBatchNumber}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
                 recoveryBudgets.set(recoveryBudgetKey, missingCount);
@@ -1076,6 +1163,16 @@ export const generateQuestions = async (
         const errorKind = classifyBatchError(e);
         const batchDecision = getRetryDecision(e, retryProfile);
         const expectedQuestions = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
+        const recoveryPolicy = getRecoveryPolicyForPart(part, expectedQuestions);
+
+        if (
+          errorKind === 'empty' &&
+          recoveryPolicy.eligibility === 'weak' &&
+          batchDecision.cause !== 'requestTooLarge'
+        ) {
+          console.info(`Batch ${batchLabel}: Empty response accepted because local MCQ evidence is weak (${recoveryPolicy.reason}).`);
+          return;
+        }
 
         if (
           part.sourceMode === 'pdfVision' &&
@@ -1083,10 +1180,12 @@ export const generateQuestions = async (
           part.pdfDataUrl &&
           depth === 0 &&
           isKeyConservationActive() &&
+          recoveryPolicy.shouldSplitEmpty &&
+          recoveryPolicy.maxRecoveryRequests > 0 &&
           shouldSplitForError(errorKind)
         ) {
           const missingCount = Math.max(1, expectedQuestions || countPdfQuestionMarkers(part.text || '') || 1);
-          const recoveryParts = await buildPdfVisionRecoveryParts(part, [], missingCount);
+          const recoveryParts = await buildPdfVisionRecoveryParts(part, [], missingCount, recoveryPolicy.maxRecoveryRequests);
           if (recoveryParts.length > 0) {
             console.info(`Batch ${batchLabel}: Hoãn cứu PDF Vision vì provider đang bị giới hạn/quá tải; sẽ cứu tuần tự sau cooldown.`);
             enqueueDeferredRecovery({
@@ -1105,9 +1204,17 @@ export const generateQuestions = async (
           }
         }
 
-        if (part.sourceMode === 'pdfVision' && !part.partialRecovery && part.pdfDataUrl && depth === 0 && shouldSplitForError(errorKind)) {
+        if (
+          part.sourceMode === 'pdfVision' &&
+          !part.partialRecovery &&
+          part.pdfDataUrl &&
+          depth === 0 &&
+          recoveryPolicy.shouldSplitEmpty &&
+          recoveryPolicy.maxRecoveryRequests > 0 &&
+          shouldSplitForError(errorKind)
+        ) {
           const missingCount = Math.max(1, expectedQuestions || countPdfQuestionMarkers(part.text || '') || 1);
-          const recoveryParts = await buildPdfVisionRecoveryParts(part, [], missingCount);
+          const recoveryParts = await buildPdfVisionRecoveryParts(part, [], missingCount, recoveryPolicy.maxRecoveryRequests);
           if (recoveryParts.length > 0) {
             console.info(`🔎 PDF Vision batch ${batchLabel} returned ${errorKind}. Retrying with high-quality overlapping page ranges...`);
             await runPartsWithLimit(
@@ -1119,13 +1226,13 @@ export const generateQuestions = async (
           }
         }
 
-        if (part.sourceMode === 'docxImage' && !forceJsonRepair && (errorKind === 'empty' || errorKind === 'format')) {
+        if (part.sourceMode === 'docxImage' && !forceJsonRepair && recoveryPolicy.eligibility !== 'weak' && (errorKind === 'empty' || errorKind === 'format')) {
           console.info(`🔎 DOCX image batch ${batchLabel} returned empty/invalid. Retrying once with stricter Vision prompt...`);
           await processBatch(part, index, depth, true, topLevelIndex);
           return;
         }
 
-        if (adaptiveBatching && !forceJsonRepair && batchDecision.cause !== 'requestTooLarge' && depth === 0 && errorKind === 'format' && (expectedQuestions > 10 || estimateTextTokens(part.text || '') > 4000)) {
+        if (adaptiveBatching && !forceJsonRepair && recoveryPolicy.eligibility !== 'weak' && batchDecision.cause !== 'requestTooLarge' && depth === 0 && errorKind === 'format' && (expectedQuestions > 10 || estimateTextTokens(part.text || '') > 4000)) {
           console.info(`🔧 Batch ${batchLabel} format failed. Retrying once with strict JSON repair before splitting...`);
           await processBatch(part, index, depth, true, topLevelIndex);
           return;
@@ -1140,15 +1247,18 @@ export const generateQuestions = async (
         }
 
         const canAttemptSubdivision = !part.deferredRecovery && depth < retryProfile.maxDepth;
-        const nativeParts = part.nativeMcqBatch && canAttemptSubdivision && shouldSplitForError(errorKind)
+        const canUseRecoverySubdivision = recoveryPolicy.shouldSplitEmpty || batchDecision.cause === 'requestTooLarge';
+        const nativeParts = part.nativeMcqBatch && canAttemptSubdivision && canUseRecoverySubdivision && shouldSplitForError(errorKind)
           ? getNativePartBatches(part.text || '', adaptiveBatching && forceJsonRepair ? 2 : retryProfile.targetSplitParts)
           : [];
-        const canSplitText = canAttemptSubdivision && part.text && part.text.length > retryProfile.splitThresholdChars && shouldSplitForError(errorKind);
+        const canSplitText = canAttemptSubdivision && canUseRecoverySubdivision && part.text && part.text.length > retryProfile.splitThresholdChars && shouldSplitForError(errorKind);
         if (
           isKeyConservationActive() &&
           batchDecision.cause !== 'requestTooLarge' &&
           shouldSplitForError(errorKind) &&
-          depth === 0
+          depth === 0 &&
+          canUseRecoverySubdivision &&
+          recoveryPolicy.maxRecoveryRequests > 0
         ) {
           const splitPartsCount = adaptiveBatching && forceJsonRepair ? 2 : retryProfile.targetSplitParts;
           const parts = (nativeParts.length > 1
@@ -1158,15 +1268,16 @@ export const generateQuestions = async (
               .map(text => ({ ...part, text }))
             : []
           ).filter(p => p.text?.trim().length > 0);
+          const budgetedParts = parts.slice(0, recoveryPolicy.maxRecoveryRequests);
 
-          if (parts.length > 0) {
+          if (budgetedParts.length > 0) {
             console.info(`Batch ${batchLabel}: Hoãn chia nhỏ vì provider đang bị giới hạn/quá tải; sẽ cứu tuần tự sau cooldown.`);
             enqueueDeferredRecovery({
               index,
               topLevelIndex,
               label: batchLabel,
               stage: 'split',
-              parts,
+              parts: budgetedParts,
               missingCount: Math.max(1, expectedQuestions || parts.length),
               expectedQuestions,
               beforeCoverageCount: getBatchCoveredQuestionCount(topLevelIndex + 1),
@@ -1186,7 +1297,8 @@ export const generateQuestions = async (
             ? nativeParts.map(text => ({ ...part, text, expectedQuestions: getNativeBatchExpectedCount(text) }))
             : splitTextIntoNaturalParts(part.text, splitPartsCount, retryProfile.splitThresholdChars)
               .map(text => ({ ...part, text }))
-          ).filter(p => p.text.trim().length > 0);
+          ).filter(p => p.text.trim().length > 0)
+            .slice(0, batchDecision.cause === 'requestTooLarge' ? Number.POSITIVE_INFINITY : Math.max(1, recoveryPolicy.maxRecoveryRequests));
 
           await runPartsWithLimit(parts, getSplitConcurrencyLimit(), (p, i) => processBatch(p, index, depth + 1, false, topLevelIndex, i));
           const progressAfterSplit = allQuestions.length + allDuplicates.length + autoSkippedCount;

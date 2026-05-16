@@ -21,7 +21,13 @@ import {
   translateErrorForUser,
 } from './brain';
 import { executeWithUserRotation, userKeyRotator } from './brain/retryExecutor';
-import { buildCompletedBatchSnapshot, getRecoveredMissingQuestionCount, splitRecoveryPartsForImmediateRun } from './brain/generation';
+import {
+  buildCompletedBatchSnapshot,
+  getRecoveredMissingQuestionCount,
+  getRecoveryPolicyForPart,
+  isGoogleKeyConservationActive,
+  splitRecoveryPartsForImmediateRun,
+} from './brain/generation';
 import type { RetryProfile } from '../utils/retryStrategy';
 import { AppSettings } from '../types';
 
@@ -485,7 +491,7 @@ describe('Core Logic', () => {
     ]);
   });
 
-  it('defers partial salvage recovery during provider pressure and clears the temporary failure after success', async () => {
+  it('keeps OpenRouter recovery independent from Google key-conservation pressure', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const progressMessages: string[] = [];
     const makeQuestionPayload = (question: string) => ({
@@ -556,7 +562,7 @@ describe('Core Logic', () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(progressMessages.some(message => message.includes('provider hạ nhiệt'))).toBe(true);
+    expect(progressMessages.some(message => message.includes('provider hạ nhiệt'))).toBe(false);
     expect(result.failedBatches).toEqual([]);
     expect(result.failedBatchDetails).toEqual([]);
     expect(result.questions.map((question) => question.question).sort()).toEqual([
@@ -658,6 +664,102 @@ describe('Core Logic', () => {
       immediateParts: [],
       deferredParts: [1, 2],
     });
+  });
+
+  it('classifies recovery eligibility from local evidence without adding confirmation requests', () => {
+    expect(getRecoveryPolicyForPart({
+      nativeMcqBatch: true,
+      sourceMode: 'docxText',
+      text: '[DOCX_NATIVE_MCQ_COUNT: 2]\n\n<<<MCQ 1>>>\nQuestion: Alpha\n\n<<<MCQ 2>>>\nQuestion: Beta',
+    }, 2)).toMatchObject({
+      eligibility: 'strong',
+      maxRecoveryRequests: 3,
+      shouldRecoverMissing: true,
+    });
+
+    expect(getRecoveryPolicyForPart({
+      sourceMode: 'pdfVision',
+      text: 'Câu 1. Nội dung?\nA. Một\nB. Hai\nC. Ba',
+    }, 0)).toMatchObject({
+      allowEmpty: false,
+      eligibility: 'medium',
+      maxRecoveryRequests: 1,
+    });
+
+    expect(getRecoveryPolicyForPart({
+      sourceMode: 'docxImage',
+      text: '',
+    }, 0)).toMatchObject({
+      allowEmpty: true,
+      eligibility: 'weak',
+      maxRecoveryRequests: 0,
+      shouldRecoverMissing: false,
+    });
+  });
+
+  it('scopes key-conservation pressure to the Google key rotator only', () => {
+    expect(isGoogleKeyConservationActive('google', true)).toBe(true);
+    expect(isGoogleKeyConservationActive('openrouter', true)).toBe(false);
+    expect(isGoogleKeyConservationActive('shopaikey', true)).toBe(false);
+    expect(isGoogleKeyConservationActive('google', false)).toBe(false);
+  });
+
+  it('does not retry or split a no-MCQ text batch that returns an empty result', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
+      choices: [{ message: { content: '{"questions":[]}' } }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-plain',
+        name: 'intro.txt',
+        type: 'text/plain',
+        content: 'Tài liệu giới thiệu môn học, không có câu hỏi trắc nghiệm trong đoạn này.',
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.questions).toEqual([]);
+    expect(result.failedBatches).toEqual([]);
+    expect(result.failedBatchDetails).toEqual([]);
+  });
+
+  it('accepts an empty DOCX illustration image without a stricter retry', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
+      choices: [{ message: { content: '{"questions":[]}' } }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-docx-image',
+        name: 'deck.docx',
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        content: '',
+        docxImageParts: [{
+          name: 'illustration.png',
+          mimeType: 'image/png',
+          content: 'data:image/png;base64,aW1hZ2U=',
+          index: 1,
+        }],
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.questions).toEqual([]);
+    expect(result.failedBatches).toEqual([]);
+    expect(result.failedBatchDetails).toEqual([]);
   });
 
   it('does not infer-skip explicit rescue retry indices from seeded partial questions', async () => {

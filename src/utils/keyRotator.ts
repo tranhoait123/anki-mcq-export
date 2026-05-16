@@ -55,6 +55,7 @@ interface KeyHealthRecord {
   lastSuccessAt: number;
   lastFailureAt: number;
   usageHistory: number[]; // Lưu mốc thời gian (ms) các lần thành công gần đây
+  tier: 'unknown' | 'free' | 'paid';
   lastError?: string;
 }
 
@@ -86,6 +87,7 @@ const createKeyHealthRecord = (): KeyHealthRecord => ({
   lastSuccessAt: 0,
   lastFailureAt: 0,
   usageHistory: [],
+  tier: 'unknown',
 });
 
 const getErrorText = (error: any): string => {
@@ -275,7 +277,15 @@ export class UserKeyRotator {
       record.lastSuccessAt = now;
       record.lastError = undefined;
       record.usageHistory.push(now);
-      if (record.usageHistory.length > 50) record.usageHistory.shift();
+      if (record.usageHistory.length > 100) record.usageHistory.shift();
+
+      // Auto-tier detection: Nếu gọi > 15 RPM mà không lỗi, có thể là key Paid
+      const recentCount = record.usageHistory.filter(ts => now - ts <= 60000).length;
+      if (recentCount > 15 && record.tier !== 'paid') {
+        record.tier = 'paid';
+      } else if (record.tier === 'unknown' && record.successCount > 5) {
+        record.tier = 'free';
+      }
       this.registerSuccess();
       return;
     }
@@ -408,6 +418,7 @@ export class UserKeyRotator {
           lastSuccessAt: record.lastSuccessAt,
           successCount: record.successCount,
           usageHistory: record.usageHistory,
+          tier: record.tier,
         };
       }
     }
@@ -428,6 +439,7 @@ export class UserKeyRotator {
           record.lastSuccessAt = saved.lastSuccessAt || 0;
           record.successCount = saved.successCount || 0;
           record.usageHistory = saved.usageHistory || [];
+          record.tier = saved.tier || 'unknown';
         }
       }
     }
@@ -549,9 +561,20 @@ export class UserKeyRotator {
       : 0;
 
     const recentUsageCount = record.usageHistory.length;
-    // Chỉ áp dụng hình phạt quota (3 RPM) nếu có nhiều key để xoay. 
-    // Nếu chỉ có 1 key, để key đó chạy tối đa công suất provider cho phép.
-    const quotaPenalty = (this.keys.length > 1 && recentUsageCount >= 3) ? 2000 : 0;
+    
+    // Proactive Quota Management
+    // Ngưỡng an toàn cho free tier (mặc định 15 RPM, lấy 14 để an toàn)
+    const tierLimit = record.tier === 'paid' ? 360 : 15;
+    const proactiveBuffer = 1; 
+
+    let quotaPenalty = 0;
+    if (recentUsageCount >= tierLimit - proactiveBuffer) {
+      // Key sắp chạm ngưỡng, phạt nặng để ưu tiên key khác
+      quotaPenalty = 5000;
+    } else if (recentUsageCount >= (tierLimit / 2)) {
+      // Dùng được một nửa hạn mức, bắt đầu giảm ưu tiên nhẹ
+      quotaPenalty = recentUsageCount * 50;
+    }
 
     const jitter = this.random() * 60;
 

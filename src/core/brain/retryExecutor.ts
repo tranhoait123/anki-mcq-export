@@ -29,6 +29,25 @@ export interface RetryExecutionDiagnostics {
   keyHealth: KeyHealthSnapshot[];
 }
 
+export const shouldTryBackupKeyAfterSoftRateLimit = ({
+  hadProviderPressure,
+  attempts,
+  distinctKeysTried,
+  availableKeyCount,
+  maxKeysPerOperation,
+}: {
+  hadProviderPressure: boolean;
+  attempts: number;
+  distinctKeysTried: number;
+  availableKeyCount: number;
+  maxKeysPerOperation: number;
+}): boolean => (
+  !hadProviderPressure &&
+  attempts <= 1 &&
+  availableKeyCount > 0 &&
+  distinctKeysTried < Math.max(1, Math.min(2, maxKeysPerOperation || 1))
+);
+
 const waitWithController = async (ms: number, controller?: ProcessingController): Promise<void> => {
   let remaining = Math.max(0, ms);
   while (remaining > 0) {
@@ -234,6 +253,9 @@ export async function executeWithUserRotation<T>(
         const isSoftRateLimitRetry = decision.cause === 'softRateLimit';
         const isFormatRetry = decision.cause === 'format';
         const shouldHonorProviderDelay = isSoftRateLimitRetry || isServerBusyRetry;
+        const hadProviderPressureBeforeRateLimit = isSoftRateLimitRetry
+          ? userKeyRotator.hasRecentProviderPressure()
+          : false;
         let backoffMs = boundedHint && shouldHonorProviderDelay
           ? boundedHint
           : getBackoffDelayMs(
@@ -247,18 +269,26 @@ export async function executeWithUserRotation<T>(
             );
 
         if (isSoftRateLimitRetry) {
-          // Tạm khóa key cụ thể vừa dính lỗi 429 để các luồng song song khác bỏ qua nó.
-          // Ưu tiên thời gian chờ tối thiểu 45s để đảm bảo key qua chu kỳ giới hạn của Gemini.
           const individualCooldownMs = Math.max(45 * 1000, backoffMs);
-          userKeyRotator.markKeyResult(attemptedKey, { kind: 'rateLimit', durationMs: individualCooldownMs, error });
+          let treatedAsProviderPressure = false;
+          if (hadProviderPressureBeforeRateLimit) {
+            // Khi đã có dấu hiệu nghẽn toàn provider, coi 429 tiếp theo là áp lực hệ thống
+            // thay vì lần lượt đưa mọi key khỏe vào cooldown.
+            userKeyRotator.markSoftRateLimit(individualCooldownMs);
+            treatedAsProviderPressure = true;
+          } else {
+            // 429 đầu tiên vẫn có thể là quota theo key, nên khóa key đó và thử tối đa
+            // một key dự phòng trước khi chuyển sang chế độ bảo toàn key.
+            userKeyRotator.markKeyResult(attemptedKey, { kind: 'rateLimit', durationMs: individualCooldownMs, error });
+          }
 
-          // Nếu còn bất kỳ key dự phòng rảnh rỗi nào, XOAY NGAY LẬP TỨC mà không cần đợi thử lại lần 2.
-          const canTryBackupKey = (
-            userKeyRotator.availableKeyCount > 0 &&
-            keysTried.size < userKeyRotator.getMaxKeysPerOperation()
-          );
-
-          if (canTryBackupKey) {
+          if (shouldTryBackupKeyAfterSoftRateLimit({
+            hadProviderPressure: hadProviderPressureBeforeRateLimit,
+            attempts,
+            distinctKeysTried: keysTried.size,
+            availableKeyCount: userKeyRotator.availableKeyCount,
+            maxKeysPerOperation: userKeyRotator.getMaxKeysPerOperation(),
+          })) {
             const nextKey = getUntriedAvailableKey();
             if (nextKey) {
               currentKey = nextKey;
@@ -269,7 +299,12 @@ export async function executeWithUserRotation<T>(
               currentKey = '';
             }
           } else {
-            currentKey = '';
+            currentKey = treatedAsProviderPressure ? attemptedKey : '';
+            backoffMs = Math.max(backoffMs, Math.min(
+              individualCooldownMs,
+              retryProfile.singleKeyBackoffCapMs,
+              Math.max(250, getRemainingBudgetMs())
+            ));
           }
         } else if (isServerBusyRetry) {
           userKeyRotator.markProviderPressure(backoffMs);

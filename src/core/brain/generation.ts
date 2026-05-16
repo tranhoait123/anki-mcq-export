@@ -71,6 +71,9 @@ const STREAM_PREVIEW_PARSE_INTERVAL_MS = 400;
 const STREAM_PREVIEW_LONG_TASK_MS = 80;
 const STREAM_PREVIEW_MAX_BATCH_EMITS = 120;
 const FULL_CHECKPOINT_INTERVAL_MS = 30000;
+const KEY_CONSERVATION_PRESSURE_WINDOW_MS = 60 * 1000;
+const MAX_IMMEDIATE_RECOVERY_PARTS = 3;
+const DEFERRED_RECOVERY_MIN_SETTLE_MS = 1000;
 
 const getNowMs = () => (
   typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -110,6 +113,17 @@ export const buildCompletedBatchSnapshot = <Question, Duplicate>(
     questionsSnapshot: questionList,
     duplicatesSnapshot: duplicateList,
     autoSkippedCount: safeAutoSkippedCount,
+  };
+};
+
+export const splitRecoveryPartsForImmediateRun = <T,>(
+  recoveryParts: T[],
+  immediateLimit: number
+): { immediateParts: T[]; deferredParts: T[] } => {
+  const limit = Math.max(0, Math.min(Math.floor(immediateLimit), recoveryParts.length));
+  return {
+    immediateParts: recoveryParts.slice(0, limit),
+    deferredParts: recoveryParts.slice(limit),
   };
 };
 
@@ -416,6 +430,20 @@ export const generateQuestions = async (
     const batchAutoSkipped = new Map<number, number>();
     const batchCoverageKeys = new Map<number, Set<string>>();
     const recoveryBudgets = new Map<string, number>();
+    type DeferredRecoveryItem = {
+      index: number;
+      topLevelIndex: number;
+      label: string;
+      stage: Extract<BatchFailureInfo['stage'], 'partial' | 'split'>;
+      parts: any[];
+      missingCount: number;
+      expectedQuestions: number;
+      beforeCoverageCount: number;
+      recoveryBudgetKey?: string;
+      forceJsonRepair: boolean;
+      depth: number;
+    };
+    const deferredRecoveryQueue: DeferredRecoveryItem[] = [];
     batchPostprocessor = createBatchPostprocessor();
     await batchPostprocessor.start(allQuestions, allDuplicates);
     const checkpointBatchInterval = Math.max(1, options.checkpointBatchInterval || 1);
@@ -578,12 +606,10 @@ export const generateQuestions = async (
 
     const recordBatchFailure = (index: number, label: string, error: any, stage: BatchFailureInfo['stage'], extras: Partial<Pick<BatchFailureInfo, 'missingCount' | 'recoveredCount' | 'diagnostics'>> = {}) => {
       const batchNumber = index + 1;
-      if (!failedBatches.includes(batchNumber)) failedBatches.push(batchNumber);
-      if (failedBatchDetails.some(item => item.index === batchNumber && item.label === label && item.stage === stage)) return;
       const detail = describeBatchError(error, retryProfile.name);
       const { diagnostics: extraDiagnostics, ...failureExtras } = extras;
       const diagnostics = extraDiagnostics || buildBatchFailureDiagnostics(error);
-      failedBatchDetails.push({
+      const nextDetail = {
         index: batchNumber,
         label,
         kind: detail.kind,
@@ -592,7 +618,21 @@ export const generateQuestions = async (
         advice: detail.advice,
         ...failureExtras,
         ...(diagnostics ? { diagnostics } : {}),
-      });
+      };
+      if (!failedBatches.includes(batchNumber)) failedBatches.push(batchNumber);
+      const existingIndex = failedBatchDetails.findIndex(item => item.index === batchNumber && item.label === label && item.stage === stage);
+      if (existingIndex >= 0) {
+        failedBatchDetails[existingIndex] = nextDetail;
+      } else {
+        failedBatchDetails.push(nextDetail);
+      }
+    };
+
+    const clearBatchFailure = (batchNumber: number, label: string, stage: BatchFailureInfo['stage']) => {
+      failedBatchDetails = failedBatchDetails.filter(item => !(item.index === batchNumber && item.label === label && item.stage === stage));
+      if (!failedBatchDetails.some(item => item.index === batchNumber)) {
+        failedBatches = failedBatches.filter(item => item !== batchNumber);
+      }
     };
 
     // --- STEP 2: BATCH PROCESSING ---
@@ -624,6 +664,24 @@ export const generateQuestions = async (
     const getSplitConcurrencyLimit = () => {
       if (isRescueMode || userKeyRotator.hasRecentProviderPressure()) return 1;
       return Math.max(1, Math.min(getConcurrencyLimit(), 2));
+    };
+
+    const isKeyConservationActive = () => userKeyRotator.hasRecentProviderPressure(KEY_CONSERVATION_PRESSURE_WINDOW_MS);
+
+    const getImmediateRecoveryPartLimit = () => (
+      isKeyConservationActive()
+        ? 0
+        : (isRescueMode ? 1 : MAX_IMMEDIATE_RECOVERY_PARTS)
+    );
+
+    const enqueueDeferredRecovery = (item: DeferredRecoveryItem) => {
+      if (item.parts.length === 0 || item.missingCount <= 0) return;
+      deferredRecoveryQueue.push(item);
+      recordBatchFailure(item.index, item.label, new Error(`Thiếu ${item.missingCount}/${item.expectedQuestions || '?'} câu; đang chờ provider hạ nhiệt để cứu phần thiếu.`), item.stage, {
+        missingCount: item.missingCount,
+        recoveredCount: 0,
+      });
+      console.info(`Batch ${item.label}: Queued ${item.parts.length} deferred recovery part(s) after provider pressure/limit.`);
     };
 
     const buildSeenQuestionFingerprints = (questions: Array<{ question?: string }>): string =>
@@ -936,10 +994,10 @@ export const generateQuestions = async (
             console.log(`✅ Batch ${batchLabel}: Found ${newQs.length} questions.`);
           }
 
-          if (salvagedPartial && missingCount > 0) {
+          if (salvagedPartial && missingCount > 0 && !part.deferredRecovery) {
             const missingRatio = expectedQuestions > 0 ? missingCount / expectedQuestions : 0;
             const canRecoverPdfVision = part.sourceMode === 'pdfVision' && !part.partialRecovery && part.pdfDataUrl;
-            if (missingRatio > 0.4 && !canRecoverPdfVision) {
+            if (missingRatio > 0.4 && !canRecoverPdfVision && !isKeyConservationActive()) {
               throw new Error(`AI_FORMAT_ERROR_PARTIAL_SALVAGE: Đã cứu ${rawNewQs.length} câu hợp lệ nhưng còn thiếu khoảng ${missingCount} câu (>${Math.round(missingRatio * 100)}%).`);
             } else if (!part.partialRecovery) {
               console.info(`Batch ${batchLabel}: Salvage lấy được ${rawNewQs.length}/${expectedQuestions} câu (thiếu ${missingCount}). Đang cứu chọn lọc phần thiếu.`);
@@ -959,19 +1017,46 @@ export const generateQuestions = async (
                   }];
 
               if (recoveryParts.length > 0) {
+                const recoveryPartLimit = getImmediateRecoveryPartLimit();
+                const { immediateParts, deferredParts } = splitRecoveryPartsForImmediateRun(recoveryParts, recoveryPartLimit);
+                if (immediateParts.length < recoveryParts.length) {
+                  console.info(`Batch ${batchLabel}: Giới hạn cứu chọn lọc ${immediateParts.length}/${recoveryParts.length} phần để bảo toàn API key; phần còn lại sẽ chạy tuần tự sau cooldown.`);
+                }
                 const recoveryBudgetKey = `batch-${topLevelBatchNumber}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
                 recoveryBudgets.set(recoveryBudgetKey, missingCount);
-                await runPartsWithLimit(
-                  recoveryParts.map((recoveryPart) => ({ ...recoveryPart, recoveryBudgetKey })),
-                  getSplitConcurrencyLimit(),
-                  (recoveryPart, i) => processBatch(recoveryPart, index, depth + 1, true, topLevelIndex, i)
-                );
-                recoveryBudgets.delete(recoveryBudgetKey);
+                if (immediateParts.length > 0) {
+                  await runPartsWithLimit(
+                    immediateParts.map((recoveryPart) => ({ ...recoveryPart, recoveryBudgetKey })),
+                    getSplitConcurrencyLimit(),
+                    (recoveryPart, i) => processBatch(recoveryPart, index, depth + 1, true, topLevelIndex, i)
+                  );
+                }
+                const afterImmediateCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
+                const immediatelyRecoveredCount = getRecoveredMissingQuestionCount(beforeRecoveryCount, afterImmediateCount, missingCount);
+                const remainingMissingCount = Math.max(0, missingCount - immediatelyRecoveredCount);
+                if (deferredParts.length > 0 && remainingMissingCount > 0) {
+                  enqueueDeferredRecovery({
+                    index,
+                    topLevelIndex,
+                    label: batchLabel,
+                    stage: 'partial',
+                    parts: deferredParts,
+                    missingCount: remainingMissingCount,
+                    expectedQuestions,
+                    beforeCoverageCount: afterImmediateCount,
+                    recoveryBudgetKey,
+                    forceJsonRepair: true,
+                    depth: depth + 1,
+                  });
+                } else {
+                  recoveryBudgets.delete(recoveryBudgetKey);
+                }
               }
 
               const afterRecoveryCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
               const recoveredCount = getRecoveredMissingQuestionCount(beforeRecoveryCount, afterRecoveryCount, missingCount);
-              if (depth === 0 && recoveredCount < missingCount) {
+              const hasQueuedDeferredForBatch = deferredRecoveryQueue.some(item => item.topLevelIndex === topLevelIndex && item.label === batchLabel && item.stage === 'partial');
+              if (depth === 0 && recoveredCount < missingCount && !hasQueuedDeferredForBatch) {
                 recordBatchFailure(index, batchLabel, new Error(`Thiếu ${missingCount - recoveredCount}/${expectedQuestions} câu`), 'partial', {
                   missingCount,
                   recoveredCount,
@@ -991,6 +1076,35 @@ export const generateQuestions = async (
         const errorKind = classifyBatchError(e);
         const batchDecision = getRetryDecision(e, retryProfile);
         const expectedQuestions = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
+
+        if (
+          part.sourceMode === 'pdfVision' &&
+          !part.partialRecovery &&
+          part.pdfDataUrl &&
+          depth === 0 &&
+          isKeyConservationActive() &&
+          shouldSplitForError(errorKind)
+        ) {
+          const missingCount = Math.max(1, expectedQuestions || countPdfQuestionMarkers(part.text || '') || 1);
+          const recoveryParts = await buildPdfVisionRecoveryParts(part, [], missingCount);
+          if (recoveryParts.length > 0) {
+            console.info(`Batch ${batchLabel}: Hoãn cứu PDF Vision vì provider đang bị giới hạn/quá tải; sẽ cứu tuần tự sau cooldown.`);
+            enqueueDeferredRecovery({
+              index,
+              topLevelIndex,
+              label: batchLabel,
+              stage: 'split',
+              parts: recoveryParts,
+              missingCount,
+              expectedQuestions,
+              beforeCoverageCount: getBatchCoveredQuestionCount(topLevelIndex + 1),
+              forceJsonRepair: true,
+              depth: depth + 1,
+            });
+            return;
+          }
+        }
+
         if (part.sourceMode === 'pdfVision' && !part.partialRecovery && part.pdfDataUrl && depth === 0 && shouldSplitForError(errorKind)) {
           const missingCount = Math.max(1, expectedQuestions || countPdfQuestionMarkers(part.text || '') || 1);
           const recoveryParts = await buildPdfVisionRecoveryParts(part, [], missingCount);
@@ -1025,10 +1139,45 @@ export const generateQuestions = async (
           }
         }
 
-        const nativeParts = part.nativeMcqBatch && depth < retryProfile.maxDepth && shouldSplitForError(errorKind)
+        const canAttemptSubdivision = !part.deferredRecovery && depth < retryProfile.maxDepth;
+        const nativeParts = part.nativeMcqBatch && canAttemptSubdivision && shouldSplitForError(errorKind)
           ? getNativePartBatches(part.text || '', adaptiveBatching && forceJsonRepair ? 2 : retryProfile.targetSplitParts)
           : [];
-        const canSplitText = depth < retryProfile.maxDepth && part.text && part.text.length > retryProfile.splitThresholdChars && shouldSplitForError(errorKind);
+        const canSplitText = canAttemptSubdivision && part.text && part.text.length > retryProfile.splitThresholdChars && shouldSplitForError(errorKind);
+        if (
+          isKeyConservationActive() &&
+          batchDecision.cause !== 'requestTooLarge' &&
+          shouldSplitForError(errorKind) &&
+          depth === 0
+        ) {
+          const splitPartsCount = adaptiveBatching && forceJsonRepair ? 2 : retryProfile.targetSplitParts;
+          const parts = (nativeParts.length > 1
+            ? nativeParts.map(text => ({ ...part, text, expectedQuestions: getNativeBatchExpectedCount(text) }))
+            : canSplitText
+            ? splitTextIntoNaturalParts(part.text, splitPartsCount, retryProfile.splitThresholdChars)
+              .map(text => ({ ...part, text }))
+            : []
+          ).filter(p => p.text?.trim().length > 0);
+
+          if (parts.length > 0) {
+            console.info(`Batch ${batchLabel}: Hoãn chia nhỏ vì provider đang bị giới hạn/quá tải; sẽ cứu tuần tự sau cooldown.`);
+            enqueueDeferredRecovery({
+              index,
+              topLevelIndex,
+              label: batchLabel,
+              stage: 'split',
+              parts,
+              missingCount: Math.max(1, expectedQuestions || parts.length),
+              expectedQuestions,
+              beforeCoverageCount: getBatchCoveredQuestionCount(topLevelIndex + 1),
+              forceJsonRepair: true,
+              depth: depth + 1,
+            });
+          } else {
+            recordBatchFailure(index, batchLabel, e, 'split');
+          }
+          return;
+        }
         if (nativeParts.length > 1 || canSplitText) {
           const splitPartsCount = adaptiveBatching && forceJsonRepair ? 2 : retryProfile.targetSplitParts;
           console.info(`🚀 Batch ${batchLabel} fail (${errorKind}). Triggering NATURAL-SUBDIVISION (${splitPartsCount} parts, Depth ${depth + 1})...`);
@@ -1075,6 +1224,67 @@ export const generateQuestions = async (
       }
     };
 
+    const runDeferredRecoveryQueue = async () => {
+      if (deferredRecoveryQueue.length === 0) return;
+
+      const cooldownDelay = runtimeSettings.provider === 'google'
+        ? userKeyRotator.getNextCooldownDelayMs()
+        : 0;
+      const needsProviderSettle = cooldownDelay > 0 || isKeyConservationActive();
+      const settleMs = needsProviderSettle
+        ? Math.min(
+            Math.max(cooldownDelay, DEFERRED_RECOVERY_MIN_SETTLE_MS),
+            retryProfile.singleKeyBackoffCapMs
+          )
+        : 0;
+      if (settleMs > 0 && onProgress) {
+        onProgress(`Đang chờ provider hạ nhiệt ${Math.round(settleMs / 1000)}s để cứu ${deferredRecoveryQueue.length} phần thiếu...`, allQuestions.length);
+      }
+      if (settleMs > 0) {
+        await waitWithController(settleMs, controller);
+      }
+
+      while (deferredRecoveryQueue.length > 0) {
+        await controller?.waitIfPaused();
+        const item = deferredRecoveryQueue.shift()!;
+        const topLevelBatchNumber = item.topLevelIndex + 1;
+        const beforeDeferredCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
+        const recoveryBudgetKey = item.recoveryBudgetKey || `deferred-batch-${topLevelBatchNumber}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        recoveryBudgets.set(recoveryBudgetKey, item.missingCount);
+
+        if (onProgress) {
+          onProgress(`Đang cứu phần thiếu Batch ${item.label} sau cooldown (${item.parts.length} phần, chạy tuần tự)...`, allQuestions.length);
+        }
+
+        await runPartsWithLimit(
+          item.parts.map((recoveryPart) => ({
+            ...recoveryPart,
+            deferredRecovery: true,
+            recoveryBudgetKey,
+          })),
+          1,
+          (recoveryPart, i) => processBatch(recoveryPart, item.index, item.depth, item.forceJsonRepair, item.topLevelIndex, i)
+        );
+
+        recoveryBudgets.delete(recoveryBudgetKey);
+        const afterDeferredCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
+        const recoveredCount = getRecoveredMissingQuestionCount(item.beforeCoverageCount, afterDeferredCount, item.missingCount);
+        const deferredOnlyRecoveredCount = getRecoveredMissingQuestionCount(beforeDeferredCount, afterDeferredCount, item.missingCount);
+
+        if (recoveredCount >= item.missingCount) {
+          clearBatchFailure(topLevelBatchNumber, item.label, item.stage);
+          skippedBatchSet.add(topLevelBatchNumber);
+          console.log(`✅ Batch ${item.label}: Deferred recovery rescued ${recoveredCount}/${item.missingCount} missing question(s).`);
+        } else {
+          recordBatchFailure(item.index, item.label, new Error(`Thiếu ${item.missingCount - recoveredCount}/${item.expectedQuestions || item.missingCount} câu sau deferred recovery`), item.stage, {
+            missingCount: item.missingCount,
+            recoveredCount,
+          });
+          console.info(`Batch ${item.label}: Deferred recovery added ${deferredOnlyRecoveredCount} question(s), still missing ${Math.max(0, item.missingCount - recoveredCount)}.`);
+        }
+      }
+    };
+
     const activePromises: Promise<void>[] = [];
     for (let i = 0; i < allParts.length; i++) {
       await controller?.waitIfPaused();
@@ -1093,6 +1303,7 @@ export const generateQuestions = async (
       }
     }
     await Promise.all(activePromises);
+    await runDeferredRecoveryQueue();
 
     if (options.onCheckpoint) {
       const completedBatchIndices = Array.from(skippedBatchSet).sort((a, b) => a - b);

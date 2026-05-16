@@ -21,7 +21,7 @@ import {
   translateErrorForUser,
 } from './brain';
 import { executeWithUserRotation, userKeyRotator } from './brain/retryExecutor';
-import { buildCompletedBatchSnapshot, getRecoveredMissingQuestionCount } from './brain/generation';
+import { buildCompletedBatchSnapshot, getRecoveredMissingQuestionCount, splitRecoveryPartsForImmediateRun } from './brain/generation';
 import type { RetryProfile } from '../utils/retryStrategy';
 import { AppSettings } from '../types';
 
@@ -42,7 +42,7 @@ const tinyRetryProfile: RetryProfile = {
   formatFastFailAttempt: 2,
   backoffCapMs: 1,
   singleKeyBackoffCapMs: 1,
-  maxElapsedMs: 1000,
+  maxElapsedMs: 5000,
   splitThresholdChars: 500,
   maxDepth: 1,
   targetSplitParts: 2,
@@ -245,7 +245,7 @@ describe('Core Logic', () => {
     expect(userKeyRotator.availableKeyCount).toBe(2);
   });
 
-  it('caps soft-rate-limit key visits per logical batch and cools down visited keys', async () => {
+  it('caps soft-rate-limit key visits per logical batch and preserves fresh keys under provider pressure', async () => {
     userKeyRotator.init('key-one-valid,key-two-valid,key-three-valid,key-four-valid,key-five-valid', 5);
     const calls: string[] = [];
     const profile: RetryProfile = { ...tinyRetryProfile, minAttempts: 7, attemptBuffer: 0, maxElapsedMs: 1600 };
@@ -264,14 +264,13 @@ describe('Core Logic', () => {
       profile
     )).rejects.toThrow(/quá tải|bận|RETRY_BUDGET/i);
 
-    expect(calls[0]).toBe('key-one-valid');
-    expect(new Set(calls).size).toBe(calls.length);
+    expect(calls.slice(0, 2)).toEqual(['key-one-valid', 'key-two-valid']);
     expect(new Set(calls)).toEqual(new Set([
       'key-one-valid',
       'key-two-valid',
-      'key-three-valid',
     ]));
-    expect(userKeyRotator.availableKeyCount).toBe(2); // circuit breaker keeps fresh keys unburned
+    expect(calls.filter(key => key === 'key-two-valid').length).toBeGreaterThan(1);
+    expect(userKeyRotator.availableKeyCount).toBe(4); // provider-pressure mode keeps fresh keys unburned
     expect(userKeyRotator.getRecommendedConcurrency()).toBe(1);
   });
 
@@ -484,6 +483,181 @@ describe('Core Logic', () => {
       'Alpha stem?',
       'Beta stem?',
     ]);
+  });
+
+  it('defers partial salvage recovery during provider pressure and clears the temporary failure after success', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const progressMessages: string[] = [];
+    const makeQuestionPayload = (question: string) => ({
+      question,
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: {
+        core: 'A đúng.',
+        evidence: '',
+        analysis: '',
+        warning: '',
+      },
+      source: 'model-source',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    });
+    const providerResponse = (questions: any[]) => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ questions }) } }],
+    }), { status: 200 });
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => {
+        userKeyRotator.markProviderPressure(1);
+        return Promise.resolve(providerResponse([
+          makeQuestionPayload('1. Alpha stem?'),
+          makeQuestionPayload('2. Beta stem?'),
+        ]));
+      })
+      .mockResolvedValueOnce(providerResponse([
+        makeQuestionPayload('3. Gamma stem?'),
+      ]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-1',
+        name: 'deck.docx',
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        content: '',
+        nativeText: [
+          '[DOCX_NATIVE_MCQ_COUNT: 3]',
+          '',
+          '<<<MCQ 1>>>',
+          'Question: 1. Alpha stem?',
+          'A. Một',
+          'B. Hai',
+          'C. Ba',
+          'D. Bốn',
+          '',
+          '<<<MCQ 2>>>',
+          'Question: 2. Beta stem?',
+          'A. Một',
+          'B. Hai',
+          'C. Ba',
+          'D. Bốn',
+          '',
+          '<<<MCQ 3>>>',
+          'Question: 3. Gamma stem?',
+          'A. Một',
+          'B. Hai',
+          'C. Ba',
+          'D. Bốn',
+        ].join('\n'),
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      (message) => progressMessages.push(message),
+      0
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(progressMessages.some(message => message.includes('provider hạ nhiệt'))).toBe(true);
+    expect(result.failedBatches).toEqual([]);
+    expect(result.failedBatchDetails).toEqual([]);
+    expect(result.questions.map((question) => question.question).sort()).toEqual([
+      'Alpha stem?',
+      'Beta stem?',
+      'Gamma stem?',
+    ]);
+  });
+
+  it('keeps deferred recovery retryable when the deferred attempt still fails', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const makeQuestionPayload = (question: string) => ({
+      question,
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: {
+        core: 'A đúng.',
+        evidence: '',
+        analysis: '',
+        warning: '',
+      },
+      source: 'model-source',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    });
+    const providerResponse = (questions: any[]) => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ questions }) } }],
+    }), { status: 200 });
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => {
+        userKeyRotator.markProviderPressure(1);
+        return Promise.resolve(providerResponse([
+          makeQuestionPayload('1. Alpha stem?'),
+          makeQuestionPayload('2. Beta stem?'),
+        ]));
+      })
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { message: 'provider still busy during deferred recovery' },
+      }), { status: 418 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-1',
+        name: 'deck.docx',
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        content: '',
+        nativeText: [
+          '[DOCX_NATIVE_MCQ_COUNT: 3]',
+          '',
+          '<<<MCQ 1>>>',
+          'Question: 1. Alpha stem?',
+          'A. Một',
+          'B. Hai',
+          'C. Ba',
+          'D. Bốn',
+          '',
+          '<<<MCQ 2>>>',
+          'Question: 2. Beta stem?',
+          'A. Một',
+          'B. Hai',
+          'C. Ba',
+          'D. Bốn',
+          '',
+          '<<<MCQ 3>>>',
+          'Question: 3. Gamma stem?',
+          'A. Một',
+          'B. Hai',
+          'C. Ba',
+          'D. Bốn',
+        ].join('\n'),
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.failedBatches).toEqual([1]);
+    expect(result.failedBatchDetails[0]).toMatchObject({
+      index: 1,
+      stage: 'partial',
+      missingCount: 1,
+      recoveredCount: 0,
+    });
+    expect(result.questions.map((question) => question.question).sort()).toEqual([
+      'Alpha stem?',
+      'Beta stem?',
+    ]);
+  });
+
+  it('splits recovery parts into immediate and deferred groups without running excess parts in parallel', () => {
+    const { immediateParts, deferredParts } = splitRecoveryPartsForImmediateRun([1, 2, 3, 4, 5], 3);
+
+    expect(immediateParts).toEqual([1, 2, 3]);
+    expect(deferredParts).toEqual([4, 5]);
+    expect(splitRecoveryPartsForImmediateRun([1, 2], 0)).toEqual({
+      immediateParts: [],
+      deferredParts: [1, 2],
+    });
   });
 
   it('does not infer-skip explicit rescue retry indices from seeded partial questions', async () => {

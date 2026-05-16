@@ -193,7 +193,7 @@ describe('Core Logic', () => {
     );
 
     expect(result).toBe('ok');
-    expect(calls).toEqual(['key-one-valid', 'key-one-valid', 'key-one-valid']);
+    expect(calls).toEqual(['key-one-valid', 'key-two-valid', 'key-two-valid']);
     expect(userKeyRotator.availableKeyCount).toBe(3);
     expect(userKeyRotator.getRecommendedConcurrency()).toBeLessThan(3);
   });

@@ -49,13 +49,15 @@ export const shouldRotateKey = ({
   if (cause === 'softRateLimit') {
     // 429: Lỗi quota theo key, cho phép xoay mạnh mẽ để tìm key rảnh.
     // Nếu dàn key lớn (ví dụ 31-50 key), cho phép xoay tối đa theo rotationLimit (thường là 8).
-    if (hadProviderPressure && distinctKeysTried >= Math.max(2, Math.min(3, rotationLimit))) return false;
+    if (hadProviderPressure && distinctKeysTried >= Math.max(2, Math.min(4, rotationLimit))) return false;
     return true;
   }
 
   if (cause === 'serverBusy') {
-    // 503/Timeout: Không xoay key để tránh "đốt" cả dàn key khi provider lỗi hệ thống.
-    return false;
+    // 503/Timeout: Lỗi hệ thống provider. 
+    // Cho phép thử 15-20% dàn key (tối thiểu 2, tối đa 5) để tìm project/region không bị nghẽn.
+    const busyRotationLimit = Math.max(2, Math.min(5, rotationLimit));
+    return distinctKeysTried < busyRotationLimit;
   }
 
   return false;

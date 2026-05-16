@@ -23,11 +23,11 @@ describe('retry executor key conservation', () => {
       rotationLimit,
     })).toBe(true);
 
-    // Nhưng vượt quá 3 (đến key thứ 4) khi có áp lực thì dừng.
+    // Nhưng vượt quá 4 (đến key thứ 5) khi có áp lực thì dừng.
     expect(shouldRotateKey({
       cause: 'softRateLimit',
       hadProviderPressure: true,
-      distinctKeysTried: 3,
+      distinctKeysTried: 4,
       availableKeyCount: 30,
       rotationLimit,
     })).toBe(false);

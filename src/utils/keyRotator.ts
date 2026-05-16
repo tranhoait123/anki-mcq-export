@@ -119,9 +119,11 @@ export class UserKeyRotator {
   private lastPressureAt = 0;
   private globalCooldownUntil = 0;
   private now: () => number;
+  private random: () => number;
 
-  constructor(now: () => number = () => Date.now()) {
+  constructor(now: () => number = () => Date.now(), random: () => number = () => Math.random()) {
     this.now = now;
+    this.random = random;
   }
 
   init(apiKeyString: string, desiredConcurrency: number = 1) {
@@ -220,7 +222,7 @@ export class UserKeyRotator {
         ...candidate,
         score: this.getSelectionScore(candidate.record, now),
       }))
-      .sort((left, right) => right.score - left.score || left.index - right.index);
+      .sort((left, right) => (right.score - left.score) || (left.index - right.index));
 
     const selected = candidates[0]?.key || '';
     if (!selected) return '';
@@ -372,6 +374,15 @@ export class UserKeyRotator {
     return Math.max(1, Math.min(MAX_KEYS_PER_OPERATION, this.keys.length));
   }
 
+  getRecommendedRotationLimit(): number {
+    const total = this.keys.length;
+    if (total <= 1) return 1;
+    if (total <= 3) return 2;
+    if (total <= 8) return 3;
+    // Với số lượng lớn key (ví dụ 31), cho phép xoay khoảng 25-30% tổng số key (tối đa 8).
+    return Math.max(3, Math.min(MAX_KEYS_PER_OPERATION, Math.ceil(total * 0.25)));
+  }
+
   getKeyHealthSnapshot(): KeyHealthSnapshot[] {
     const now = this.now();
     this.normalizeAllKeyStates(now);
@@ -480,7 +491,11 @@ export class UserKeyRotator {
       ? Math.min(120, record.successCount * 8)
       : 0;
 
-    return 1000 + idleBonus + successBonus - recentFailurePenalty - record.inFlightCount * 250;
+    // Thêm jitter ngẫu nhiên (0-60) để dàn đều tải giữa các key có sức khỏe tương đương,
+    // tránh việc luôn ưu tiên Key #1 khi nhiều key cùng rảnh.
+    const jitter = this.random() * 60;
+
+    return 1000 + idleBonus + successBonus + jitter - recentFailurePenalty - record.inFlightCount * 250;
   }
 
   private getMaxUsefulConcurrency(): number {

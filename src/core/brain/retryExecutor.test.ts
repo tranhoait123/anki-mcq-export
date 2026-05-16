@@ -1,30 +1,44 @@
 import { describe, expect, it } from 'vitest';
-import { shouldTryBackupKeyAfterSoftRateLimit } from './retryExecutor';
+import { shouldRotateKey } from './retryExecutor';
 
 describe('retry executor key conservation', () => {
-  it('tries at most one fresh backup key before conserving keys during soft rate limits', () => {
-    expect(shouldTryBackupKeyAfterSoftRateLimit({
+  it('rotates keys aggressively during soft rate limits but conserves during provider pressure', () => {
+    // Rotation limit cho 30 keys thường là 8.
+    const rotationLimit = 8;
+
+    expect(shouldRotateKey({
+      cause: 'softRateLimit',
       hadProviderPressure: false,
-      attempts: 1,
       distinctKeysTried: 1,
       availableKeyCount: 30,
-      maxKeysPerOperation: 8,
+      rotationLimit,
     })).toBe(true);
 
-    expect(shouldTryBackupKeyAfterSoftRateLimit({
-      hadProviderPressure: false,
-      attempts: 2,
-      distinctKeysTried: 2,
-      availableKeyCount: 30,
-      maxKeysPerOperation: 8,
-    })).toBe(false);
-
-    expect(shouldTryBackupKeyAfterSoftRateLimit({
+    // Xoay lên đến 2 key vẫn ok dù có áp lực.
+    expect(shouldRotateKey({
+      cause: 'softRateLimit',
       hadProviderPressure: true,
-      attempts: 1,
       distinctKeysTried: 1,
       availableKeyCount: 30,
-      maxKeysPerOperation: 8,
+      rotationLimit,
+    })).toBe(true);
+
+    // Nhưng vượt quá 3 (đến key thứ 4) khi có áp lực thì dừng.
+    expect(shouldRotateKey({
+      cause: 'softRateLimit',
+      hadProviderPressure: true,
+      distinctKeysTried: 3,
+      availableKeyCount: 30,
+      rotationLimit,
     })).toBe(false);
+
+    // Nếu không có áp lực, cho phép xoay nhiều hơn.
+    expect(shouldRotateKey({
+      cause: 'softRateLimit',
+      hadProviderPressure: false,
+      distinctKeysTried: 3,
+      availableKeyCount: 30,
+      rotationLimit,
+    })).toBe(true);
   });
 });

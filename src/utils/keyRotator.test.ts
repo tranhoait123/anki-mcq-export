@@ -15,7 +15,7 @@ describe('UserKeyRotator scheduler v2', () => {
 
   it('auth-blocks invalid keys temporarily and lets them recover', () => {
     let now = 1_000;
-    const rotator = new UserKeyRotator(() => now);
+    const rotator = new UserKeyRotator(() => now, () => 0);
     rotator.init('key-one-valid,key-two-valid,key-three-valid');
 
     rotator.markKeyFailed('key-one-valid');
@@ -33,7 +33,7 @@ describe('UserKeyRotator scheduler v2', () => {
 
   it('keeps explicit invalid or leaked keys auth-blocked until replaced', () => {
     let now = 1_000;
-    const rotator = new UserKeyRotator(() => now);
+    const rotator = new UserKeyRotator(() => now, () => 0);
     rotator.init('key-one-valid,key-two-valid');
 
     rotator.markKeyResult('key-one-valid', {
@@ -52,7 +52,7 @@ describe('UserKeyRotator scheduler v2', () => {
 
   it('temporary 403 auth blocks recover when the message is ambiguous', () => {
     let now = 1_000;
-    const rotator = new UserKeyRotator(() => now);
+    const rotator = new UserKeyRotator(() => now, () => 0);
     rotator.init('key-one-valid,key-two-valid');
 
     rotator.markKeyResult('key-one-valid', {
@@ -68,7 +68,7 @@ describe('UserKeyRotator scheduler v2', () => {
 
   it('puts rate-limited keys on cooldown and reuses them after cooldown expires', () => {
     let now = 1_000;
-    const rotator = new UserKeyRotator(() => now);
+    const rotator = new UserKeyRotator(() => now, () => 0);
     rotator.init('key-one-valid,key-two-valid');
 
     rotator.markKeyCooldown('key-one-valid', 'rateLimit');
@@ -83,7 +83,7 @@ describe('UserKeyRotator scheduler v2', () => {
 
   it('keeps soft cooldown separate from hard-failed keys and caps provider retry-after', () => {
     let now = 1_000;
-    const rotator = new UserKeyRotator(() => now);
+    const rotator = new UserKeyRotator(() => now, () => 0);
     rotator.init('key-one-valid,key-two-valid');
 
     rotator.markKeyCooldown('key-one-valid', 'rateLimit', 10 * 60 * 1000);
@@ -98,7 +98,7 @@ describe('UserKeyRotator scheduler v2', () => {
 
   it('returns no key when every non-failed key is cooling down', () => {
     let now = 1_000;
-    const rotator = new UserKeyRotator(() => now);
+    const rotator = new UserKeyRotator(() => now, () => 0);
     rotator.init('key-one-valid,key-two-valid');
     rotator.markKeyFailed('key-one-valid');
     rotator.markKeyCooldown('key-two-valid', 'rateLimit');
@@ -111,7 +111,7 @@ describe('UserKeyRotator scheduler v2', () => {
 
   it('treats server busy as provider pressure without cooling down individual keys', () => {
     let now = 1_000;
-    const rotator = new UserKeyRotator(() => now);
+    const rotator = new UserKeyRotator(() => now, () => 0);
     rotator.init('key-one-valid,key-two-valid', 2);
 
     rotator.markKeyCooldown('key-one-valid', 'serverBusy');
@@ -129,7 +129,7 @@ describe('UserKeyRotator scheduler v2', () => {
 
   it('treats soft 429 as provider pressure without cooling down or sweeping keys', () => {
     let now = 1_000;
-    const rotator = new UserKeyRotator(() => now);
+    const rotator = new UserKeyRotator(() => now, () => 0);
     rotator.init('key-one-valid,key-two-valid,key-three-valid,key-four-valid', 4);
 
     rotator.markSoftRateLimit(12_000);
@@ -159,7 +159,7 @@ describe('UserKeyRotator scheduler v2', () => {
 
   it('selects an available batch key outside excluded and cooling keys', () => {
     let now = 1_000;
-    const rotator = new UserKeyRotator(() => now);
+    const rotator = new UserKeyRotator(() => now, () => 0);
     rotator.init('key-one-valid,key-two-valid,key-three-valid');
 
     expect(rotator.getKeyForBatch(new Set(['key-one-valid']))).toBe('key-two-valid');
@@ -173,7 +173,7 @@ describe('UserKeyRotator scheduler v2', () => {
 
   it('recovers quota and suspect key states after their block windows', () => {
     let now = 1_000;
-    const rotator = new UserKeyRotator(() => now);
+    const rotator = new UserKeyRotator(() => now, () => 0);
     rotator.init('key-one-valid,key-two-valid,key-three-valid');
 
     rotator.markKeyResult('key-one-valid', { kind: 'quota' });
@@ -192,7 +192,7 @@ describe('UserKeyRotator scheduler v2', () => {
 
   it('prefers keys with less recent error history', () => {
     let now = 1_000;
-    const rotator = new UserKeyRotator(() => now);
+    const rotator = new UserKeyRotator(() => now, () => 0);
     rotator.init('key-one-valid,key-two-valid');
 
     rotator.markKeyResult('key-one-valid', { kind: 'suspect' });
@@ -216,7 +216,7 @@ describe('UserKeyRotator scheduler v2', () => {
 
   it('keeps rate limits key-specific even after provider pressure', () => {
     let now = 1_000;
-    const rotator = new UserKeyRotator(() => now);
+    const rotator = new UserKeyRotator(() => now, () => 0);
     rotator.init('key-one-valid,key-two-valid');
 
     rotator.markProviderPressure(3_000);
@@ -245,7 +245,7 @@ describe('UserKeyRotator scheduler v2', () => {
 
   it('does not block healthy keys with pool cooldown while another key is still available', () => {
     let now = 1_000;
-    const rotator = new UserKeyRotator(() => now);
+    const rotator = new UserKeyRotator(() => now, () => 0);
     rotator.init('key-one-valid,key-two-valid,key-three-valid', 3);
 
     rotator.markKeyCooldown('key-one-valid', 'rateLimit', 5_000);
@@ -259,7 +259,7 @@ describe('UserKeyRotator scheduler v2', () => {
 
   it('reduces concurrency on repeated rate limits and recovers after stable successes', () => {
     let now = 1_000;
-    const rotator = new UserKeyRotator(() => now);
+    const rotator = new UserKeyRotator(() => now, () => 0);
     rotator.init('key-one-valid,key-two-valid,key-three-valid', 3);
 
     expect(rotator.getRecommendedConcurrency()).toBe(3);

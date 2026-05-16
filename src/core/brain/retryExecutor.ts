@@ -29,24 +29,38 @@ export interface RetryExecutionDiagnostics {
   keyHealth: KeyHealthSnapshot[];
 }
 
-export const shouldTryBackupKeyAfterSoftRateLimit = ({
+export const shouldRotateKey = ({
+  cause,
   hadProviderPressure,
-  attempts,
   distinctKeysTried,
   availableKeyCount,
-  maxKeysPerOperation,
+  rotationLimit,
 }: {
+  cause: 'softRateLimit' | 'serverBusy' | 'format';
   hadProviderPressure: boolean;
-  attempts: number;
   distinctKeysTried: number;
   availableKeyCount: number;
-  maxKeysPerOperation: number;
-}): boolean => (
-  !hadProviderPressure &&
-  attempts <= 1 &&
-  availableKeyCount > 0 &&
-  distinctKeysTried < Math.max(1, Math.min(2, maxKeysPerOperation || 1))
-);
+  rotationLimit: number;
+}): boolean => {
+  if (availableKeyCount <= 0) return false;
+  if (distinctKeysTried >= rotationLimit) return false;
+
+  if (cause === 'softRateLimit') {
+    // 429 thường là lỗi quota theo key, nên ưu tiên xoay mạnh mẽ.
+    // Nếu đang có áp lực hệ thống (timeout), giới hạn xoay lại một chút (ví dụ 3 key) để tránh burn pool.
+    const limitForPressured = Math.max(2, Math.min(3, rotationLimit));
+    if (hadProviderPressure && distinctKeysTried >= limitForPressured) return false;
+    return true;
+  }
+
+  if (cause === 'serverBusy') {
+    // 503/Timeout có thể là toàn hệ thống, nhưng xoay 1-2 lần vẫn tốt để loại trừ lỗi project-specific.
+    const limitForBusy = Math.max(1, Math.min(2, rotationLimit));
+    return distinctKeysTried < limitForBusy;
+  }
+
+  return false;
+};
 
 const waitWithController = async (ms: number, controller?: ProcessingController): Promise<void> => {
   let remaining = Math.max(0, ms);
@@ -112,6 +126,7 @@ export async function executeWithUserRotation<T>(
   const getRemainingBudgetMs = () => retryProfile.maxElapsedMs - (Date.now() - startedAt);
   const getUntriedAvailableKey = () => userKeyRotator.selectBestKey({ excludeKeys: keysTried });
   const getRetriedAvailableKey = () => userKeyRotator.selectBestKey({ allowRetriedKeys: true });
+  const getRotationLimit = () => userKeyRotator.getRecommendedRotationLimit();
   const getAttemptTimeoutMs = () => Math.max(1, Math.ceil(getRemainingBudgetMs()));
   const getDiagnostics = (attemptedKey: string, error?: any, retryAfterMs?: number): RetryExecutionDiagnostics => ({
     attempts,
@@ -277,24 +292,22 @@ export async function executeWithUserRotation<T>(
             userKeyRotator.markSoftRateLimit(individualCooldownMs);
             treatedAsProviderPressure = true;
           } else {
-            // 429 đầu tiên vẫn có thể là quota theo key, nên khóa key đó và thử tối đa
-            // một key dự phòng trước khi chuyển sang chế độ bảo toàn key.
+            // 429 đầu tiên vẫn có thể là quota theo key, nên khóa key đó.
             userKeyRotator.markKeyResult(attemptedKey, { kind: 'rateLimit', durationMs: individualCooldownMs, error });
           }
 
-          if (shouldTryBackupKeyAfterSoftRateLimit({
+          if (shouldRotateKey({
+            cause: 'softRateLimit',
             hadProviderPressure: hadProviderPressureBeforeRateLimit,
-            attempts,
             distinctKeysTried: keysTried.size,
             availableKeyCount: userKeyRotator.availableKeyCount,
-            maxKeysPerOperation: userKeyRotator.getMaxKeysPerOperation(),
+            rotationLimit: getRotationLimit(),
           })) {
             const nextKey = getUntriedAvailableKey();
             if (nextKey) {
               currentKey = nextKey;
-              // Vì đã đổi sang key mới lành lặn, giảm thời gian chờ (backoff) xuống tối thiểu để thực hiện yêu cầu ngay.
               backoffMs = Math.max(250, getBackoffDelayMs(retryProfile, 1, 0, false, false, false, true));
-              console.log(`⚡ Xoay sang API Key dự phòng tươi mới: #${userKeyRotator.getKeyNumber(currentKey)}`);
+              console.log(`⚡ Rate Limit: Xoay sang API Key dự phòng: #${userKeyRotator.getKeyNumber(currentKey)}`);
             } else {
               currentKey = '';
             }
@@ -308,6 +321,21 @@ export async function executeWithUserRotation<T>(
           }
         } else if (isServerBusyRetry) {
           userKeyRotator.markProviderPressure(backoffMs);
+
+          if (shouldRotateKey({
+            cause: 'serverBusy',
+            hadProviderPressure: true,
+            distinctKeysTried: keysTried.size,
+            availableKeyCount: userKeyRotator.availableKeyCount,
+            rotationLimit: getRotationLimit(),
+          })) {
+            const nextKey = getUntriedAvailableKey();
+            if (nextKey) {
+              currentKey = nextKey;
+              // Xoay key khi server busy vẫn nên giữ backoff nguyên bản để tránh spam provider đang nghẽn.
+              console.log(`🔄 Server Busy: Thử xoay sang API Key khác: #${userKeyRotator.getKeyNumber(currentKey)}`);
+            }
+          }
         } else {
           const cooldownDelay = userKeyRotator.getNextCooldownDelayMs();
           if (cooldownDelay > 0) {

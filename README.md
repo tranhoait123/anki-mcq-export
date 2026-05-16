@@ -663,6 +663,16 @@ Bộ test hiện bao phủ các phần quan trọng:
 | **DOCX báo "Nên dùng PDF/Ảnh"** | File Word gần như không có text thật, chỉ chứa ảnh scan | Mở Word → Export/Save as PDF, hoặc chụp/xuất từng trang rõ rồi tải lại. |
 | **DOCX text fallback** | Có text nhưng format không theo block câu hỏi → A/B/C/D rõ ràng | Vẫn có thể quét; nếu kết quả thiếu, chỉnh Word cho mỗi lựa chọn nằm riêng dòng hoặc chuyển PDF/ảnh. |
 
+### 🧭 Đọc log console
+
+| Log | Ý nghĩa |
+|:---|:---|
+| `Unchecked runtime.lastError: Could not establish connection...` | Thường do extension trình duyệt, không phải app nếu workflow vẫn chạy. |
+| `Backoff`, `Provider pressure cooldown`, `rate-limit cooldown` | Retry tự động khi provider/API đang bận; app vẫn tiếp tục. |
+| `PDF worker unavailable; using main-thread rasterization` | Worker PDF không dùng được trong phiên này, app fallback sang canvas main thread; có thể chậm hơn nhưng vẫn hợp lệ. |
+| Warning `HighlightAnnotation` / `Popup annotation` từ `pdf.worker` | PDF.js cảnh báo annotation trong file PDF không chuẩn; thường không ảnh hưởng trích xuất câu hỏi. |
+| `failed batches`, `Thiếu ... câu`, hoặc lỗi quota/auth | Cần kiểm tra lại file, key, provider hoặc quét lại phần lỗi. |
+
 ### 💡 Mẹo tối ưu
 
 1. **Nhiều Key = Xoay vòng nhanh hơn** — Tạo 3-5 API Key từ các Project khác nhau, hệ thống tự xoay vòng

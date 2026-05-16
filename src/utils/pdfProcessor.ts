@@ -13,6 +13,7 @@ const STANDARD_FONT_DATA_URL = getAssetUrl('/standard_fonts/');
 const pdfTextAnalysisCache = new Map<string, Promise<PdfTextAnalysis>>();
 const pdfRasterCache = new Map<string, Promise<string[]>>();
 let pdfWorkerUnavailableForSession = false;
+let pdfWorkerFallbackLoggedForSession = false;
 
 export type PdfPageQuality = 'goodText' | 'suspect' | 'scanOrEmpty';
 export type PdfRasterQuality = 'standard' | 'high';
@@ -605,7 +606,10 @@ const convertPdfToImagesUncached = async (base64OrUrl: string, pageRange?: PdfPa
             return await measureAsync(`pdf.rasterize.worker.${options.quality || 'standard'}`, () => convertPdfToImagesInWorker(base64OrUrl, pageRange, options));
         } catch (workerError) {
             pdfWorkerUnavailableForSession = true;
-            console.warn('PDF worker rasterization unavailable, falling back to main thread canvas:', workerError);
+            if (!pdfWorkerFallbackLoggedForSession) {
+                pdfWorkerFallbackLoggedForSession = true;
+                console.info('PDF worker unavailable; using main-thread rasterization.', workerError);
+            }
         }
     }
 

@@ -459,6 +459,16 @@ Runs on **http://localhost:8501**.
 | **PWA update banner keeps appearing** | A new service worker build is available | Click **Update** after pausing or completing the current extraction. |
 | **Cache clear did not remove questions** | This is expected in v7 | Cache clear only refreshes AI cache; use workspace clear to reset current files/questions. |
 
+### 🧭 Reading Console Logs
+
+| Log | Meaning |
+|:---|:---|
+| `Unchecked runtime.lastError: Could not establish connection...` | Usually from a browser extension, not the app, if the workflow continues. |
+| `Backoff`, `Provider pressure cooldown`, `rate-limit cooldown` | Automatic retry while the provider/API is busy; the app is still working. |
+| `PDF worker unavailable; using main-thread rasterization` | PDF worker rendering is unavailable for this session, so the app falls back to main-thread canvas; it may be slower but remains valid. |
+| `HighlightAnnotation` / `Popup annotation` warnings from `pdf.worker` | PDF.js is reporting non-standard PDF annotations; these usually do not affect MCQ extraction. |
+| `failed batches`, missing-question messages, quota/auth errors | Check the file, API key, provider, or retry the failed section. |
+
 ---
 
 ## ❓ Frequently Asked Questions (FAQ)

@@ -186,7 +186,7 @@ export class UserKeyRotator {
     const boundedDurationMs = Math.max(1000, Math.min(durationMs ?? 8000, 60 * 1000));
     this.registerPressure('rateLimit', boundedDurationMs, true);
     this.globalCooldownUntil = Math.max(this.globalCooldownUntil, now + boundedDurationMs);
-    console.warn(`🌐 Provider rate-limit cooldown for ${Math.round(boundedDurationMs / 1000)}s. Keys stay available; concurrency is ${this.recommendedConcurrency}/${this.getMaxUsefulConcurrency()}.`);
+    console.info(`Provider rate-limit cooldown for ${Math.round(boundedDurationMs / 1000)}s. Keys stay available; concurrency is ${this.recommendedConcurrency}/${this.getMaxUsefulConcurrency()}.`);
   }
 
   markProviderPressure(durationMs?: number): void {
@@ -196,7 +196,7 @@ export class UserKeyRotator {
     const boundedDurationMs = Math.max(1000, Math.min(durationMs ?? escalatedMs, 30 * 1000));
     this.registerPressure('serverBusy', boundedDurationMs);
     this.globalCooldownUntil = Math.max(this.globalCooldownUntil, now + boundedDurationMs);
-    console.warn(`🌐 Provider pressure cooldown for ${Math.round(boundedDurationMs / 1000)}s. Keys stay available; concurrency is ${this.recommendedConcurrency}/${this.getMaxUsefulConcurrency()}.`);
+    console.info(`Provider pressure cooldown for ${Math.round(boundedDurationMs / 1000)}s. Keys stay available; concurrency is ${this.recommendedConcurrency}/${this.getMaxUsefulConcurrency()}.`);
   }
 
   getKeyForBatch(excludeKeys?: Iterable<string>): string {
@@ -499,10 +499,10 @@ export class UserKeyRotator {
 
     if ((forceSingleConcurrency || circuitBreakerActive) && this.recommendedConcurrency > 1) {
       this.recommendedConcurrency = 1;
-      console.warn(`🐢 Adaptive concurrency reduced to ${this.recommendedConcurrency}/${this.getMaxUsefulConcurrency()} after repeated ${kind}.`);
+      console.info(`Adaptive concurrency reduced to ${this.recommendedConcurrency}/${this.getMaxUsefulConcurrency()} after repeated ${kind}.`);
     } else if (shouldReduceNow && this.recommendedConcurrency > 1) {
       this.recommendedConcurrency = Math.max(1, this.recommendedConcurrency - 1);
-      console.warn(`🐢 Adaptive concurrency reduced to ${this.recommendedConcurrency}/${this.getMaxUsefulConcurrency()} after ${kind}.`);
+      console.info(`Adaptive concurrency reduced to ${this.recommendedConcurrency}/${this.getMaxUsefulConcurrency()} after ${kind}.`);
     }
 
     if (circuitBreakerActive) {

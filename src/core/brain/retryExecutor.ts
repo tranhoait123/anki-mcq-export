@@ -61,11 +61,11 @@ export async function executeWithRetry<T>(fn: () => Promise<T>, retries: number 
       if (isFormatError || isServerBusy) {
         const attempt = i + 1;
         if (isFormatError && attempt >= 2) {
-          console.warn(`🚀 Standard Mode: Format error detected. Failing early to allow Advanced Retry...`);
+          console.info(`🚀 Standard Mode: Format error detected. Failing early to allow Advanced Retry...`);
           throw new Error("Lỗi định dạng AI (Lượt đầu). Vui lòng dùng tính năng Quét lại để chia nhỏ tài liệu.");
         }
 
-        console.warn(`⚠️ ${isFormatError ? 'Lỗi định dạng' : 'API Busy'} (Lượt đầu - Lần thử ${attempt}/${retries}). Retrying...`);
+        console.info(`${isFormatError ? 'Lỗi định dạng' : 'API Busy'} (Lượt đầu - Lần thử ${attempt}/${retries}). Retrying...`);
         await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, i)));
         continue;
       }
@@ -181,10 +181,10 @@ export async function executeWithUserRotation<T>(
 
       if (decision.action === 'split') {
         if (decision.cause === 'requestTooLarge') {
-          console.warn(`📦 Request quá lớn ở lần ${attempts}; dừng retry cùng payload để chia nhỏ batch.`);
+          console.info(`📦 Request quá lớn ở lần ${attempts}; dừng retry cùng payload để chia nhỏ batch.`);
           throw withDiagnostics(new Error("AI_FORMAT_ERROR_REQUEST_TOO_LARGE"), attemptedKey, retryHintMs);
         }
-        console.warn(`🚀 ${decision.message} Failing fast after ${attempts} attempt(s) to trigger subdivision...`);
+        console.info(`🚀 ${decision.message} Failing fast after ${attempts} attempt(s) to trigger subdivision...`);
         throw withDiagnostics(new Error("AI_FORMAT_ERROR_TRUNCATED"), attemptedKey, retryHintMs);
       }
 
@@ -227,7 +227,7 @@ export async function executeWithUserRotation<T>(
         const reason = decision.cause === 'softRateLimit'
           ? "Giới hạn tốc độ/quota tạm thời"
           : (decision.cause === 'serverBusy' ? "Server quá tải/timeout" : "Lỗi định dạng AI");
-        console.warn(`⚠️ ${reason} (Lần thử ${attempts}/${ATTEMPTS_LIMIT}). ${decision.message}`);
+        console.info(`${reason} (Lần thử ${attempts}/${ATTEMPTS_LIMIT}). ${decision.message}`);
 
         const boundedHint = getBoundedRetryHint();
         const isServerBusyRetry = decision.cause === 'serverBusy';

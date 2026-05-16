@@ -243,7 +243,7 @@ export const generateQuestions = async (
             }
           }
         } catch (splitError) {
-          console.warn('PDF safe hybrid fallback to legacy vision:', splitError);
+          console.info('PDF safe hybrid fallback to legacy vision:', splitError);
           const legacyRanges = getPdfPageRanges(await getPdfPageCount(rawBase64), visionPagesPerChunk, 1);
           if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
             for (const range of legacyRanges) {
@@ -942,7 +942,7 @@ export const generateQuestions = async (
             if (missingRatio > 0.4 && !canRecoverPdfVision) {
               throw new Error(`AI_FORMAT_ERROR_PARTIAL_SALVAGE: Đã cứu ${rawNewQs.length} câu hợp lệ nhưng còn thiếu khoảng ${missingCount} câu (>${Math.round(missingRatio * 100)}%).`);
             } else if (!part.partialRecovery) {
-              console.warn(`⚠️ Batch ${batchLabel}: Salvage lấy được ${rawNewQs.length}/${expectedQuestions} câu (thiếu ${missingCount}). Đang cứu chọn lọc phần thiếu.`);
+              console.info(`Batch ${batchLabel}: Salvage lấy được ${rawNewQs.length}/${expectedQuestions} câu (thiếu ${missingCount}). Đang cứu chọn lọc phần thiếu.`);
               const topLevelBatchNumber = topLevelIndex + 1;
               const beforeRecoveryCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
               const recoveryParts = canRecoverPdfVision
@@ -995,7 +995,7 @@ export const generateQuestions = async (
           const missingCount = Math.max(1, expectedQuestions || countPdfQuestionMarkers(part.text || '') || 1);
           const recoveryParts = await buildPdfVisionRecoveryParts(part, [], missingCount);
           if (recoveryParts.length > 0) {
-            console.warn(`🔎 PDF Vision batch ${batchLabel} returned ${errorKind}. Retrying with high-quality overlapping page ranges...`);
+            console.info(`🔎 PDF Vision batch ${batchLabel} returned ${errorKind}. Retrying with high-quality overlapping page ranges...`);
             await runPartsWithLimit(
               recoveryParts,
               getSplitConcurrencyLimit(),
@@ -1006,13 +1006,13 @@ export const generateQuestions = async (
         }
 
         if (part.sourceMode === 'docxImage' && !forceJsonRepair && (errorKind === 'empty' || errorKind === 'format')) {
-          console.warn(`🔎 DOCX image batch ${batchLabel} returned empty/invalid. Retrying once with stricter Vision prompt...`);
+          console.info(`🔎 DOCX image batch ${batchLabel} returned empty/invalid. Retrying once with stricter Vision prompt...`);
           await processBatch(part, index, depth, true, topLevelIndex);
           return;
         }
 
         if (adaptiveBatching && !forceJsonRepair && batchDecision.cause !== 'requestTooLarge' && depth === 0 && errorKind === 'format' && (expectedQuestions > 10 || estimateTextTokens(part.text || '') > 4000)) {
-          console.warn(`🔧 Batch ${batchLabel} format failed. Retrying once with strict JSON repair before splitting...`);
+          console.info(`🔧 Batch ${batchLabel} format failed. Retrying once with strict JSON repair before splitting...`);
           await processBatch(part, index, depth, true, topLevelIndex);
           return;
         }
@@ -1021,7 +1021,7 @@ export const generateQuestions = async (
           adaptiveLargeBatchFailures++;
           if (adaptiveLargeBatchFailures >= 2 && adaptiveQuestionCap > 20) {
             adaptiveQuestionCap = 20;
-            console.warn('🛡️ Adaptive batching cap lowered to 20 questions for remaining batches after repeated format failures.');
+            console.info('🛡️ Adaptive batching cap lowered to 20 questions for remaining batches after repeated format failures.');
           }
         }
 
@@ -1031,7 +1031,7 @@ export const generateQuestions = async (
         const canSplitText = depth < retryProfile.maxDepth && part.text && part.text.length > retryProfile.splitThresholdChars && shouldSplitForError(errorKind);
         if (nativeParts.length > 1 || canSplitText) {
           const splitPartsCount = adaptiveBatching && forceJsonRepair ? 2 : retryProfile.targetSplitParts;
-          console.warn(`🚀 Batch ${batchLabel} fail (${errorKind}). Triggering NATURAL-SUBDIVISION (${splitPartsCount} parts, Depth ${depth + 1})...`);
+          console.info(`🚀 Batch ${batchLabel} fail (${errorKind}). Triggering NATURAL-SUBDIVISION (${splitPartsCount} parts, Depth ${depth + 1})...`);
           const progressBeforeSplit = allQuestions.length + allDuplicates.length + autoSkippedCount;
           const parts = (nativeParts.length > 1
             ? nativeParts.map(text => ({ ...part, text, expectedQuestions: getNativeBatchExpectedCount(text) }))

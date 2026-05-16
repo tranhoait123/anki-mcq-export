@@ -550,6 +550,7 @@ export const parseQuestionsFromModelText = (
       .filter(isCompleteQuestionObject);
     if (questions.length === 0) {
       if (!allowEmpty || expectedQuestions > 0) {
+        console.info(`Empty AI result in batch ${batchIndex + 1}; splitting/retrying if the source is expected to contain MCQs.`);
         throw new Error("📄 AI đã xử lý nhưng không tìm thấy câu hỏi trắc nghiệm nào trong phần này. Batch sẽ được chia nhỏ để quét kỹ hơn.");
       }
       return questions;
@@ -564,10 +565,15 @@ export const parseQuestionsFromModelText = (
     if (salvaged.length > 0) {
       (salvaged as any).__salvagedPartial = true;
       (salvaged as any).__missingCount = expectedQuestions > 0 ? Math.max(0, expectedQuestions - salvaged.length) : 0;
-      console.warn(`🧩 Salvaged ${salvaged.length}${expectedQuestions > 0 ? `/${expectedQuestions}` : ''} complete questions from malformed JSON in batch ${batchIndex + 1}.`);
+      console.info(`🧩 Salvaged ${salvaged.length}${expectedQuestions > 0 ? `/${expectedQuestions}` : ''} complete questions from malformed JSON in batch ${batchIndex + 1}.`);
       return salvaged;
     }
-    console.error("JSON Parse Error info:", error, "Raw string:", jsonStr.substring(0, 100) + "...");
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('không tìm thấy câu hỏi trắc nghiệm')) {
+      console.info("Empty AI result details:", message, "Raw string:", jsonStr.substring(0, 100) + "...");
+      throw new Error(`📄 Dữ liệu AI ở Phần ${batchIndex + 1} bị lỗi cấu trúc (JSON). Hệ thống đang tự động chia nhỏ và thử lại...`);
+    }
+    console.debug("JSON Parse Error info:", error, "Raw string:", jsonStr.substring(0, 100) + "...");
     throw new Error(`📄 Dữ liệu AI ở Phần ${batchIndex + 1} bị lỗi cấu trúc (JSON). Hệ thống đang tự động chia nhỏ và thử lại...`);
   }
 };

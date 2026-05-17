@@ -21,6 +21,7 @@ export interface KeyResult {
   durationMs?: number;
   error?: any;
   permanent?: boolean;
+  elapsedTimeMs?: number;
 }
 
 export interface KeyHealthSnapshot {
@@ -38,6 +39,7 @@ export interface KeyHealthSnapshot {
   lastSuccessAt: number;
   lastFailureAt: number;
   lastError?: string;
+  averageLatencyMs?: number;
 }
 
 interface KeyHealthRecord {
@@ -57,6 +59,7 @@ interface KeyHealthRecord {
   usageHistory: number[]; // Lưu mốc thời gian (ms) các lần thành công gần đây
   tier: 'unknown' | 'free' | 'paid';
   lastError?: string;
+  averageLatencyMs?: number;
 }
 
 const RATE_LIMIT_MIN_MS = 45 * 1000;
@@ -279,6 +282,15 @@ export class UserKeyRotator {
       record.usageHistory.push(now);
       if (record.usageHistory.length > 100) record.usageHistory.shift();
 
+      // Calculate Exponential Moving Average (EMA) of successful request latency (alpha = 0.2)
+      if (result.elapsedTimeMs !== undefined && !isNaN(result.elapsedTimeMs)) {
+        if (record.averageLatencyMs === undefined || isNaN(record.averageLatencyMs)) {
+          record.averageLatencyMs = result.elapsedTimeMs;
+        } else {
+          record.averageLatencyMs = 0.8 * record.averageLatencyMs + 0.2 * result.elapsedTimeMs;
+        }
+      }
+
       // Auto-tier detection: Nếu gọi > 15 RPM mà không lỗi, có thể là key Paid
       const recentCount = record.usageHistory.filter(ts => now - ts <= 60000).length;
       if (recentCount > 15 && record.tier !== 'paid') {
@@ -410,7 +422,7 @@ export class UserKeyRotator {
     const snapshot: Record<string, any> = {};
     for (const key of this.keys) {
       const record = this.getOrCreateRecord(key);
-      if (record.status !== 'healthy' || record.successCount > 0 || record.usageHistory.length > 0) {
+      if (record.status !== 'healthy' || record.successCount > 0 || record.usageHistory.length > 0 || record.averageLatencyMs !== undefined) {
         snapshot[key] = {
           status: record.status,
           blockedUntil: record.blockedUntil,
@@ -419,6 +431,7 @@ export class UserKeyRotator {
           successCount: record.successCount,
           usageHistory: record.usageHistory,
           tier: record.tier,
+          averageLatencyMs: record.averageLatencyMs,
         };
       }
     }
@@ -440,6 +453,7 @@ export class UserKeyRotator {
           record.successCount = saved.successCount || 0;
           record.usageHistory = saved.usageHistory || [];
           record.tier = saved.tier || 'unknown';
+          record.averageLatencyMs = saved.averageLatencyMs;
         }
       }
     }
@@ -466,6 +480,7 @@ export class UserKeyRotator {
         lastSuccessAt: record.lastSuccessAt,
         lastFailureAt: record.lastFailureAt,
         lastError: record.lastError,
+        averageLatencyMs: record.averageLatencyMs,
       };
     });
   }
@@ -576,9 +591,22 @@ export class UserKeyRotator {
       quotaPenalty = recentUsageCount * 50;
     }
 
+    // Latency-Based Routing
+    let latencyBonus = 0;
+    let latencyPenalty = 0;
+    if (record.averageLatencyMs !== undefined && !isNaN(record.averageLatencyMs)) {
+      if (record.averageLatencyMs < 3000) {
+        // Phản hồi siêu tốc (< 3s): Cộng điểm ưu tiên tối đa 150 điểm (50 điểm mỗi giây nhanh hơn)
+        latencyBonus = Math.min(150, (3000 - record.averageLatencyMs) * 0.05);
+      } else if (record.averageLatencyMs > 15000) {
+        // Phản hồi chậm chạp (> 15s): Phạt điểm từ 50 đến 250 điểm
+        latencyPenalty = Math.min(250, (record.averageLatencyMs - 15000) * 0.015);
+      }
+    }
+
     const jitter = this.random() * 60;
 
-    return 1000 + idleBonus + successBonus + jitter - recentFailurePenalty - quotaPenalty - record.inFlightCount * 250;
+    return 1000 + idleBonus + successBonus + latencyBonus + jitter - recentFailurePenalty - quotaPenalty - latencyPenalty - record.inFlightCount * 250;
   }
 
   private getMaxUsefulConcurrency(): number {

@@ -199,6 +199,7 @@ export async function executeWithUserRotation<T>(
     }
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const requestStart = Date.now();
     try {
       const timeoutPromise = new Promise<never>((_resolve, reject) => {
         timeoutId = setTimeout(() => {
@@ -208,7 +209,8 @@ export async function executeWithUserRotation<T>(
       });
       const operationPromise = operation(attemptedKey, currentModel, attemptContext);
       const result = await Promise.race([operationPromise, timeoutPromise]);
-      userKeyRotator.markKeyResult(attemptedKey, { kind: 'success' });
+      const elapsedTimeMs = Date.now() - requestStart;
+      userKeyRotator.markKeyResult(attemptedKey, { kind: 'success', elapsedTimeMs });
       return result;
     } catch (error: any) {
       const msg = error.message?.toLowerCase() || "";

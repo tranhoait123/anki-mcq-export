@@ -48,7 +48,7 @@ export const RETRY_PROFILES: Record<RetryProfileName, RetryProfile> = {
     backoffCapMs: 45000,
     singleKeyBackoffCapMs: 60000,
     maxElapsedMs: 150000,
-    splitThresholdChars: 500,
+    splitThresholdChars: 4000, // Tăng ngưỡng tối thiểu để giữ nguyên vẹn câu hỏi trắc nghiệm
     maxDepth: 2,
     targetSplitParts: 4,
     initialJitterMs: [500, 1500],
@@ -62,7 +62,7 @@ export const RETRY_PROFILES: Record<RetryProfileName, RetryProfile> = {
     backoffCapMs: 20000,
     singleKeyBackoffCapMs: 30000,
     maxElapsedMs: 120000,
-    splitThresholdChars: 350,
+    splitThresholdChars: 3000, // Tăng ngưỡng tối thiểu cứu hộ
     maxDepth: 2,
     targetSplitParts: 4,
     initialJitterMs: [750, 2000],
@@ -262,7 +262,15 @@ export const describeBatchError = (error: any, profileName: RetryProfileName = '
 };
 
 const nearestNaturalBoundary = (text: string, target: number, min: number, max: number): number => {
-  const preferredPatterns = [/\n\s*\n/g, /\n/g, /[.!?。！？]\s+/g, /[,;:]\s+/g, /\s+/g];
+  const preferredPatterns = [
+    /\n\s*(?:câu|cau|question|q)\s*\d+\s*[:.)-]/gi, // Ưu tiên hàng đầu: Khớp ranh giới bắt đầu Câu hỏi trắc nghiệm để tránh xé đôi câu
+    /\n\s*\d+\s*[:.)-]/g,                           // Khớp với số thứ tự đầu dòng như "12."
+    /\n\s*\n/g,                                     // Ngắt đoạn văn lớn
+    /\n/g,                                          // Xuống dòng thường
+    /[.!?。！？]\s+/g,                               // Kết thúc câu đơn
+    /[,;:]\s+/g,
+    /\s+/g
+  ];
   let best = -1;
   let bestDistance = Number.POSITIVE_INFINITY;
 

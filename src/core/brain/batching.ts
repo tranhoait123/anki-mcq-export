@@ -223,7 +223,7 @@ export const getStructuredQuestionBatchSize = (
 export const getAdaptiveTextCharBudget = (profile: ModelTokenProfile, adaptiveBatching = true): number => {
   if (!adaptiveBatching) return 15000;
   const inputBudgetChars = Math.floor(profile.inputLimit * 0.08 * 3.6);
-  return Math.max(15000, Math.min(60000, inputBudgetChars));
+  return Math.max(15000, Math.min(22000, inputBudgetChars));
 };
 
 export const getAdaptiveVisionPagesPerChunk = (profile: ModelTokenProfile, adaptiveBatching = true): number =>

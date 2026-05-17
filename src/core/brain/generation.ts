@@ -887,10 +887,10 @@ export const generateQuestions = async (
            const chunks = splitTextIntoNaturalParts(part.text, splitPartsCount, retryProfile.splitThresholdChars);
            if (chunks.length > 1) {
               console.info(`🔄 Adaptive Scaling (${currentScale}x): Chủ động chia Batch TEXT ${batchLabel} thành ${chunks.length} phần để giảm áp lực...`);
-              const subParts = chunks.map((chunk, i) => ({
+              const subParts = chunks.map((chunk) => ({
                 ...part,
                 text: chunk,
-                sourceLabel: chunks.length > 1 ? joinSourceLabel(part.sourceLabel, `Phần ${i + 1}`) : part.sourceLabel,
+                sourceLabel: part.sourceLabel,
                 expectedQuestions: 0, // Sẽ được đếm lại trong processBatch đệ quy
               }));
               await runPartsWithLimit(subParts, getSplitConcurrencyLimit(), (p, i) => processBatch(p, index, depth + 1, forceJsonRepair, topLevelIndex, i, batchLabel));

@@ -295,7 +295,7 @@ const GEMINI_FLASH_PROFILE: ModelTokenProfile = {
   outputLimit: 65_536,
   safeOutputBudget: 15_000,
   maxQuestionsPerBatch: 10,
-  visionPagesPerBatch: 3,
+  visionPagesPerBatch: 2,
 };
 
 const GPT5_PROFILE: ModelTokenProfile = {
@@ -303,7 +303,7 @@ const GPT5_PROFILE: ModelTokenProfile = {
   outputLimit: 128_000,
   safeOutputBudget: 65_536,
   maxQuestionsPerBatch: 10,
-  visionPagesPerBatch: 3,
+  visionPagesPerBatch: 2,
 };
 
 const CONSERVATIVE_PROFILE: ModelTokenProfile = {
@@ -311,7 +311,7 @@ const CONSERVATIVE_PROFILE: ModelTokenProfile = {
   outputLimit: 32_768,
   safeOutputBudget: 15_000,
   maxQuestionsPerBatch: 10,
-  visionPagesPerBatch: 3,
+  visionPagesPerBatch: 2,
 };
 
 export const getModelTokenProfile = (provider: AIProvider, model: string): ModelTokenProfile => {

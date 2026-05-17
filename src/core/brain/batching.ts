@@ -227,7 +227,7 @@ export const getAdaptiveTextCharBudget = (profile: ModelTokenProfile, adaptiveBa
 };
 
 export const getAdaptiveVisionPagesPerChunk = (profile: ModelTokenProfile, adaptiveBatching = true): number =>
-  adaptiveBatching ? Math.max(3, Math.min(5, profile.visionPagesPerBatch)) : 3;
+  adaptiveBatching ? Math.max(2, Math.min(4, profile.visionPagesPerBatch)) : 2;
 
 export const hashFiles = async (files: UploadedFile[]): Promise<string> => {
   const sortedFiles = [...files].sort((a, b) => a.name.localeCompare(b.name));

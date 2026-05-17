@@ -42,29 +42,29 @@ export const RETRY_PROFILES: Record<RetryProfileName, RetryProfile> = {
   normal: {
     name: 'normal',
     attemptBuffer: 3,
-    minAttempts: 8,
+    minAttempts: 4,
     fallbackAfterAttempt: 6,
     formatFastFailAttempt: 2,
     backoffCapMs: 45000,
     singleKeyBackoffCapMs: 60000,
     maxElapsedMs: 150000,
     splitThresholdChars: 4000, // Tăng ngưỡng tối thiểu để giữ nguyên vẹn câu hỏi trắc nghiệm
-    maxDepth: 2,
-    targetSplitParts: 4,
+    maxDepth: 0, // Tắt hoàn toàn chia nhỏ đệ quy ở Lớp 1
+    targetSplitParts: 2,
     initialJitterMs: [500, 1500],
   },
   rescue: {
     name: 'rescue',
     attemptBuffer: 2,
-    minAttempts: 6,
+    minAttempts: 3,
     fallbackAfterAttempt: 2,
     formatFastFailAttempt: 1,
     backoffCapMs: 20000,
     singleKeyBackoffCapMs: 30000,
     maxElapsedMs: 120000,
     splitThresholdChars: 3000, // Tăng ngưỡng tối thiểu cứu hộ
-    maxDepth: 2,
-    targetSplitParts: 4,
+    maxDepth: 1, // Kích hoạt chia nhỏ cứu hộ ở Lớp 2
+    targetSplitParts: 2,
     initialJitterMs: [750, 2000],
   },
 };

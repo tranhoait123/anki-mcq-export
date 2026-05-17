@@ -388,9 +388,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                                 </button>
                                                 {geminiKeysValidation && (
                                                     <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4 space-y-3 animate-in zoom-in-95 leading-relaxed text-xs">
-                                                        <div className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-200">
-                                                            <CheckCircle2 size={16} className="text-indigo-500" />
-                                                            <span>Kết quả: {geminiKeysValidation.healthyCount}/{geminiKeysValidation.totalChecked} Keys hoạt động</span>
+                                                        <div className="space-y-1">
+                                                            <div className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-200">
+                                                                <CheckCircle2 size={16} className="text-indigo-500" />
+                                                                <span>Kết quả: {geminiKeysValidation.healthyCount}/{geminiKeysValidation.totalChecked} Keys hoạt động</span>
+                                                            </div>
+                                                            <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium px-6">
+                                                                * Đã thực hiện kiểm tra: 1 request/key (tổng cộng {geminiKeysValidation.totalChecked} requests song song).
+                                                            </div>
                                                         </div>
                                                         <div className="max-h-36 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
                                                             {geminiKeysValidation.results.map((res) => (

@@ -107,6 +107,53 @@ describe('batch retry strategy', () => {
     expect(parts.join('').length).toBeGreaterThan(text.length * 0.95);
   });
 
+  it('keeps clinical case stems and their corresponding questions in the same part during split', () => {
+    const text = [
+      'Câu 1. Câu hỏi thường không thuộc tình huống lâm sàng.',
+      'Tình huống lâm sàng (Câu 2 đến Câu 3): Bệnh nhân nam 60 tuổi vào viện vì đau ngực cấp tính dữ dội sau xương ức kéo dài 2 giờ.',
+      'Câu 2: Chẩn đoán sơ bộ nào sau đây là phù hợp nhất cho bệnh nhân này?',
+      'A. Nhồi máu cơ tim cấp.',
+      'B. Phình tách động mạch chủ ngực.',
+      'C. Viêm màng ngoài tim cấp.',
+      'D. Thuyên tắc phổi cấp.',
+      'Câu 3: Xét nghiệm cận lâm sàng nào cần được ưu tiên thực hiện ngay?',
+      'A. Điện tâm đồ 12 chuyển đạo.',
+      'B. Siêu âm tim tại giường.',
+      'C. Chụp CT động mạch chủ ngực.',
+      'D. Định lượng Troponin I huyết thanh.',
+      'Câu 4. Câu hỏi thường tiếp theo không liên quan đến tình huống trên.',
+    ].join('\n\n');
+
+    // Chạy chia nhỏ thành 2 phần
+    const parts = splitTextIntoNaturalParts(text, 2, 100);
+    expect(parts.length).toBe(2);
+
+    // Kiểm tra xem phần chứa Tình huống lâm sàng có bị cắt đôi hay không.
+    // Toàn bộ cụm từ Tình huống lâm sàng, Câu 2 và Câu 3 PHẢI nằm trọn vẹn trong cùng 1 phần!
+    const part1HasStem = parts[0].includes('Tình huống lâm sàng');
+    const part1HasQ2 = parts[0].includes('Câu 2');
+    const part1HasQ3 = parts[0].includes('Câu 3');
+
+    const part2HasStem = parts[1].includes('Tình huống lâm sàng');
+    const part2HasQ2 = parts[1].includes('Câu 2');
+    const part2HasQ3 = parts[1].includes('Câu 3');
+
+    if (part1HasStem) {
+      expect(part1HasQ2).toBe(true);
+      expect(part1HasQ3).toBe(true);
+      expect(part2HasStem).toBe(false);
+      expect(part2HasQ2).toBe(false);
+      expect(part2HasQ3).toBe(false);
+    } else {
+      expect(part2HasStem).toBe(true);
+      expect(part2HasQ2).toBe(true);
+      expect(part2HasQ3).toBe(true);
+      expect(part1HasStem).toBe(false);
+      expect(part1HasQ2).toBe(false);
+      expect(part1HasQ3).toBe(false);
+    }
+  });
+
   it('caps rescue backoff lower than normal backoff', () => {
     const normal = getBackoffDelayMs(getRetryProfile('normal'), 8, 8, true, false, false, false, () => 1);
     const rescue = getBackoffDelayMs(getRetryProfile('rescue'), 8, 8, true, false, false, false, () => 1);

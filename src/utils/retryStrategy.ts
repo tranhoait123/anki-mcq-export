@@ -261,7 +261,74 @@ export const describeBatchError = (error: any, profileName: RetryProfileName = '
   };
 };
 
-const nearestNaturalBoundary = (text: string, target: number, min: number, max: number): number => {
+interface ProtectedRange {
+  start: number;
+  end: number;
+}
+
+export const detectClinicalProtectedRanges = (text: string): ProtectedRange[] => {
+  const ranges: ProtectedRange[] = [];
+  
+  // 1. Nhận diện các cụm Tình huống lâm sàng có chỉ định câu hỏi rõ ràng
+  // Ví dụ: "Tình huống lâm sàng (Câu 45 đến câu 48):" hoặc "Ca lâm sàng (Câu 45-48)"
+  const clinicalGroupRegex = /(?:tình\s*huống|ca\s*lâm\s*sàng|ca\s*bệnh|clinical\s*case|case|tinh\s*huong|ca\s*benh)\s*\d*\s*(?:\(\s*)?(?:câu|question|q|c)\s*(?:hỏi)?\s*(\d+)\s*(?:đến|–|-|through|to)\s*(?:câu)?\s*(\d+)(?:\s*\))?/gi;
+  
+  let match;
+  clinicalGroupRegex.lastIndex = 0;
+  while ((match = clinicalGroupRegex.exec(text)) !== null) {
+    const startIdx = match.index;
+    const startQ = parseInt(match[1], 10);
+    const endQ = parseInt(match[2], 10);
+    if (isNaN(startQ) || isNaN(endQ) || startQ >= endQ) continue;
+    
+    // Tìm điểm kết thúc bằng cách tìm câu hỏi kế tiếp (ví dụ: endQ + 1)
+    const nextQNum = endQ + 1;
+    const nextQRegex = new RegExp(`(?:^|\\n|\\s)(?:câu|cau|question|q)\\s*${nextQNum}\\s*[:.)-]`, 'i');
+    const nextQMatch = text.slice(startIdx).match(nextQRegex);
+    
+    let endIdx = text.length;
+    if (nextQMatch && nextQMatch.index !== undefined) {
+      endIdx = startIdx + nextQMatch.index;
+    }
+    
+    ranges.push({ start: startIdx, end: endIdx });
+  }
+  
+  // 2. Nhận diện các tình huống lâm sàng không ghi rõ câu nhưng có từ khóa "Tình huống lâm sàng" hoặc "Ca lâm sàng"
+  const clinicalKeywordRegex = /(?:tình\s*huống\s*lâm\s*sàng|tinh\s*huong\s*lam\s*sang|ca\s*lâm\s*sàng|ca\s*lam\s*sang|case\s*lâm\s*sàng|clinical\s*case)/gi;
+  clinicalKeywordRegex.lastIndex = 0;
+  while ((match = clinicalKeywordRegex.exec(text)) !== null) {
+    const startIdx = match.index;
+    if (ranges.some(r => startIdx >= r.start && startIdx <= r.end)) continue;
+    
+    // Tìm 3 câu hỏi tiếp theo để bảo vệ an toàn
+    const qPattern = /(?:^|\n|\s)(?:câu|cau|question|q)\s*\d+\s*[:.)-]/gi;
+    qPattern.lastIndex = startIdx;
+    
+    let endIdx = text.length;
+    let qMatchesCount = 0;
+    let qMatch;
+    while ((qMatch = qPattern.exec(text)) !== null) {
+      qMatchesCount++;
+      if (qMatchesCount === 4) {
+        endIdx = qMatch.index;
+        break;
+      }
+    }
+    
+    ranges.push({ start: startIdx, end: endIdx });
+  }
+  
+  return ranges;
+};
+
+const nearestNaturalBoundary = (
+  text: string,
+  target: number,
+  min: number,
+  max: number,
+  protectedRanges: ProtectedRange[] = []
+): number => {
   const preferredPatterns = [
     /\n\s*(?:câu|cau|question|q)\s*\d+\s*[:.)-]/gi, // Ưu tiên hàng đầu: Khớp ranh giới bắt đầu Câu hỏi trắc nghiệm để tránh xé đôi câu
     /\n\s*\d+\s*[:.)-]/g,                           // Khớp với số thứ tự đầu dòng như "12."
@@ -289,7 +356,37 @@ const nearestNaturalBoundary = (text: string, target: number, min: number, max: 
     if (best !== -1 && bestDistance < Math.max(300, (max - min) * 0.18)) break;
   }
 
-  return best === -1 ? Math.min(max, Math.max(min, target)) : best;
+  if (best === -1) {
+    best = Math.min(max, Math.max(min, target));
+  }
+
+  // Áp dụng bảo vệ cho vùng lâm sàng
+  for (const range of protectedRanges) {
+    if (best >= range.start && best <= range.end) {
+      const distToStart = Math.abs(best - range.start);
+      const distToEnd = Math.abs(best - range.end);
+      if (distToStart < distToEnd) {
+        if (range.start >= min && range.start <= max) {
+          best = range.start;
+        } else if (range.end >= min && range.end <= max) {
+          best = range.end;
+        } else {
+          best = Math.min(max, Math.max(min, range.start));
+        }
+      } else {
+        if (range.end >= min && range.end <= max) {
+          best = range.end;
+        } else if (range.start >= min && range.start <= max) {
+          best = range.start;
+        } else {
+          best = Math.min(max, Math.max(min, range.end));
+        }
+      }
+      break;
+    }
+  }
+
+  return best;
 };
 
 export const splitTextIntoNaturalParts = (text: string, targetParts = 4, minPartChars = 350): string[] => {
@@ -297,6 +394,7 @@ export const splitTextIntoNaturalParts = (text: string, targetParts = 4, minPart
   if (!clean) return [];
   if (clean.length <= minPartChars || targetParts <= 1) return [clean];
 
+  const protectedRanges = detectClinicalProtectedRanges(clean);
   const parts: string[] = [];
   let cursor = 0;
   const desiredParts = Math.min(targetParts, Math.ceil(clean.length / minPartChars));
@@ -309,7 +407,7 @@ export const splitTextIntoNaturalParts = (text: string, targetParts = 4, minPart
     const target = cursor + Math.floor(remainingLength / remainingParts);
     const min = cursor + minPartChars;
     const max = Math.min(clean.length - minPartChars * (remainingParts - 1), cursor + Math.floor((remainingLength / remainingParts) * 1.45));
-    const boundary = nearestNaturalBoundary(clean, target, min, max);
+    const boundary = nearestNaturalBoundary(clean, target, min, max, protectedRanges);
     const chunk = clean.slice(cursor, boundary).trim();
     if (chunk) parts.push(chunk);
     cursor = boundary;

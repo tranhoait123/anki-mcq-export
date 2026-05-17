@@ -3,10 +3,11 @@ import { Settings as SettingsIcon, Trash2, ChevronDown, ChevronUp, ShieldAlert, 
 import { AppSettings } from '../types';
 import { db } from '../core/db';
 import { toast } from 'sonner';
-import { validateShopAIKeyConnection } from '../core/brain';
+import { validateShopAIKeyConnection, validateGeminiKeys } from '../core/brain';
 import { AIProvider, coerceModelForProvider, getModelGroups, getShopAIKeyVerifiedModelGroups } from '../utils/models';
 import { ConfirmDialogOptions } from '../hooks/useConfirmDialog';
 import type { ShopAIKeyValidationResult } from '../core/brain/openAiProvider';
+import type { GeminiBulkValidationResult } from '../core/brain/googleProvider';
 
 interface SettingsModalProps {
     show: boolean;
@@ -56,6 +57,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
     const [isCheckingShopAIKey, setIsCheckingShopAIKey] = useState(false);
     const [shopAIKeyValidation, setShopAIKeyValidation] = useState<ShopAIKeyValidationResult | null>(null);
     const [verifiedShopAIKeyModels, setVerifiedShopAIKeyModels] = useState<string[]>([]);
+    const [isCheckingGeminiKeys, setIsCheckingGeminiKeys] = useState(false);
+    const [geminiKeysValidation, setGeminiKeysValidation] = useState<GeminiBulkValidationResult | null>(null);
     const modelGroups = settings.provider === 'shopaikey' && verifiedShopAIKeyModels.length > 0
         ? getShopAIKeyVerifiedModelGroups(verifiedShopAIKeyModels)
         : getModelGroups(settings.provider);
@@ -82,6 +85,20 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
         if (result.selectedModelAvailable && result.selectedModel !== settings.model) {
             setSettings({ ...settings, model: result.selectedModel });
         }
+
+        if (result.ok) {
+            toast.success(result.message);
+        } else {
+            toast.error(result.message, { duration: 7000 });
+        }
+    };
+
+    const handleGeminiKeysCheck = async () => {
+        setIsCheckingGeminiKeys(true);
+        setGeminiKeysValidation(null);
+        const result = await validateGeminiKeys(settings.apiKey, settings.model);
+        setGeminiKeysValidation(result);
+        setIsCheckingGeminiKeys(false);
 
         if (result.ok) {
             toast.success(result.message);
@@ -176,6 +193,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                 onChange={e => {
                                     setShopAIKeyValidation(null);
                                     setVerifiedShopAIKeyModels([]);
+                                    setGeminiKeysValidation(null);
                                     if (settings.provider === 'google') setSettings({ ...settings, apiKey: e.target.value });
                                     else if (settings.provider === 'shopaikey') setSettings({ ...settings, shopAIKeyKey: e.target.value });
                                     else setSettings({ ...settings, openRouterKey: e.target.value });
@@ -214,6 +232,41 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                             {shopAIKeyValidation.message}
                                             {shopAIKeyValidation.models.length > 0 && ` Đã xác thực ${shopAIKeyValidation.models.length} model khả dụng.`}
                                         </span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        {settings.provider === 'google' && (
+                            <div className="mt-4 space-y-2">
+                                <button
+                                    type="button"
+                                    onClick={handleGeminiKeysCheck}
+                                    disabled={isCheckingGeminiKeys || !settings.apiKey.trim()}
+                                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs font-black text-indigo-700 transition-all hover:bg-indigo-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-300 dark:hover:bg-indigo-950/50"
+                                >
+                                    <RefreshCw size={14} className={isCheckingGeminiKeys ? 'animate-spin' : ''} />
+                                    {isCheckingGeminiKeys ? 'ĐANG ĐÁNH GIÁ SONG SONG...' : 'KIỂM TRA HÀNG LOẠT KEY (BULK CHECK)'}
+                                </button>
+                                {geminiKeysValidation && (
+                                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4 space-y-3 animate-in zoom-in-95 leading-relaxed text-xs">
+                                        <div className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-200">
+                                            <CheckCircle2 size={16} className="text-indigo-500" />
+                                            <span>Kết quả: {geminiKeysValidation.healthyCount}/{geminiKeysValidation.totalChecked} Keys hoạt động</span>
+                                        </div>
+                                        <div className="max-h-36 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
+                                            {geminiKeysValidation.results.map((res) => (
+                                                <div key={res.keyIndex} className="flex justify-between items-center gap-4 py-1 border-b border-slate-100 dark:border-slate-800 last:border-0">
+                                                    <span className="font-bold text-slate-500 dark:text-slate-400">Key #{res.keyIndex} ({res.keyTruncated})</span>
+                                                    <span className={`px-2 py-0.5 rounded-full font-black text-[10px] ${
+                                                        res.ok
+                                                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'
+                                                            : 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-300'
+                                                    }`}>
+                                                        {res.ok ? `OK (${res.latencyMs}ms)` : res.status === 'authBlocked' ? 'Lỗi Key' : res.status === 'quotaBlocked' ? 'Hết Quota' : 'Lỗi'}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
                                 )}
                             </div>

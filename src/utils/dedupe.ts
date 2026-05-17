@@ -375,21 +375,41 @@ interface SharedClinicalStemAnalysis {
   objectiveMismatch: boolean;
 }
 
+const SHARED_CASE_SECTION_MARKER = /\[\s*(?:tình\s*huống|tinh\s*huong|câu\s*hỏi|cau\s*hoi)\s*\]/gi;
+const SHARED_CASE_LEAD_IN = new RegExp(
+  String.raw`(?:^|[\s:;,.([{-])` +
+  String.raw`(?:tình\s*huống(?:\s*lâm\s*sàng)?|tinh\s*huong(?:\s*lam\s*sang)?|dữ\s*kiện|du\s*kien|bệnh\s*cảnh|benh\s*canh|(?:clinical\s+)?vignette|case|item\s*set)` +
+  String.raw`(?:\s*(?:cho|dùng\s+cho|dung\s+cho|sử\s*dụng\s+cho|su\s+dung\s+cho|áp\s*dụng\s+cho|ap\s*dung\s+cho|for|covers?|applies?\s+to))?` +
+  String.raw`\s*(?:các\s+|the\s+)?(?:câu|cau|questions?|items?|q)\s*` +
+  String.raw`\d+(?:(?:\s*(?:[-–—,;]|và|va|and|&|đến|den|tới|toi|to|through)\s*)+\d+)*\s*[:.)-]?`,
+  'gi'
+);
+
+const stripSharedCaseScaffold = (text: string): string =>
+  String(text || '')
+    .replace(SHARED_CASE_LEAD_IN, ' ')
+    .replace(SHARED_CASE_SECTION_MARKER, ' ');
+
+const normalizeClinicalComparisonField = (text: string): string =>
+  normalizeSemanticField(stripSharedCaseScaffold(text));
+
 const questionObjectiveProfile = (text: string): QuestionObjectiveKey => {
   const normalized = normalizeSemanticField(text);
-  if (/\bchan\s+doan\b|\bdiagnosis\b|\bdiagnose\b|\bbenh\s+nao\b|\bphu\s+hop\s+nhat\b/.test(normalized)) return 'diagnosis';
-  if (/\bxu\s+tri\b|\bdieu\s+tri\b|\bthuoc\b|\bcan\s+lam\s+gi\b|\btreatment\b|\bmanagement\b|\bmanage\b|\bfirst\s+line\b/.test(normalized)) return 'treatment';
-  if (/\bbien\s+chung\b|\bcomplication\b|\bcomplicate\b/.test(normalized)) return 'complication';
-  if (/\bxet\s+nghiem\b|\bcan\s+lam\s+sang\b|\bsieu\s+am\b|\bct\b|\bmri\b|\btest\b|\binvestigation\b|\bimaging\b/.test(normalized)) return 'investigation';
   if (/\bchong\s+chi\s+dinh\b|\bkhong\s+nen\b|\bcontraindicat\b|\bavoid\b/.test(normalized)) return 'contraindication';
+  if (/\bxu\s+tri\b|\bdieu\s+tri\b|\bthuoc\b|\bcan\s+lam\s+gi\b|\btreatment\b|\bmanagement\b|\bmanage\b|\bfirst\s+line\b/.test(normalized)) return 'treatment';
+  if (/\bxet\s+nghiem\b|\bcan\s+lam\s+sang\b|\bsieu\s+am\b|\bct\b|\bmri\b|\btest\b|\binvestigation\b|\bimaging\b/.test(normalized)) return 'investigation';
+  if (/\bbien\s+chung\b|\bcomplication\b|\bcomplicate\b/.test(normalized)) return 'complication';
   if (/\btien\s+luong\b|\bprognosis\b|\brisk\b|\byeu\s+to\s+nguy\s+co\b/.test(normalized)) return 'prognosis';
   if (/\bco\s+che\b|\bnguyen\s+nhan\b|\bpathophysiology\b|\bmechanism\b|\bcause\b/.test(normalized)) return 'mechanism';
+  if (/\bchan\s+doan\b|\bdiagnosis\b|\bdiagnose\b|\bbenh\s+nao\b/.test(normalized)) return 'diagnosis';
   return 'normal';
 };
 
 const analyzeSharedClinicalStem = (a: string, b: string): SharedClinicalStemAnalysis | null => {
-  const tokensA = tokenize(a);
-  const tokensB = tokenize(b);
+  const normalizedA = normalizeClinicalComparisonField(a);
+  const normalizedB = normalizeClinicalComparisonField(b);
+  const tokensA = normalizedA.split(' ').filter(token => token.length > 1);
+  const tokensB = normalizedB.split(' ').filter(token => token.length > 1);
   const maxLen = Math.max(tokensA.length, tokensB.length);
   if (maxLen < 18) return null;
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MCQ } from '../types';
-import { buildMCQFingerprint, createDuplicateLookup, findDuplicate, normalizeMCQField } from './dedupe';
+import { buildMCQFingerprint, createDuplicateLookup, findDuplicate, normalizeMCQField, scoreMCQDuplicate } from './dedupe';
 
 const makeMCQ = (overrides: Partial<MCQ>): MCQ => ({
   id: overrides.id || 'q1',
@@ -465,6 +465,36 @@ describe('MCQ dedupe utilities', () => {
     });
 
     expect(findDuplicate(investigation, [complication]).action).toBe('unique');
+  });
+
+  it('does not dedupe adjacent questions that share a long pediatric clinical case but ask different objectives', () => {
+    const sharedCase = [
+      'Bé gái 5 tuổi đến khám vì đau khớp gối trái.',
+      'Bệnh sử: Cách nhập viện 5 ngày bệnh nhi có sốt nhẹ, nổi mụn mủ trên da ở cẳng chân 2 bên.',
+      'Cách nhập viện 2 ngày bệnh nhi than đau khớp gối trái, hạn chế vận động, tấy đỏ vùng da quanh khớp gối, sốt cao liên tục nên gia đình đưa bé đi khám tại bệnh viện Nhi Đồng.',
+      'Khám: Mạch 120 lần/phút, thân nhiệt 39°C, môi khô lưỡi dơ, đừ, còn vài nốt mụn mủ trên da cẳng chân hai bên rải rác.',
+      'Khớp gối trái sưng nề, mất hõm hai bên xương bánh chè, vùng da xung quanh tấy đỏ, đau khi vận động thụ động.',
+      'Xét nghiệm tại phòng khám: BC 25.000/ul, Neu 67% Hb 10.5 g/dl, PLT 650.000/ul, CRP 105 mg/dl.',
+      'Siêu âm: tràn dịch khớp gối trái lượng nhiều, dịch không đồng nhất.',
+    ].join(' ');
+    const diagnosis = makeMCQ({
+      question: `Tình huống cho câu 46, 47: ${sharedCase} [CÂU HỎI] 46. Chẩn đoán phù hợp nhất trên bệnh nhân này?`,
+      options: ['A. Viêm khớp tự phát thiếu niên', 'B. Viêm khớp nhiễm trùng', 'C. Thấp khớp cấp', 'D. Viêm mô tế bào'],
+      correctAnswer: 'B',
+    });
+    const investigation = makeMCQ({
+      question: `[TÌNH HUỐNG] ${sharedCase} [CÂU HỎI] 47. Xét nghiệm cần thực hiện để hỗ trợ chẩn đoán?`,
+      options: ['A. Cấy máu + kháng sinh đồ', 'B. X quang khớp gối 2 bên', 'C. MRI khớp gối 2 bên', 'D. Chọc hút dịch khớp làm tế bào, nhuộm gram và cấy dịch'],
+      correctAnswer: 'D',
+    });
+
+    const result = findDuplicate(investigation, [diagnosis]);
+    const scores = scoreMCQDuplicate(investigation, diagnosis);
+    expect(result.action).toBe('unique');
+    expect(result.isDup).toBe(false);
+    expect(scores.clinicalObjectiveMismatch).toBe(true);
+    expect(scores.sharedClinicalStem).toBeGreaterThan(0.7);
+    expect(scores.question).toBeLessThan(0.78);
   });
 
   it('does not treat identical options as duplicate when the clinical objective and correct answer differ', () => {

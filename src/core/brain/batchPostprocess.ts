@@ -37,6 +37,7 @@ export interface BatchPostprocessResult {
   rawQuestions: MCQ[];
   recoveryBudgetRemaining?: number | null;
   salvagedPartial: boolean;
+  usedApiKey?: string;
 }
 
 export interface BatchPostprocessState {

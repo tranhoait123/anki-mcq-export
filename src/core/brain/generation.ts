@@ -953,7 +953,7 @@ export const generateQuestions = async (
         const postprocessResult: BatchPostprocessResult = await (isOpenAICompatibleProvider(runtimeSettings.provider)
           ? executeWithUserRotation(
               extractionModel,
-              async (dummyKey, activeModel, attemptContext) => {
+              async (currentKey, activeModel, attemptContext) => {
                   const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
 
                   const messages = [
@@ -965,7 +965,8 @@ export const generateQuestions = async (
                     signal: attemptContext.signal,
                     timeoutMs: attemptContext.timeoutMs,
                   });
-                  return batchPostprocessor!.processBatch(createPostprocessInput(text));
+                  const postprocessResult = await batchPostprocessor!.processBatch(createPostprocessInput(text));
+                  return { ...postprocessResult, usedApiKey: currentKey };
               }
               ,
               undefined,
@@ -1089,7 +1090,8 @@ export const generateQuestions = async (
                       streamingPreviewParser?.dispose();
                   }
 
-                  return batchPostprocessor!.processBatch(createPostprocessInput(fullText));
+                  const postprocessResult = await batchPostprocessor!.processBatch(createPostprocessInput(fullText));
+                  return { ...postprocessResult, usedApiKey: currentKey };
               },
               batchStartingKey, // Per-batch key assignment
               stableFallbackModel,
@@ -1138,6 +1140,15 @@ export const generateQuestions = async (
             const canRecoverPdfVision = recoveryPolicy.shouldRecoverMissing && part.sourceMode === 'pdfVision' && !part.partialRecovery && part.pdfDataUrl;
             const canRecoverPartial = recoveryPolicy.shouldRecoverMissing && recoveryPolicy.maxRecoveryRequests > 0;
             if (missingRatio > 0.4 && !canRecoverPdfVision && !isKeyConservationActive()) {
+              if (postprocessResult.usedApiKey) {
+                userKeyRotator.markKeyResult(postprocessResult.usedApiKey, {
+                  kind: 'formatError',
+                  error: new Error(`Thiếu ${missingCount} câu (>${Math.round(missingRatio * 100)}%)`),
+                });
+                db.saveKeyHealth(userKeyRotator.exportHealthState()).catch(err =>
+                  console.error('Failed to save key health during salvage format error:', err)
+                );
+              }
               throw new Error(`AI_FORMAT_ERROR_PARTIAL_SALVAGE: Đã cứu ${rawNewQs.length} câu hợp lệ nhưng còn thiếu khoảng ${missingCount} câu (>${Math.round(missingRatio * 100)}%).`);
             } else if (!part.partialRecovery && canRecoverPartial) {
               console.info(`Batch ${batchLabel}: Salvage lấy được ${rawNewQs.length}/${expectedQuestions} câu (thiếu ${missingCount}). Đang cứu chọn lọc phần thiếu.`);

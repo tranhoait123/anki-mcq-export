@@ -8,7 +8,7 @@ export type KeyHealthStatus =
   | 'suspect'
   | 'providerPressure';
 
-export type KeyResultKind = 'success' | 'rateLimit' | 'quota' | 'auth' | 'suspect' | 'serverBusy';
+export type KeyResultKind = 'success' | 'rateLimit' | 'quota' | 'auth' | 'suspect' | 'serverBusy' | 'formatError';
 
 export interface KeySelectionOptions {
   excludeKeys?: Iterable<string>;
@@ -26,11 +26,13 @@ export interface KeyResult {
 
 export interface KeyHealthSnapshot {
   keyNumber: number;
+  keyTruncated: string;
   status: KeyHealthStatus;
   remainingMs: number;
   inFlightCount: number;
   failureCount: number;
   successCount: number;
+  formatErrorCount?: number;
   authStrikeCount: number;
   quotaStrikeCount: number;
   rateLimitStrikeCount: number;
@@ -48,6 +50,7 @@ interface KeyHealthRecord {
   inFlightCount: number;
   failureCount: number;
   successCount: number;
+  formatErrorCount: number;
   authStrikeCount: number;
   quotaStrikeCount: number;
   rateLimitStrikeCount: number;
@@ -81,6 +84,7 @@ const createKeyHealthRecord = (): KeyHealthRecord => ({
   inFlightCount: 0,
   failureCount: 0,
   successCount: 0,
+  formatErrorCount: 0,
   authStrikeCount: 0,
   quotaStrikeCount: 0,
   rateLimitStrikeCount: 0,
@@ -271,6 +275,24 @@ export class UserKeyRotator {
     const record = this.getOrCreateRecord(key);
     this.normalizeKeyState(key, now);
 
+    if (result.kind === 'formatError') {
+      record.status = 'healthy';
+      record.blockedUntil = 0;
+      record.formatErrorCount++;
+      record.lastSuccessAt = now;
+      record.lastError = undefined;
+
+      if (result.elapsedTimeMs !== undefined && !isNaN(result.elapsedTimeMs)) {
+        if (record.averageLatencyMs === undefined || isNaN(record.averageLatencyMs)) {
+          record.averageLatencyMs = result.elapsedTimeMs;
+        } else {
+          record.averageLatencyMs = 0.8 * record.averageLatencyMs + 0.2 * result.elapsedTimeMs;
+        }
+      }
+      this.registerSuccess();
+      return;
+    }
+
     if (result.kind === 'success') {
       record.status = 'healthy';
       record.blockedUntil = 0;
@@ -434,13 +456,15 @@ export class UserKeyRotator {
     const snapshot: Record<string, any> = {};
     for (const key of this.keys) {
       const record = this.getOrCreateRecord(key);
-      if (record.status !== 'healthy' || record.successCount > 0 || record.usageHistory.length > 0 || record.averageLatencyMs !== undefined) {
+      if (record.status !== 'healthy' || record.successCount > 0 || record.failureCount > 0 || record.formatErrorCount > 0 || record.usageHistory.length > 0 || record.averageLatencyMs !== undefined) {
         snapshot[key] = {
           status: record.status,
           blockedUntil: record.blockedUntil,
           lastFailureAt: record.lastFailureAt,
           lastSuccessAt: record.lastSuccessAt,
           successCount: record.successCount,
+          failureCount: record.failureCount,
+          formatErrorCount: record.formatErrorCount,
           usageHistory: record.usageHistory,
           tier: record.tier,
           averageLatencyMs: record.averageLatencyMs,
@@ -463,6 +487,8 @@ export class UserKeyRotator {
           record.lastFailureAt = saved.lastFailureAt || 0;
           record.lastSuccessAt = saved.lastSuccessAt || 0;
           record.successCount = saved.successCount || 0;
+          record.failureCount = saved.failureCount || 0;
+          record.formatErrorCount = saved.formatErrorCount || 0;
           record.usageHistory = saved.usageHistory || [];
           record.tier = saved.tier || 'unknown';
           record.averageLatencyMs = saved.averageLatencyMs;
@@ -479,11 +505,13 @@ export class UserKeyRotator {
       const record = this.getOrCreateRecord(key);
       return {
         keyNumber: this.getKeyNumber(key),
+        keyTruncated: key.length > 8 ? `${key.slice(0, 6)}...${key.slice(-4)}` : 'Key quá ngắn',
         status: record.status,
         remainingMs: Math.max(0, record.blockedUntil - now),
         inFlightCount: record.inFlightCount,
         failureCount: record.failureCount,
         successCount: record.successCount,
+        formatErrorCount: record.formatErrorCount,
         authStrikeCount: record.authStrikeCount,
         quotaStrikeCount: record.quotaStrikeCount,
         rateLimitStrikeCount: record.rateLimitStrikeCount,
@@ -495,6 +523,22 @@ export class UserKeyRotator {
         averageLatencyMs: record.averageLatencyMs,
       };
     });
+  }
+
+  resetHealthStats(): void {
+    for (const key of this.keys) {
+      const record = this.getOrCreateRecord(key);
+      record.successCount = 0;
+      record.failureCount = 0;
+      record.formatErrorCount = 0;
+      record.averageLatencyMs = undefined;
+      record.usageHistory = [];
+      record.authStrikeCount = 0;
+      record.quotaStrikeCount = 0;
+      record.rateLimitStrikeCount = 0;
+      record.suspectStrikeCount = 0;
+      record.lastError = undefined;
+    }
   }
 
   hasRecentProviderPressure(windowMs: number = 30 * 1000): boolean {

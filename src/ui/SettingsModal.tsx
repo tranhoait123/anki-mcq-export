@@ -107,6 +107,23 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
         }
     };
 
+    const handleAutoCleanGeminiKeys = () => {
+        if (!geminiKeysValidation) return;
+        const healthyOrBusyKeys = geminiKeysValidation.results
+            .filter(res => res.status !== 'authBlocked' && res.status !== 'quotaBlocked')
+            .map(res => res.keyRaw);
+        
+        if (healthyOrBusyKeys.length === geminiKeysValidation.totalChecked) {
+            toast.info("Tất cả các key của bạn đều bình thường/không lỗi. Không cần lọc!");
+            return;
+        }
+
+        const newKeysString = healthyOrBusyKeys.join(', ');
+        setSettings({ ...settings, apiKey: newKeysString });
+        toast.success(`Đã loại bỏ ${geminiKeysValidation.totalChecked - healthyOrBusyKeys.length} key lỗi/hết hạn ngạch! Còn lại ${healthyOrBusyKeys.length} keys.`);
+        setGeminiKeysValidation(null);
+    };
+
     const handleClearAll = async () => {
         const ok = await confirm({
             title: 'Xóa tất cả dữ liệu?',
@@ -404,13 +421,37 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                                                     <span className={`px-2 py-0.5 rounded-full font-black text-[10px] ${
                                                                         res.ok
                                                                             ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'
-                                                                            : 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-300'
+                                                                            : res.status === 'authBlocked'
+                                                                                ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300'
+                                                                                : res.status === 'quotaBlocked'
+                                                                                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300'
+                                                                                    : res.status === 'serverBusy'
+                                                                                        ? 'bg-orange-100 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300'
+                                                                                        : 'bg-slate-100 text-slate-700 dark:bg-slate-950/30 dark:text-slate-300'
                                                                     }`}>
-                                                                        {res.ok ? `OK (${res.latencyMs}ms)` : res.status === 'authBlocked' ? 'Lỗi Key' : res.status === 'quotaBlocked' ? 'Hết Quota' : 'Lỗi'}
+                                                                        {res.ok
+                                                                            ? `OK (${res.latencyMs}ms)`
+                                                                            : res.status === 'authBlocked'
+                                                                                ? 'Lỗi Key'
+                                                                                : res.status === 'quotaBlocked'
+                                                                                    ? 'Hết Quota'
+                                                                                    : res.status === 'serverBusy'
+                                                                                        ? '503 Bận'
+                                                                                        : 'Lỗi'}
                                                                     </span>
                                                                 </div>
                                                             ))}
                                                         </div>
+                                                        {geminiKeysValidation.healthyCount < geminiKeysValidation.totalChecked && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={handleAutoCleanGeminiKeys}
+                                                                className="group relative flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-black text-rose-700 transition-all hover:bg-rose-100 active:scale-[0.98] dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300 dark:hover:bg-rose-950/50 mt-2"
+                                                            >
+                                                                <Trash2 size={13} className="group-hover:rotate-12 transition-transform" />
+                                                                TỰ ĐỘNG LOẠI BỎ KEY LỖI ({geminiKeysValidation.totalChecked - geminiKeysValidation.healthyCount} KEYS)
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>

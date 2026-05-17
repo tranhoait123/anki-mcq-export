@@ -55,6 +55,7 @@ describe('Google Gemini API Key bulk validation', () => {
     expect(result.results[0].ok).toBe(true);
     expect(result.results[0].status).toBe('healthy');
     expect(result.results[0].keyTruncated).toBe('key-go...od-1');
+    expect(result.results[0].keyRaw).toBe('key-good-1');
   });
 
   it('diagnoses auth blocked keys (invalid api key)', async () => {

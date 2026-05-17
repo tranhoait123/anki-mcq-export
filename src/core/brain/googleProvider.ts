@@ -84,6 +84,7 @@ export const buildGoogleBatchMessage = (part: any, batchPrompt: string, cachedCo
 export interface GeminiKeyValidationResult {
   keyIndex: number;
   keyTruncated: string;
+  keyRaw: string;
   ok: boolean;
   status: 'healthy' | 'authBlocked' | 'quotaBlocked' | 'serverBusy' | 'unknown';
   latencyMs?: number;
@@ -144,6 +145,7 @@ export const validateGeminiKeys = async (
       return {
         keyIndex: index + 1,
         keyTruncated,
+        keyRaw: key,
         ok: true,
         status: 'healthy' as const,
         latencyMs,
@@ -189,6 +191,7 @@ export const validateGeminiKeys = async (
       return {
         keyIndex: index + 1,
         keyTruncated,
+        keyRaw: key,
         ok: false,
         status,
         latencyMs,

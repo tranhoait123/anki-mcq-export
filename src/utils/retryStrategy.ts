@@ -84,7 +84,7 @@ export const classifyBatchError = (error: any): BatchErrorKind => {
   if (statusCode === 400 || msg.includes('400 invalid_argument') || msg.includes('invalid_argument')) return 'fatal';
   if (hasRateLimitSignal) return 'rateLimit';
   if (hasAuthStatus) return 'auth';
-  if (statusCode === 503 || statusCode === 504 || msg.includes('503') || msg.includes('504') || msg.includes('unavailable') || msg.includes('overloaded') || msg.includes('deadline') || msg.includes('timeout') || msg.includes('econnreset') || msg.includes('failed to fetch') || msg.includes('network_error') || msg.includes('networkerror') || msg.includes('net::')) return 'serverBusy';
+  if (statusCode === 503 || statusCode === 504 || msg.includes('503') || msg.includes('504') || msg.includes('unavailable') || msg.includes('overloaded') || msg.includes('deadline') || msg.includes('timeout') || msg.includes('econnreset') || msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('network_error') || msg.includes('networkerror') || msg.includes('net::')) return 'serverBusy';
   if (msg.includes('không tìm thấy câu hỏi') || msg.includes('khong tim thay cau hoi') || msg.includes('questions.length') || msg.includes('empty')) return 'empty';
   if (msg.includes('ai_format_error') || msg.includes('json') || msg.includes('định dạng') || msg.includes('dinh dang') || msg.includes('format') || msg.includes('unexpected token') || msg.includes('truncated')) return 'format';
   return 'fatal';

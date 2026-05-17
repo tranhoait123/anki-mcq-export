@@ -22,6 +22,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   realtimePreviewEnabled: true,
   mainBatchOnlyRescue: false,
   visionPagesPerBatch: 2,
+  autoGroupClinicalCases: true,
 };
 
 export const isDocxFile = (file?: UploadedFile | null) =>
@@ -180,6 +181,7 @@ export const normalizePersistedSettings = (settings: LegacyPersistedSettings): A
   if (persistedSettings.realtimePreviewEnabled === undefined) persistedSettings.realtimePreviewEnabled = true;
   if (persistedSettings.mainBatchOnlyRescue === undefined) persistedSettings.mainBatchOnlyRescue = false;
   if (persistedSettings.visionPagesPerBatch === undefined) persistedSettings.visionPagesPerBatch = 2;
+  if (persistedSettings.autoGroupClinicalCases === undefined) persistedSettings.autoGroupClinicalCases = true;
 
   return persistedSettings;
 };

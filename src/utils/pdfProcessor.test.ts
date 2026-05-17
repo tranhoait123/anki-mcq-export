@@ -469,4 +469,52 @@ Dữ kiện bổ sung đủ dài để text layer được chấm goodText.
     expect(combinedText).toContain('Question: 54. Bệnh nhân nam');
     expect(combinedText).not.toContain('Sau khi xuất viện');
   });
+
+  it('automatically detects clinical case ranges and locks their pages into the same chunk', () => {
+    const page1Text = cleanMcqPage(3);
+    const page2Text = `
+Tình huống lâm sàng sau được dùng cho Câu 12 đến Câu 15:
+Bệnh nhân nam 45 tuổi nhập viện vì sốt và đau ngực dữ dội. Huyết áp tụt, mạch nhanh.
+${'Nội dung mô tả tình huống bệnh án rất chi tiết để tránh suspect.\n'.repeat(10)}
+`;
+    const page3Text = `
+Câu 12: Chẩn đoán nào phù hợp nhất?
+A. Phình bóc tách động mạch chủ
+B. Nhồi máu cơ tim cấp
+C. Thuyên tắc phổi
+D. Tràn dịch màng ngoài tim cấp
+Câu 13: Cận lâm sàng nào cần được thực hiện khẩn cấp?
+A. Siêu âm tim qua thành ngực
+B. Chụp cắt lớp vi tính ngực có cản quang
+C. Điện tâm đồ 12 chuyển đạo
+D. Men tim cơ tim
+${'Nội dung bổ sung đủ dài.\n'.repeat(8)}
+`;
+    const page4Text = `
+Câu 14: Hướng xử trí tiếp theo cho bệnh nhân này là gì?
+A. Phẫu thuật khẩn cấp
+B. Can thiệp mạch vành qua da
+C. Điều trị nội khoa bảo tồn
+D. Dẫn lưu màng ngoài tim
+Câu 15: Tiên lượng của ca bệnh này phụ thuộc vào yếu tố nào?
+A. Thời gian can thiệp sớm
+B. Tuổi của bệnh nhân
+C. Vị trí bóc tách
+D. Bệnh lý nền kèm theo
+${'Nội dung bổ sung đủ dài.\n'.repeat(8)}
+`;
+    const page5Text = cleanMcqPage(3);
+
+    const pages = [
+      scorePdfTextPage(page1Text, 1),
+      scorePdfTextPage(page2Text, 2),
+      scorePdfTextPage(page3Text, 3),
+      scorePdfTextPage(page4Text, 4),
+      scorePdfTextPage(page5Text, 5),
+    ];
+
+    const analysis = buildPdfTextAnalysisFromPages(pages, 2, 0, 10, true);
+    
+    expect(analysis.textBatches.some(batch => batch.pageRange.start === 1 && batch.pageRange.end === 4)).toBe(true);
+  });
 });

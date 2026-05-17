@@ -285,7 +285,13 @@ export const generateQuestions = async (
         const pdfDataUrl = file.content.startsWith('data:') ? file.content : `data:application/pdf;base64,${file.content}`;
         try {
           if (onProgress) onProgress(`Đang kiểm tra text layer PDF "${file.name}"...`, 0);
-          const pdfTextAnalysis = await analyzePdfTextLayer(pdfDataUrl, visionPagesPerChunk, 1, adaptiveQuestionCap);
+          const pdfTextAnalysis = await analyzePdfTextLayer(
+            pdfDataUrl,
+            visionPagesPerChunk,
+            1,
+            adaptiveQuestionCap,
+            runtimeSettings.autoGroupClinicalCases !== false
+          );
           if (pdfTextAnalysis.textBatches.length > 0) {
             pdfTextAnalysis.textBatches.forEach((batch, batchIndex) => {
               const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(batch.pageRange), `Nhóm ${batchIndex + 1}`);

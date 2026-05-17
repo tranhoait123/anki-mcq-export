@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Trash2, ChevronDown, ShieldAlert, Gauge, Zap, Database, RefreshCw, CheckCircle2, AlertCircle, Archive, Eye, ShieldCheck } from 'lucide-react';
+import { Settings as SettingsIcon, Trash2, ChevronDown, ShieldAlert, Gauge, Zap, Database, RefreshCw, CheckCircle2, AlertCircle, Archive, Eye, ShieldCheck, Lock } from 'lucide-react';
 import { userKeyRotator } from '../utils/keyRotator';
 import type { KeyHealthSnapshot } from '../utils/keyRotator';
 import { AppSettings } from '../types';
@@ -432,6 +432,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                         icon={<RefreshCw size={16} />}
                                         label="Adaptive Batch Sizing"
                                         description="Tự động chia nhỏ câu hỏi khi phát hiện Server quá tải. Đảm bảo tỷ lệ thành công 100%."
+                                        colorClass="text-indigo-500"
+                                    />
+                                </div>
+
+                                {/* Auto Group Clinical Cases */}
+                                <div className="border-t border-slate-100 dark:border-slate-800/50 pt-5">
+                                    <Toggle 
+                                        enabled={settings.autoGroupClinicalCases !== false}
+                                        onChange={val => setSettings({ ...settings, autoGroupClinicalCases: val })}
+                                        icon={<Lock size={16} />}
+                                        label="Tự động gộp ca lâm sàng"
+                                        description="Tự động phát hiện và gộp chung cụm câu hỏi đi kèm tình huống bệnh án hoặc bối cảnh liên kết để tránh bị cắt đôi ranh giới trang."
                                         colorClass="text-indigo-500"
                                     />
                                 </div>

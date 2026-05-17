@@ -255,6 +255,7 @@ export interface AppSettings {
   realtimePreviewEnabled?: boolean;
   mainBatchOnlyRescue?: boolean;
   visionPagesPerBatch?: number;
+  autoGroupClinicalCases?: boolean;
 }
 
 export interface ProjectSettingsSummary {
@@ -267,6 +268,7 @@ export interface ProjectSettingsSummary {
   realtimePreviewEnabled?: boolean;
   mainBatchOnlyRescue?: boolean;
   visionPagesPerBatch?: number;
+  autoGroupClinicalCases?: boolean;
   hasCustomPrompt: boolean;
 }
 

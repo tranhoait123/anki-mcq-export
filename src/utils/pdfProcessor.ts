@@ -329,9 +329,126 @@ const chunkBlocks = (blocks: string[], batchSize = 10): string[][] => {
     return chunks;
 };
 
-export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChunk = 3, overlap = 1, structuredBatchSize = 10): PdfTextAnalysis => {
+interface ClinicalCaseGroup {
+    startQuestion: number;
+    endQuestion: number;
+    startPage: number;
+    endPage: number;
+}
+
+export const detectClinicalCaseGroups = (pages: PdfTextPage[]): ClinicalCaseGroup[] => {
+    const groups: ClinicalCaseGroup[] = [];
+    
+    const patterns = [
+        /(?:câu|question|q|c)\s*(?:hỏi)?\s*(\d+)\s*(?:đến|–|-|through|to)\s*(?:câu)?\s*(\d+)/gi,
+        /(?:tình\s*huống|ca\s*bệnh|clinical\s*case|case)\s*\d*\s*\(\s*(?:câu|question|q|c)\s*(?:hỏi)?\s*(\d+)\s*(?:đến|–|-|through|to)\s*(\d+)\s*\)/gi
+    ];
+
+    const questionToPagesMap = new Map<number, Set<number>>();
+    const qMarkerRegex = /(?:^|\n|\s)(?:câu|cau|question|q)\s*(\d+)\s*[:.)-]/gi;
+    const bareMarkerRegex = /(?:^|\n|\s)(\d{1,3})\s*[\.)-]\s+[A-ZÀ-Ỹ\p{Lu}]/gu;
+
+    pages.forEach((page) => {
+        let match;
+        qMarkerRegex.lastIndex = 0;
+        while ((match = qMarkerRegex.exec(page.text)) !== null) {
+            const num = parseInt(match[1], 10);
+            if (!questionToPagesMap.has(num)) questionToPagesMap.set(num, new Set());
+            questionToPagesMap.get(num)!.add(page.pageNumber);
+        }
+
+        bareMarkerRegex.lastIndex = 0;
+        while ((match = bareMarkerRegex.exec(page.text)) !== null) {
+            const num = parseInt(match[1], 10);
+            if (!questionToPagesMap.has(num)) questionToPagesMap.set(num, new Set());
+            questionToPagesMap.get(num)!.add(page.pageNumber);
+        }
+    });
+
+    pages.forEach((page) => {
+        patterns.forEach((pattern) => {
+            let match;
+            pattern.lastIndex = 0;
+            while ((match = pattern.exec(page.text)) !== null) {
+                const startQ = parseInt(match[1], 10);
+                const endQ = parseInt(match[2], 10);
+                
+                if (startQ >= endQ || endQ - startQ > 8 || endQ - startQ < 1) {
+                    continue;
+                }
+
+                const groupPages = new Set<number>();
+                groupPages.add(page.pageNumber);
+
+                for (let q = startQ; q <= endQ; q++) {
+                    const qPages = questionToPagesMap.get(q);
+                    if (qPages) {
+                        qPages.forEach((p) => groupPages.add(p));
+                    }
+                }
+
+                if (groupPages.size > 0) {
+                    const minPage = Math.min(...groupPages);
+                    const maxPage = Math.max(...groupPages);
+                    
+                    if (maxPage - minPage <= 2) {
+                        const exists = groups.some(g => g.startQuestion === startQ && g.endQuestion === endQ);
+                        if (!exists) {
+                            groups.push({
+                                startQuestion: startQ,
+                                endQuestion: endQ,
+                                startPage: minPage,
+                                endPage: maxPage
+                            });
+                        }
+                    }
+                }
+            }
+        });
+    });
+
+    return groups;
+};
+
+const mergeRangesWithCaseGroups = (ranges: PdfPageRange[], caseGroups: ClinicalCaseGroup[]): PdfPageRange[] => {
+    if (caseGroups.length === 0) return ranges;
+
+    let currentRanges = [...ranges];
+    
+    for (const group of caseGroups) {
+        const touched: PdfPageRange[] = [];
+        const untouched: PdfPageRange[] = [];
+        
+        for (const r of currentRanges) {
+            const overlapStart = Math.max(r.start, group.startPage);
+            const overlapEnd = Math.min(r.end, group.endPage);
+            if (overlapStart <= overlapEnd) {
+                touched.push(r);
+            } else {
+                untouched.push(r);
+            }
+        }
+        
+        if (touched.length > 1) {
+            const mergedStart = Math.min(...touched.map(r => r.start));
+            const mergedEnd = Math.max(...touched.map(r => r.end));
+            untouched.push({ start: mergedStart, end: mergedEnd });
+            currentRanges = untouched.sort((a, b) => a.start - b.start);
+        }
+    }
+    
+    return currentRanges;
+};
+
+export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChunk = 3, overlap = 1, structuredBatchSize = 10, autoGroupClinicalCases = true): PdfTextAnalysis => {
     const pageCount = pages.length;
-    const ranges = buildPageRanges(pageCount, pagesPerChunk, overlap);
+    let ranges = buildPageRanges(pageCount, pagesPerChunk, overlap);
+
+    if (autoGroupClinicalCases) {
+        const caseGroups = detectClinicalCaseGroups(pages);
+        ranges = mergeRangesWithCaseGroups(ranges, caseGroups);
+    }
+
     const textBatches: PdfTextBatch[] = [];
     const visionPageRanges: PdfPageRange[] = [];
     const seenBlockFingerprints = new Set<string>();
@@ -421,7 +538,13 @@ const openPdf = async (base64OrUrl: string) => {
     return loadingTask.promise;
 };
 
-const analyzePdfTextLayerUncached = async (base64OrUrl: string, pagesPerChunk = 3, overlap = 1, structuredBatchSize = 10): Promise<PdfTextAnalysis> => {
+const analyzePdfTextLayerUncached = async (
+    base64OrUrl: string,
+    pagesPerChunk = 3,
+    overlap = 1,
+    structuredBatchSize = 10,
+    autoGroupClinicalCases = true
+): Promise<PdfTextAnalysis> => {
     const pdf = await openPdf(base64OrUrl);
     const samplePages = Math.min(3, pdf.numPages);
     const sampled: PdfTextPage[] = [];
@@ -473,17 +596,23 @@ const analyzePdfTextLayerUncached = async (base64OrUrl: string, pagesPerChunk = 
         }));
     }
 
-    return buildPdfTextAnalysisFromPages(pages, pagesPerChunk, overlap, structuredBatchSize);
+    return buildPdfTextAnalysisFromPages(pages, pagesPerChunk, overlap, structuredBatchSize, autoGroupClinicalCases);
 };
 
-export const analyzePdfTextLayer = async (base64OrUrl: string, pagesPerChunk = 3, overlap = 1, structuredBatchSize = 10): Promise<PdfTextAnalysis> => {
+export const analyzePdfTextLayer = async (
+    base64OrUrl: string,
+    pagesPerChunk = 3,
+    overlap = 1,
+    structuredBatchSize = 10,
+    autoGroupClinicalCases = true
+): Promise<PdfTextAnalysis> => {
     const baseHash = await hashStringSha256(base64OrUrl);
-    const cacheKey = `${baseHash}:${pagesPerChunk}:${overlap}:${structuredBatchSize}`;
+    const cacheKey = `${baseHash}:${pagesPerChunk}:${overlap}:${structuredBatchSize}:${autoGroupClinicalCases}`;
     const cached = pdfTextAnalysisCache.get(cacheKey);
     if (cached) return cached;
 
-    const analysisPromise = measureAsync(`pdf.analyzeTextLayer(${pagesPerChunk}/${overlap}/${structuredBatchSize})`, () =>
-        analyzePdfTextLayerUncached(base64OrUrl, pagesPerChunk, overlap, structuredBatchSize)
+    const analysisPromise = measureAsync(`pdf.analyzeTextLayer(${pagesPerChunk}/${overlap}/${structuredBatchSize}/${autoGroupClinicalCases})`, () =>
+        analyzePdfTextLayerUncached(base64OrUrl, pagesPerChunk, overlap, structuredBatchSize, autoGroupClinicalCases)
     );
     pdfTextAnalysisCache.set(cacheKey, analysisPromise);
     try {

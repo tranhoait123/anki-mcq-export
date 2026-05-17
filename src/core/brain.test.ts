@@ -1511,8 +1511,13 @@ Câu 12: Xử trí tiếp theo là gì?
       0
     );
 
-    // Verify analyzePdfTextLayer was called with visionPagesPerChunk = 4
-    expect(analyzeSpy).toHaveBeenCalledWith(expect.any(String), 4, 1, expect.any(Number));
+    expect(analyzeSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      4,
+      1,
+      expect.any(Number),
+      expect.any(Boolean)
+    );
 
     vi.unstubAllGlobals();
   });

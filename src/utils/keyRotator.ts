@@ -700,3 +700,6 @@ export class UserKeyRotator {
     }
   }
 }
+
+export const userKeyRotator = new UserKeyRotator();
+

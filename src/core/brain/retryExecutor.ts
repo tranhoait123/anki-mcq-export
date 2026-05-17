@@ -1,5 +1,5 @@
 import { ProcessingController } from '../../types';
-import { KeyHealthSnapshot, UserKeyRotator } from '../../utils/keyRotator';
+import { KeyHealthSnapshot, userKeyRotator } from '../../utils/keyRotator';
 import {
   getBackoffDelayMs,
   getRetryDecision,
@@ -10,7 +10,8 @@ import { DEFAULT_GEMINI_MODEL } from '../../utils/models';
 import { getRetryDelayMsFromError } from './providerErrors';
 import { db } from '../db';
 
-export const userKeyRotator = new UserKeyRotator();
+export { userKeyRotator };
+
 
 export interface RetryAttemptContext {
   attempt: number;

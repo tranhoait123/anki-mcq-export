@@ -8,7 +8,7 @@ vi.mock('@google/genai', () => {
       this.apiKey = config.apiKey;
     }
     models = {
-      generateContent: async (options: any) => {
+      generateContent: async (_options: any) => {
         const key = this.apiKey;
         if (key === 'invalid-key') {
           throw new Error('API_KEY_INVALID: The provided API key is invalid.');

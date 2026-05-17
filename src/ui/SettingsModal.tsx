@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Trash2, ChevronDown, ChevronUp, ShieldAlert, Gauge, Zap, Database, RefreshCw, CheckCircle2, AlertCircle, Archive, Eye, ShieldCheck } from 'lucide-react';
-import { userKeyRotator } from '../core/brain/retryExecutor';
+import { Settings as SettingsIcon, Trash2, ChevronDown, ShieldAlert, Gauge, Zap, Database, RefreshCw, CheckCircle2, AlertCircle, Archive, Eye, ShieldCheck } from 'lucide-react';
+import { userKeyRotator } from '../utils/keyRotator';
 import type { KeyHealthSnapshot } from '../utils/keyRotator';
 import { AppSettings } from '../types';
 import { db } from '../core/db';
@@ -435,8 +435,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                         {(() => {
                                             let totalRequests = 0;
                                             let totalSuccess = 0;
-                                            let totalFailure = 0;
-                                            let totalFormatError = 0;
                                             let latencies: number[] = [];
                                             keyHealthList.forEach(item => {
                                                 const s = item.successCount || 0;
@@ -444,8 +442,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                                 const fmt = item.formatErrorCount || 0;
                                                 totalRequests += (s + f + fmt);
                                                 totalSuccess += s;
-                                                totalFailure += f;
-                                                totalFormatError += fmt;
                                                 if (item.averageLatencyMs && item.averageLatencyMs > 0) {
                                                     latencies.push(item.averageLatencyMs);
                                                 }

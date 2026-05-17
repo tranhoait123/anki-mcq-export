@@ -7,12 +7,12 @@ export default defineConfig({
     timeout: 10_000,
   },
   use: {
-    baseURL: 'http://127.0.0.1:3100',
+    baseURL: 'http://127.0.0.1:3000',
     trace: 'on-first-retry',
   },
   webServer: {
-    command: 'npm run dev -- --mode e2e --host 127.0.0.1 --port 3100',
-    url: 'http://127.0.0.1:3100',
+    command: 'npm run dev -- --mode e2e --host 127.0.0.1 --port 3000',
+    url: 'http://127.0.0.1:3000',
     reuseExistingServer: false,
     timeout: 60_000,
   },

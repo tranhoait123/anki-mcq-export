@@ -500,6 +500,90 @@ describe('Core Logic', () => {
     ]);
   });
 
+  it('salvages truncated provider output before recovering the missing native block', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const makeQuestionPayload = (question: string) => ({
+      question,
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: {
+        core: 'A đúng.',
+        evidence: '',
+        analysis: '',
+        warning: '',
+      },
+      source: 'model-source',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    });
+    const partialText = `{"questions":[${[
+      makeQuestionPayload('1. Alpha stem?'),
+      makeQuestionPayload('2. Beta stem?'),
+    ].map(question => JSON.stringify(question)).join(',')},{"question":"3. Gamma`;
+    const truncatedProviderResponse = () => new Response(JSON.stringify({
+      choices: [{
+        finish_reason: 'length',
+        message: { content: partialText },
+      }],
+    }), { status: 200 });
+    const providerResponse = (questions: any[]) => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ questions }) } }],
+    }), { status: 200 });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(truncatedProviderResponse())
+      .mockResolvedValueOnce(truncatedProviderResponse())
+      .mockResolvedValueOnce(providerResponse([
+        makeQuestionPayload('3. Gamma stem?'),
+      ]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-1',
+        name: 'deck.docx',
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        content: '',
+        nativeText: [
+          '[DOCX_NATIVE_MCQ_COUNT: 3]',
+          '',
+          '<<<MCQ 1>>>',
+          'Question: 1. Alpha stem?',
+          'A. Một',
+          'B. Hai',
+          'C. Ba',
+          'D. Bốn',
+          '',
+          '<<<MCQ 2>>>',
+          'Question: 2. Beta stem?',
+          'A. Một',
+          'B. Hai',
+          'C. Ba',
+          'D. Bốn',
+          '',
+          '<<<MCQ 3>>>',
+          'Question: 3. Gamma stem?',
+          'A. Một',
+          'B. Hai',
+          'C. Ba',
+          'D. Bốn',
+        ].join('\n'),
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.failedBatches).toEqual([]);
+    expect(result.failedBatchDetails).toEqual([]);
+    expect(result.questions.map((question) => question.question).sort()).toEqual([
+      'Alpha stem?',
+      'Beta stem?',
+      'Gamma stem?',
+    ]);
+  });
+
   it('keeps OpenRouter recovery independent from Google key-conservation pressure', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const progressMessages: string[] = [];
@@ -951,6 +1035,29 @@ describe('Core Logic', () => {
     ]);
     expect(snapshot.duplicatesSnapshot.map((item) => item.id)).toEqual(['existing-dup', 'dup-1']);
     expect(snapshot.autoSkippedCount).toBe(4);
+  });
+
+  it('upserts retried questions by id in final snapshots', () => {
+    const snapshot = buildCompletedBatchSnapshot(
+      [
+        { id: 'batch-3-question', question: 'Bad old batch 3 text' },
+        { id: 'batch-1-question', question: 'Keep batch 1' },
+      ],
+      [],
+      0,
+      new Map([
+        [3, [{ id: 'batch-3-question', question: 'Repaired batch 3 text' }]],
+      ]),
+      new Map(),
+      new Map(),
+      [3]
+    );
+
+    expect(snapshot.questionsSnapshot).toHaveLength(2);
+    expect(snapshot.questionsSnapshot.map((item) => item.question)).toEqual([
+      'Repaired batch 3 text',
+      'Keep batch 1',
+    ]);
   });
 
   it('computes safe adaptive question batch sizes from output budgets', () => {
@@ -1475,6 +1582,143 @@ Câu 12: Xử trí tiếp theo là gì?
     // KEY ASSERTION: The maximum active concurrent requests must be strictly 1 at all times
     expect(maxConcurrentRequests).toBe(1);
     expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps provider-pressure PDF Vision batches retryable when recovered count is not reliable', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const pdfProcessor = await import('../utils/pdfProcessor');
+    vi.spyOn(pdfProcessor, 'analyzePdfTextLayer').mockResolvedValue({
+      pageCount: 1,
+      pages: [{
+        ...pdfProcessor.scorePdfTextPage('', 1),
+        quality: 'scanOrEmpty',
+      }],
+      textBatches: [],
+      visionPageRanges: [{ start: 1, end: 1 }],
+      detectedMcqCount: 0,
+      mode: 'vision',
+    });
+    vi.spyOn(pdfProcessor, 'convertPdfToImages').mockResolvedValue(['image1']);
+
+    const makeQuestionPayload = (question: string) => ({
+      question,
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: { core: 'A đúng.', evidence: '', analysis: '', warning: '' },
+      source: 'model-source',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    });
+    const providerResponse = (questions: any[]) => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ questions }) } }],
+    }), { status: 200 });
+    const busyResponse = () => new Response(JSON.stringify({
+      error: { message: '503 UNAVAILABLE provider overloaded' },
+    }), { status: 503 });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(busyResponse())
+      .mockResolvedValueOnce(busyResponse())
+      .mockResolvedValueOnce(providerResponse([
+        makeQuestionPayload('1. Alpha stem?'),
+        makeQuestionPayload('2. Beta stem?'),
+        makeQuestionPayload('3. Gamma stem?'),
+        makeQuestionPayload('4. Delta stem?'),
+      ]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-pdf-vision-uncertain-recovery',
+        name: 'scan.pdf',
+        type: 'application/pdf',
+        content: 'data:application/pdf;base64,JVBERi0xLjQK...',
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.questions).toHaveLength(3);
+    expect(result.failedBatches).toEqual([1]);
+    expect(result.failedBatchDetails[0]).toMatchObject({
+      index: 1,
+      kind: 'serverBusy',
+      stage: 'partial',
+      recoveredCount: 3,
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps interrupted partial salvage retryable when expected count is not reliable', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const pdfProcessor = await import('../utils/pdfProcessor');
+    vi.spyOn(pdfProcessor, 'analyzePdfTextLayer').mockResolvedValue({
+      pageCount: 1,
+      pages: [{
+        ...pdfProcessor.scorePdfTextPage('', 1),
+        quality: 'scanOrEmpty',
+      }],
+      textBatches: [],
+      visionPageRanges: [{ start: 1, end: 1 }],
+      detectedMcqCount: 0,
+      mode: 'vision',
+    });
+    vi.spyOn(pdfProcessor, 'convertPdfToImages').mockResolvedValue(['image1']);
+
+    const makeQuestionPayload = (question: string) => ({
+      question,
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: { core: 'A đúng.', evidence: '', analysis: '', warning: '' },
+      source: 'model-source',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    });
+    const partialText = `{"questions":[${[
+      makeQuestionPayload('1. Alpha stem?'),
+      makeQuestionPayload('2. Beta stem?'),
+    ].map(question => JSON.stringify(question)).join(',')},{"question":"3. Gamma`;
+    const truncatedProviderResponse = () => new Response(JSON.stringify({
+      choices: [{
+        finish_reason: 'length',
+        message: { content: partialText },
+      }],
+    }), { status: 200 });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(truncatedProviderResponse())
+      .mockResolvedValueOnce(truncatedProviderResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-pdf-vision-uncertain-partial',
+        name: 'scan-partial.pdf',
+        type: 'application/pdf',
+        content: 'data:application/pdf;base64,JVBERi0xLjQK...',
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.questions.map(question => question.question).sort()).toEqual([
+      'Alpha stem?',
+      'Beta stem?',
+    ]);
+    expect(result.failedBatches).toEqual([1]);
+    expect(result.failedBatchDetails[0]).toMatchObject({
+      index: 1,
+      kind: 'format',
+      stage: 'partial',
+      recoveredCount: 2,
+    });
 
     vi.unstubAllGlobals();
   });

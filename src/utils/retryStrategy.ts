@@ -39,6 +39,28 @@ export interface RetryDecision {
   message: string;
 }
 
+const BATCH_ERROR_KINDS = new Set<BatchErrorKind>(['format', 'empty', 'rateLimit', 'serverBusy', 'auth', 'fatal']);
+const RETRY_DECISION_CAUSES = new Set<RetryDecisionCause>([
+  'auth',
+  'hardQuota',
+  'softRateLimit',
+  'serverBusy',
+  'requestTooLarge',
+  'format',
+  'empty',
+  'fatal',
+]);
+
+const getExplicitRetryKind = (error: any): BatchErrorKind | undefined => {
+  const retryKind = String(error?.retryKind || '').trim();
+  return BATCH_ERROR_KINDS.has(retryKind as BatchErrorKind) ? retryKind as BatchErrorKind : undefined;
+};
+
+const getExplicitRetryCause = (error: any): RetryDecisionCause | undefined => {
+  const retryCause = String(error?.retryCause || '').trim();
+  return RETRY_DECISION_CAUSES.has(retryCause as RetryDecisionCause) ? retryCause as RetryDecisionCause : undefined;
+};
+
 export const RETRY_PROFILES: Record<RetryProfileName, RetryProfile> = {
   normal: {
     name: 'normal',
@@ -75,6 +97,9 @@ export const RETRY_PROFILES: Record<RetryProfileName, RetryProfile> = {
 export const getRetryProfile = (name: RetryProfileName = 'normal'): RetryProfile => RETRY_PROFILES[name] || RETRY_PROFILES.normal;
 
 export const classifyBatchError = (error: any): BatchErrorKind => {
+  const explicitKind = getExplicitRetryKind(error);
+  if (explicitKind) return explicitKind;
+
   const msg = (error?.message || String(error) || '').toLowerCase();
   const statusCode = error?.status || error?.statusCode || 0;
 
@@ -151,7 +176,55 @@ export const getRetryDecision = (
   attempts = 1
 ): RetryDecision => {
   const kind = classifyBatchError(error);
+  const explicitCause = getExplicitRetryCause(error);
   const retryDelayMs = getRetryDelayHintMs(error);
+
+  if (explicitCause === 'requestTooLarge') {
+    return {
+      kind: 'format',
+      cause: 'requestTooLarge',
+      action: 'split',
+      retryDelayMs,
+      shouldTryFallbackModel: false,
+      message: 'Request is too large; split instead of retrying the same payload.',
+    };
+  }
+
+  if (explicitCause === 'serverBusy') {
+    const fastFail = profile.serverBusyFastFailAttempt !== undefined && attempts >= profile.serverBusyFastFailAttempt;
+    return {
+      kind: 'serverBusy',
+      cause: 'serverBusy',
+      action: fastFail ? 'split' : 'retry',
+      retryDelayMs,
+      shouldTryFallbackModel: attempts > profile.fallbackAfterAttempt,
+      message: fastFail ? 'Server busy persistently; fast-failing to trigger subdivision.' : 'Server/network pressure detected; use capped full-jitter backoff.',
+    };
+  }
+
+  if (explicitCause === 'softRateLimit') {
+    return {
+      kind: 'rateLimit',
+      cause: 'softRateLimit',
+      action: 'retry',
+      cooldownKind: 'rateLimit',
+      retryDelayMs,
+      shouldTryFallbackModel: false,
+      message: 'Transient throttle detected; honor provider delay before trying backup keys.',
+    };
+  }
+
+  if (explicitCause === 'hardQuota') {
+    return {
+      kind: 'rateLimit',
+      cause: 'hardQuota',
+      action: 'fail',
+      cooldownKind: 'rateLimit',
+      retryDelayMs,
+      shouldTryFallbackModel: false,
+      message: 'Hard quota/billing limit detected; try another key or stop this batch.',
+    };
+  }
 
   if (kind === 'auth') {
     return {

@@ -3,6 +3,7 @@ import {
   applySharedCaseContextToBlocks,
   applySharedCaseContextToQuestion,
   extractSharedCaseContexts,
+  normalizeSharedCaseQuestion,
 } from './sharedCaseContext';
 
 describe('shared case context detection', () => {
@@ -138,5 +139,48 @@ Cau 25. Mot can lam sang nao can lam ngay?
     // Must NOT double-prepend
     expect(result).toBe(aiQuestion);
   });
-});
 
+  it('collapses nested shared-case wrappers and keeps the cleaner clinical stem', () => {
+    const duplicated = [
+      '[TÌNH HUỐNG]',
+      'Tinh huong sau sir dung cho cau 25-26 Benh nhan nam, 68 tui, 2 tuan nay ty ngung dieu tri Suy tim, Ying huyet ap. Cach nhap vien 4 gid, benh nhan dang ngu thi dot ngOt kho the phai nam dau cao nen nhap vien.',
+      '',
+      '[CÂU HỎI]',
+      '[TÌNH HUỐNG]',
+      'Bệnh nhân nam, 68 tuổi, 2 tuần nay tự ngừng điều trị Suy tim, tăng huyết áp. Cách nhập viện 4 giờ, bệnh nhân đang ngủ thì đột ngột khó thở phải nằm đầu cao nên nhập viện. Tại bệnh viện: người bệnh có vẻ kích động, da ẩm rịn mồ hôi, khó thở co kéo các hố hấp phụ, huyết áp 200/100mmHg, SpO2 88%, tim T1 và T2 đều, nghe T3 rõ ở mỏm, tần số tim 120 lần/phút, phổi ran ẩm hai phế trường.',
+      '',
+      '[CÂU HỎI]',
+      '25. Một cận lâm sàng nào cần làm ngay để chẩn đoán bệnh cảnh trên:',
+    ].join('\n');
+
+    const normalized = normalizeSharedCaseQuestion(duplicated);
+
+    expect(normalized.match(/\[TÌNH HUỐNG\]/g)).toHaveLength(1);
+    expect(normalized.match(/\[CÂU HỎI\]/g)).toHaveLength(1);
+    expect(normalized).toContain('Bệnh nhân nam, 68 tuổi');
+    expect(normalized).toContain('25. Một cận lâm sàng nào cần làm ngay');
+    expect(normalized).not.toContain('sir dung');
+    expect(normalized).not.toContain('Ying huyet ap');
+  });
+
+  it('recognizes an already-present clean Vision stem despite a noisy OCR text-layer context', () => {
+    const noisyOcrSource = `
+Tinh huong sau sir dung cho cau 25-26 Benh nhan nam, 68 tui, 2 tuan nay ty ngung dieu tri Suy tim, Ying huyet ap. Cach nhap vien 4 gid, benh nhan dang ngu thi dot ngOt kho the phai nam dau cao nen nhap vien.
+Cau 25. Mot can lam sang nao can lam ngay de chan doan?
+`;
+    const contexts = extractSharedCaseContexts(noisyOcrSource);
+    const aiQuestion = [
+      '[TÌNH HUỐNG]',
+      'Bệnh nhân nam, 68 tuổi, 2 tuần nay tự ngừng điều trị Suy tim, tăng huyết áp. Cách nhập viện 4 giờ, bệnh nhân đang ngủ thì đột ngột khó thở phải nằm đầu cao nên nhập viện.',
+      '',
+      '[CÂU HỎI]',
+      '25. Một cận lâm sàng nào cần làm ngay để chẩn đoán bệnh cảnh trên:',
+    ].join('\n');
+
+    const result = applySharedCaseContextToQuestion(aiQuestion, contexts);
+
+    expect(result).toBe(normalizeSharedCaseQuestion(aiQuestion));
+    expect(result.match(/\[TÌNH HUỐNG\]/g)).toHaveLength(1);
+    expect(result).not.toContain('sir dung');
+  });
+});

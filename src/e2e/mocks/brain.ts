@@ -298,7 +298,7 @@ export const generateQuestions = async (
 
 export const validateGeminiKeys = async (
   apiKeyString: string,
-  modelName: string = 'gemini-2.5-flash'
+  _modelName: string = 'gemini-2.5-flash'
 ) => {
   const parts = apiKeyString.split(/[,;\n\r]+/);
   const seenKeys = new Set<string>();

@@ -28,6 +28,33 @@ describe('batch retry strategy', () => {
     expect(getRetryProfile('rescue').maxElapsedMs).toBeGreaterThan(45_000);
   });
 
+  it('preserves provider-pressure metadata when a retry executor wraps the error', () => {
+    const wrappedServerBusy = Object.assign(new Error('AI_FORMAT_ERROR_TRUNCATED'), {
+      retryKind: 'serverBusy',
+      retryCause: 'serverBusy',
+    });
+    const wrappedRateLimit = Object.assign(new Error('RETRY_BUDGET_EXHAUSTED'), {
+      retryKind: 'rateLimit',
+      retryCause: 'softRateLimit',
+      retryAfterMs: 45000,
+    });
+
+    expect(classifyBatchError(wrappedServerBusy)).toBe('serverBusy');
+    expect(describeBatchError(wrappedServerBusy).kind).toBe('serverBusy');
+    expect(getRetryDecision(wrappedServerBusy, getRetryProfile('normal'), 1)).toMatchObject({
+      kind: 'serverBusy',
+      cause: 'serverBusy',
+      action: 'retry',
+    });
+    expect(classifyBatchError(wrappedRateLimit)).toBe('rateLimit');
+    expect(getRetryDecision(wrappedRateLimit, getRetryProfile('normal'), 1)).toMatchObject({
+      kind: 'rateLimit',
+      cause: 'softRateLimit',
+      action: 'retry',
+      retryDelayMs: 45000,
+    });
+  });
+
   it('separates hard quota from soft throttling decisions', () => {
     const hardQuota = getRetryDecision(new Error('429 RESOURCE_EXHAUSTED: exceeded your current quota, check billing'), getRetryProfile('normal'), 1);
     const softThrottle = getRetryDecision({ statusCode: 429, message: 'too many requests', retryAfterMs: 12000 }, getRetryProfile('normal'), 1);

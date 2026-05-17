@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MCQ } from '../../types';
 import {
   compactQuestionForDedupe,
@@ -22,7 +22,14 @@ const makeQuestion = (id: number): MCQ => ({
   depthAnalysis: 'Nhận biết',
 });
 
+const countSharedCaseMarkers = (value: string): number =>
+  (value.match(/\[\s*(?:TÌNH HUỐNG|CÂU HỎI)\s*\]/gi) || []).length;
+
 describe('processBatchPostprocess', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('keeps seed dedupe state compact while preserving match-critical fields', () => {
     const compact = compactQuestionForDedupe({
       ...makeQuestion(1),
@@ -109,6 +116,115 @@ describe('processBatchPostprocess', () => {
     expect(result.coverageKeys).toHaveLength(0);
   });
 
+  it('replaces a bad seeded same-source question only during targeted retry', async () => {
+    const sourceLabel = 'merged.pdf | Trang 4-5';
+    const cleanStem = 'Bệnh nhân nam, 68 tuổi, 2 tuần nay tự ngừng điều trị suy tim, tăng huyết áp. Cách nhập viện 4 giờ, bệnh nhân đang ngủ thì đột ngột khó thở phải nằm đầu cao nên nhập viện.';
+    const questionPayload = '25. Một cận lâm sàng nào cần làm ngay để chẩn đoán bệnh cảnh trên?';
+    const options = ['A. Điện tâm đồ', 'B. X-Quang ngực', 'C. Siêu âm tim', 'D. Men tim'];
+    const badSeed: MCQ = {
+      ...makeQuestion(3),
+      id: 'seed-batch-3',
+      question: [
+        '[TÌNH HUỐNG]',
+        'Tinh huong sau sir dung cho cau 25-26 Benh nhan nam, 68 tuoi, 2 tuan nay ty ngung dieu tri Suy tim, Ying huyet ap.',
+        '',
+        '[CÂU HỎI]',
+        '[TÌNH HUỐNG]',
+        cleanStem,
+        '',
+        '[CÂU HỎI]',
+        questionPayload,
+      ].join('\n'),
+      options,
+      correctAnswer: 'A',
+      source: sourceLabel,
+    };
+    const repairedQuestion = {
+      ...makeQuestion(3),
+      question: [
+        '[TÌNH HUỐNG]',
+        cleanStem,
+        '',
+        '[CÂU HỎI]',
+        questionPayload,
+      ].join('\n'),
+      options,
+      correctAnswer: 'A',
+      source: sourceLabel,
+    };
+    const state = createBatchPostprocessState([badSeed]);
+
+    const result = await processBatchPostprocess({
+      allowEmpty: false,
+      batchIndex: 2,
+      expectedQuestions: 1,
+      fullText: JSON.stringify({ questions: [repairedQuestion] }),
+      partMeta: {
+        sourceLabel,
+        text: '',
+      },
+      replaceSeededSourceDuplicates: true,
+      topLevelBatchNumber: 3,
+    }, state);
+
+    expect(result.newQuestions).toHaveLength(1);
+    expect(result.newQuestions[0].id).toBe('seed-batch-3');
+    expect(result.newQuestions[0].question).toContain(cleanStem);
+    expect(result.newQuestions[0].question).not.toContain('sir dung');
+    expect(result.newQuestions[0].question).not.toContain('Ying huyet ap');
+    expect(countSharedCaseMarkers(result.newQuestions[0].question)).toBe(2);
+    expect(result.duplicates).toHaveLength(0);
+    expect(result.autoSkippedCount).toBe(0);
+    expect(result.coverageKeys).toHaveLength(1);
+  });
+
+  it('keeps a good seeded same-source question instead of replacing it with a weaker duplicate', async () => {
+    const sourceLabel = 'merged.pdf | Trang 4-5';
+    const cleanStem = 'Bệnh nhân nam, 68 tuổi, 2 tuần nay tự ngừng điều trị suy tim, tăng huyết áp.';
+    const questionPayload = '25. Một cận lâm sàng nào cần làm ngay để chẩn đoán bệnh cảnh trên?';
+    const options = ['A. Điện tâm đồ', 'B. X-Quang ngực', 'C. Siêu âm tim', 'D. Men tim'];
+    const goodSeed: MCQ = {
+      ...makeQuestion(3),
+      id: 'seed-good',
+      question: [
+        '[TÌNH HUỐNG]',
+        cleanStem,
+        '',
+        '[CÂU HỎI]',
+        questionPayload,
+      ].join('\n'),
+      options,
+      correctAnswer: 'A',
+      source: sourceLabel,
+    };
+    const weakerDuplicate = {
+      ...makeQuestion(3),
+      question: questionPayload,
+      options,
+      correctAnswer: 'A',
+      source: sourceLabel,
+    };
+    const state = createBatchPostprocessState([goodSeed]);
+
+    const result = await processBatchPostprocess({
+      allowEmpty: false,
+      batchIndex: 2,
+      expectedQuestions: 1,
+      fullText: JSON.stringify({ questions: [weakerDuplicate] }),
+      partMeta: {
+        sourceLabel,
+        text: '',
+      },
+      replaceSeededSourceDuplicates: true,
+      topLevelBatchNumber: 3,
+    }, state);
+
+    expect(result.newQuestions).toHaveLength(0);
+    expect(result.duplicates).toHaveLength(0);
+    expect(result.autoSkippedCount).toBe(0);
+    expect(result.coverageKeys).toHaveLength(0);
+  });
+
   it('spends selective recovery budget when an existing question from another source covers the missing item', async () => {
     const seed = {
       ...makeQuestion(1),
@@ -137,6 +253,43 @@ describe('processBatchPostprocess', () => {
     expect(result.coverageKeys).toHaveLength(1);
     expect(result.newQuestions).toHaveLength(0);
     expect(result.recoveryBudgetRemaining).toBe(0);
+  });
+
+  it('tracks coverage by question fingerprint even when generated ids collide', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(123);
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const state = createBatchPostprocessState();
+
+    const result = await processBatchPostprocess({
+      allowEmpty: false,
+      batchIndex: 0,
+      expectedQuestions: 2,
+      fullText: JSON.stringify({
+        questions: [
+          {
+            ...makeQuestion(1),
+            question: 'Câu 1: Thuốc nào làm giảm tiền tải trong phù phổi cấp?',
+            options: ['A. Nitroglycerin', 'B. Amoxicillin', 'C. Insulin', 'D. Omeprazole'],
+          },
+          {
+            ...makeQuestion(2),
+            question: 'Câu 2: Cận lâm sàng nào cần làm ngay khi nghi nhồi máu cơ tim?',
+            options: ['A. Điện tâm đồ', 'B. Nội soi dạ dày', 'C. Soi đáy mắt', 'D. Đo loãng xương'],
+          },
+        ],
+      }),
+      partMeta: {
+        sourceLabel: 'deck.docx | Nhóm 1',
+        text: '',
+      },
+      topLevelBatchNumber: 1,
+    }, state);
+
+    expect(result.newQuestions).toHaveLength(2);
+    expect(result.newQuestions[0].id).toBe(result.newQuestions[1].id);
+    expect(result.coverageKeys).toHaveLength(2);
+    expect(new Set(result.coverageKeys).size).toBe(2);
+    expect(result.coverageKeys.every(key => key.startsWith('fp:'))).toBe(true);
   });
 
   it('keeps partial salvage metadata for recovery decisions', async () => {

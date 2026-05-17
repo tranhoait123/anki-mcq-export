@@ -16,6 +16,31 @@ const SHARED_CASE_MARKER = new RegExp(
 );
 const SHARED_CASE_PREFIX = '[TÌNH HUỐNG]';
 const SHARED_CASE_QUESTION_PREFIX = '[CÂU HỎI]';
+const SHARED_CASE_SECTION_MARKER = /\[\s*(tình\s*huống|tinh\s*huong|câu\s*hỏi|cau\s*hoi)\s*\]/gi;
+const SHARED_CASE_INTRO_PATTERN = new RegExp(
+  String.raw`^(?:tình\s*huống(?:\s*lâm\s*sàng)?|tinh\s*huong(?:\s*lam\s*sang)?|dữ\s*kiện|du\s*kien|bệnh\s*cảnh|benh\s*canh|(?:clinical\s+)?vignette|case|item\s*set)` +
+  String.raw`[\s\S]{0,160}?\b\d+(?:(?:\s*${RANGE_JOINER}\s*)+\d+)+\s*[:.)-]?\s*`,
+  'i'
+);
+const STOP_WORDS = new Set([
+  'cho',
+  'cau',
+  'hoi',
+  'dung',
+  'dungcho',
+  'sau',
+  'the',
+  'and',
+  'for',
+  'questions',
+  'question',
+  'items',
+  'item',
+  'tinh',
+  'huong',
+  'lam',
+  'sang',
+]);
 
 const normalizeWhitespace = (value: string): string =>
   value.replace(/\s+/g, ' ').trim();
@@ -55,12 +80,102 @@ const getDeclaredQuestionRange = (value: string): { startQuestion: number; endQu
 const stripDiacritics = (text: string): string =>
   text.normalize('NFD').replace(/[\u0300-\u036f\u0301-\u0309\u0323]/g, '').replace(/[đĐ]/g, 'd');
 
+const stripSharedCaseIntro = (value: string): string =>
+  normalizeWhitespace(value.replace(SHARED_CASE_INTRO_PATTERN, ''));
+
+const stripSharedCaseSectionMarkers = (value: string): string =>
+  value.replace(SHARED_CASE_SECTION_MARKER, ' ');
+
+const normalizeForComparison = (value: string): string =>
+  stripDiacritics(stripSharedCaseSectionMarkers(value).toLowerCase())
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const getMeaningfulStem = (value: string): string =>
+  normalizeForComparison(stripSharedCaseIntro(value));
+
+const tokenizeForOverlap = (value: string): string[] =>
+  getMeaningfulStem(value)
+    .split(' ')
+    .filter(token => (token.length >= 3 || /^\d+$/.test(token)) && !STOP_WORDS.has(token));
+
+const tokenOverlap = (left: string, right: string): number => {
+  const leftTokens = new Set(tokenizeForOverlap(left));
+  const rightTokens = new Set(tokenizeForOverlap(right));
+  if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
+  let shared = 0;
+  leftTokens.forEach(token => {
+    if (rightTokens.has(token)) shared++;
+  });
+  return shared / Math.min(leftTokens.size, rightTokens.size);
+};
+
+const looksLikeOcrArtifact = (value: string): boolean =>
+  /\b\w*\d+\w*\b/.test(stripDiacritics(value)) || /\b(?:sir|gid|ngot|d6ng|kh6|g8y|teorong|ph[ée]di)\b/i.test(value);
+
+const countVietnameseSignals = (value: string): number =>
+  (value.match(/[ăâêôơưđáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/gi) || []).length;
+
+const chooseBestCaseStem = (stems: string[]): string => {
+  const candidates = stems
+    .map(stem => normalizeWhitespace(stem))
+    .filter(stem => stem.length >= 20);
+  if (candidates.length === 0) return '';
+
+  return candidates
+    .map((stem, index) => ({
+      stem,
+      score: (
+        Math.min(tokenizeForOverlap(stem).length, 80) +
+        countVietnameseSignals(stem) * 2 +
+        index * 3 -
+        (looksLikeOcrArtifact(stem) ? 25 : 0)
+      ),
+    }))
+    .sort((left, right) => right.score - left.score)[0].stem;
+};
+
+export const normalizeSharedCaseQuestion = (question: string): string => {
+  const source = String(question || '');
+  SHARED_CASE_SECTION_MARKER.lastIndex = 0;
+
+  const sections: Array<{ kind: 'case' | 'question'; text: string }> = [];
+  let activeKind: 'case' | 'question' | null = null;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = SHARED_CASE_SECTION_MARKER.exec(source)) !== null) {
+    const text = normalizeWhitespace(source.slice(cursor, match.index));
+    if (activeKind && text) sections.push({ kind: activeKind, text });
+    activeKind = stripDiacritics(match[1]).toLowerCase().includes('cau') ? 'question' : 'case';
+    cursor = match.index + match[0].length;
+  }
+
+  const trailingText = normalizeWhitespace(source.slice(cursor));
+  if (activeKind && trailingText) sections.push({ kind: activeKind, text: trailingText });
+
+  const caseStems = sections.filter(section => section.kind === 'case').map(section => section.text);
+  const questionPayloads = sections.filter(section => section.kind === 'question').map(section => section.text);
+  if (caseStems.length === 0 || questionPayloads.length === 0) return normalizeWhitespace(source);
+
+  const stem = chooseBestCaseStem(caseStems);
+  const questionPayload = questionPayloads[questionPayloads.length - 1];
+  if (!stem || !questionPayload) return normalizeWhitespace(source);
+
+  return formatSharedCaseQuestion(questionPayload, stem);
+};
+
 const hasStemAlready = (question: string, stem: string): boolean => {
-  const normalizedQuestion = stripDiacritics(normalizeWhitespace(question).toLowerCase());
-  const normalizedStem = stripDiacritics(normalizeWhitespace(stem).toLowerCase());
+  const normalizedQuestion = normalizeForComparison(question);
+  const normalizedStem = getMeaningfulStem(stem);
   if (!normalizedStem) return true;
-  // Compare up to 80 chars of the stem (diacritics-insensitive) to detect overlap
-  return normalizedQuestion.includes(normalizedStem.slice(0, Math.min(80, normalizedStem.length)));
+  const prefixLength = Math.min(80, normalizedStem.length);
+  if (prefixLength >= 24 && normalizedQuestion.includes(normalizedStem.slice(0, prefixLength))) {
+    return true;
+  }
+  const overlap = tokenOverlap(stem, question);
+  const stemTokenCount = tokenizeForOverlap(stem).length;
+  return stemTokenCount >= 6 && overlap >= (stemTokenCount <= 10 ? 0.7 : 0.52);
 };
 
 export const hasSharedCaseStem = hasStemAlready;
@@ -101,10 +216,11 @@ export const formatSharedCaseQuestion = (question: string, stem: string): string
   `${SHARED_CASE_PREFIX}\n${stem}\n\n${SHARED_CASE_QUESTION_PREFIX}\n${question}`.replace(/[ \t]+\n/g, '\n').trim();
 
 export const applySharedCaseContextToQuestion = (question: string, contexts: SharedCaseContext[]): string => {
-  const context = getSharedCaseContextForQuestion(question, contexts);
-  if (!context || hasStemAlready(question, context.stem)) return question;
+  const normalizedQuestion = normalizeSharedCaseQuestion(question);
+  const context = getSharedCaseContextForQuestion(normalizedQuestion, contexts);
+  if (!context || hasStemAlready(normalizedQuestion, context.stem)) return normalizedQuestion;
 
-  return formatSharedCaseQuestion(question, context.stem);
+  return formatSharedCaseQuestion(normalizedQuestion, context.stem);
 };
 
 export const applySharedCaseContextToBlocks = (sourceText: string, blocks: string[]): string[] => {

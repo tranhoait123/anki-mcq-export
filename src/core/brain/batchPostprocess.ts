@@ -5,6 +5,7 @@ import {
   extractSharedCaseContexts,
   getSharedCaseContextForQuestion,
   hasSharedCaseStem,
+  normalizeSharedCaseQuestion,
 } from '../../utils/sharedCaseContext';
 import { yieldToMain } from '../../utils/performance';
 import { applyTrustedSourceMetadata } from './batching';
@@ -24,6 +25,7 @@ export interface BatchPostprocessInput {
   fullText: string;
   partMeta: BatchPostprocessPartMeta;
   recoveryBudgetRemaining?: number | null;
+  replaceSeededSourceDuplicates?: boolean;
   topLevelBatchNumber: number;
 }
 
@@ -104,8 +106,65 @@ export const createBatchPostprocessState = (
 };
 
 const buildCoverageKey = (question: Partial<MCQ>): string => (
-  question.id ? `id:${question.id}` : `fp:${buildMCQFingerprint(question)}`
+  `fp:${buildMCQFingerprint(question)}`
 );
+
+const countSharedCaseMarkers = (value: string = ''): number =>
+  (String(value || '').match(/\[\s*(?:tình\s*huống|tinh\s*huong|câu\s*hỏi|cau\s*hoi)\s*\]/gi) || []).length;
+
+const COMMON_CLINICAL_ALNUM_TOKENS = new Set(['spo2', 'hba1c', 'co2', 'o2', 't1', 't2', 't3', 'b12']);
+
+const countOcrArtifactSignals = (value: string = ''): number => {
+  const text = String(value || '');
+  const explicitMatches = text.match(/\b(?:sir|gid|ngot|d6ng|kh6|g8y|teorong|ying|mats|mat\s+batch|ph[ée]di)\b/gi) || [];
+  const explicitTokens = new Set(explicitMatches.map(match => match.toLowerCase()));
+  const mixedAlphaNumericTokens = text.match(/\b[\p{L}\p{N}]{3,}\b/gu) || [];
+  const mixedArtifactCount = mixedAlphaNumericTokens.filter((token) => {
+    const normalized = token.toLowerCase();
+    return (
+      !explicitTokens.has(normalized) &&
+      !COMMON_CLINICAL_ALNUM_TOKENS.has(normalized) &&
+      /\p{L}/u.test(token) &&
+      /\p{N}/u.test(token)
+    );
+  }).length;
+  return explicitMatches.length + mixedArtifactCount;
+};
+
+const countVietnameseSignals = (value: string = ''): number =>
+  (String(value || '').match(/[ăâêôơưđáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/gi) || []).length;
+
+const replacementQualityScore = (question: Partial<MCQ>): number => {
+  const questionText = String(question.question || '');
+  const normalizedQuestion = normalizeSharedCaseQuestion(questionText);
+  const normalizedImprovement = normalizedQuestion !== questionText.trim() ? -20 : 0;
+  return (
+    countVietnameseSignals(questionText) * 2 +
+    (Array.isArray(question.options) ? question.options.filter(Boolean).length : 0) * 3 -
+    countSharedCaseMarkers(questionText) * 18 -
+    countOcrArtifactSignals(questionText) * 12 +
+    normalizedImprovement
+  );
+};
+
+const shouldReplaceSeededSourceQuestion = (existing: Partial<MCQ> | undefined, candidate: Partial<MCQ>): boolean => {
+  if (!existing?.question) return true;
+  const existingText = String(existing.question || '');
+  const candidateText = String(candidate.question || '');
+  const existingMarkers = countSharedCaseMarkers(existingText);
+  const candidateMarkers = countSharedCaseMarkers(candidateText);
+  const candidateDropsSharedCaseContext = existingMarkers >= 2 && candidateMarkers < 2;
+  if (candidateDropsSharedCaseContext) return false;
+  if (existingMarkers > 2 && existingMarkers > candidateMarkers) return true;
+
+  const existingOcrArtifacts = countOcrArtifactSignals(existingText);
+  const candidateOcrArtifacts = countOcrArtifactSignals(candidateText);
+  if (existingOcrArtifacts > candidateOcrArtifacts && countVietnameseSignals(candidateText) >= countVietnameseSignals(existingText)) {
+    return true;
+  }
+
+  return replacementQualityScore(candidate) > replacementQualityScore(existing) + 12;
+};
 
 export const applySharedCaseMetadata = (questions: MCQ[], partMeta: BatchPostprocessPartMeta) => {
   const sharedCaseContexts = partMeta.text ? extractSharedCaseContexts(partMeta.text) : [];
@@ -201,6 +260,21 @@ export const processBatchPostprocess = async (
     const result = duplicateLookup.find(question);
     if (!result.isDup) {
       question.id = `mcq-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+      newQuestions.push(question);
+      coverageKeys.push(buildCoverageKey(question));
+      duplicateLookup.add(question);
+      markRecoveryCovered();
+      continue;
+    }
+
+    const matchedSeedId = result.matchedData?.id;
+    if (
+      input.replaceSeededSourceDuplicates &&
+      matchedSeedId &&
+      seededIdsFromSameSource?.has(matchedSeedId) &&
+      shouldReplaceSeededSourceQuestion(result.matchedData, question)
+    ) {
+      question.id = matchedSeedId;
       newQuestions.push(question);
       coverageKeys.push(buildCoverageKey(question));
       duplicateLookup.add(question);

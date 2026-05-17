@@ -1,9 +1,11 @@
 import { ProcessingController } from '../../types';
 import { KeyHealthSnapshot, userKeyRotator } from '../../utils/keyRotator';
 import {
+  BatchErrorKind,
   getBackoffDelayMs,
   getRetryDecision,
   getRetryProfile,
+  RetryDecisionCause,
   RetryProfile,
 } from '../../utils/retryStrategy';
 import { DEFAULT_GEMINI_MODEL } from '../../utils/models';
@@ -124,12 +126,40 @@ export async function executeWithUserRotation<T>(
   let currentKey = startingKey || userKeyRotator.selectBestKey();
   const keysTried = new Set<string>();
   const startedAt = Date.now();
+  let bestPartialText = '';
+  let lastRetryKind: BatchErrorKind | undefined;
+  let lastRetryCause: RetryDecisionCause | undefined;
 
   const getRemainingBudgetMs = () => retryProfile.maxElapsedMs - (Date.now() - startedAt);
   const getUntriedAvailableKey = () => userKeyRotator.selectBestKey({ excludeKeys: keysTried });
   const getRetriedAvailableKey = () => userKeyRotator.selectBestKey({ allowRetriedKeys: true });
   const getRotationLimit = () => userKeyRotator.getRecommendedRotationLimit();
   const getAttemptTimeoutMs = () => Math.max(1, Math.ceil(getRemainingBudgetMs()));
+  const rememberPartialText = (error: any) => {
+    const partialText = typeof error?.partialText === 'string' ? error.partialText : '';
+    if (partialText.trim().length > bestPartialText.trim().length) bestPartialText = partialText;
+  };
+  const rememberRetryDecision = (decision: { kind: BatchErrorKind; cause: RetryDecisionCause }) => {
+    lastRetryKind = decision.kind;
+    lastRetryCause = decision.cause;
+  };
+  const createRetryError = (message: string, decision: { kind: BatchErrorKind; cause: RetryDecisionCause }, sourceError?: any, retryAfterMs?: number) => {
+    const error: Error & {
+      partialText?: string;
+      retryKind?: BatchErrorKind;
+      retryCause?: RetryDecisionCause;
+      retryAfterMs?: number;
+      status?: number;
+      statusCode?: number;
+    } = new Error(message);
+    error.retryKind = decision.kind;
+    error.retryCause = decision.cause;
+    if (typeof retryAfterMs === 'number') error.retryAfterMs = retryAfterMs;
+    if (sourceError?.status) error.status = sourceError.status;
+    if (sourceError?.statusCode) error.statusCode = sourceError.statusCode;
+    if (typeof sourceError?.partialText === 'string') error.partialText = sourceError.partialText;
+    return error;
+  };
   const getDiagnostics = (attemptedKey: string, error?: any, retryAfterMs?: number): RetryExecutionDiagnostics => ({
     attempts,
     distinctKeysTried: keysTried.size,
@@ -144,6 +174,15 @@ export async function executeWithUserRotation<T>(
     if (error && typeof error === 'object') {
       try {
         (error as any).retryDiagnostics = getDiagnostics(attemptedKey, error, retryAfterMs);
+        if (lastRetryKind && typeof (error as any).retryKind !== 'string') {
+          (error as any).retryKind = lastRetryKind;
+        }
+        if (lastRetryCause && typeof (error as any).retryCause !== 'string') {
+          (error as any).retryCause = lastRetryCause;
+        }
+        if (bestPartialText && typeof (error as any).partialText !== 'string') {
+          (error as any).partialText = bestPartialText;
+        }
       } catch {
         // Ignore non-extensible errors; the original error is still more useful.
       }
@@ -214,10 +253,12 @@ export async function executeWithUserRotation<T>(
       userKeyRotator.markKeyResult(attemptedKey, { kind: 'success', elapsedTimeMs });
       return result;
     } catch (error: any) {
+      rememberPartialText(error);
       const msg = error.message?.toLowerCase() || "";
       const retryHintMs = getRetryDelayMsFromError(error);
       if (retryHintMs && !error.retryAfterMs) error.retryAfterMs = retryHintMs;
       const decision = getRetryDecision(error, retryProfile, attempts);
+      rememberRetryDecision(decision);
       const getBoundedRetryHint = () => (
         retryHintMs
           ? Math.min(retryHintMs, retryProfile.singleKeyBackoffCapMs, Math.max(1000, getRemainingBudgetMs()))
@@ -227,10 +268,10 @@ export async function executeWithUserRotation<T>(
       if (decision.action === 'split') {
         if (decision.cause === 'requestTooLarge') {
           console.info(`📦 Request quá lớn ở lần ${attempts}; dừng retry cùng payload để chia nhỏ batch.`);
-          throw withDiagnostics(new Error("AI_FORMAT_ERROR_REQUEST_TOO_LARGE"), attemptedKey, retryHintMs);
+          throw withDiagnostics(createRetryError("AI_FORMAT_ERROR_REQUEST_TOO_LARGE", decision, error, retryHintMs), attemptedKey, retryHintMs);
         }
         console.info(`🚀 ${decision.message} Failing fast after ${attempts} attempt(s) to trigger subdivision...`);
-        throw withDiagnostics(new Error("AI_FORMAT_ERROR_TRUNCATED"), attemptedKey, retryHintMs);
+        throw withDiagnostics(createRetryError("AI_FORMAT_ERROR_TRUNCATED", decision, error, retryHintMs), attemptedKey, retryHintMs);
       }
 
       if (decision.action === 'fail') {

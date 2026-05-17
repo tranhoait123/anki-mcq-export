@@ -230,6 +230,12 @@ export const extractProviderMessageContent = (data: any): string => {
   throw new Error('AI_FORMAT_ERROR_EMPTY_PROVIDER_RESPONSE: Provider không trả về choices[0].message.content.');
 };
 
+const getProviderFinishReason = (data: any): string =>
+  String(data?.choices?.[0]?.finish_reason ?? data?.choices?.[0]?.finishReason ?? data?.finish_reason ?? '').toLowerCase();
+
+const isTruncatedFinishReason = (finishReason: string): boolean =>
+  finishReason === 'length' || finishReason === 'max_tokens' || finishReason === 'max_output_tokens';
+
 export const callOpenAICompatibleProvider = async (
   settings: AppSettings,
   modelName: string,
@@ -267,7 +273,14 @@ export const callOpenAICompatibleProvider = async (
   }
 
   const data = await response.json();
-  return extractProviderMessageContent(data);
+  const content = extractProviderMessageContent(data);
+  const finishReason = getProviderFinishReason(data);
+  if (isTruncatedFinishReason(finishReason)) {
+    const error: Error & { partialText?: string } = new Error(`AI_FORMAT_ERROR_TRUNCATED: Provider stopped because finish_reason=${finishReason}.`);
+    error.partialText = content;
+    throw error;
+  }
+  return content;
 };
 
 export const toOpenAIContentFromPart = (part: any): any[] => {

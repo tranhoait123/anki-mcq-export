@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, Trash2, ChevronDown, ChevronUp, ShieldAlert, Gauge, Zap, Database, RefreshCw, CheckCircle2, AlertCircle, Archive, Eye } from 'lucide-react';
+import { Settings as SettingsIcon, Trash2, ChevronDown, ChevronUp, ShieldAlert, Gauge, Zap, Database, RefreshCw, CheckCircle2, AlertCircle, Archive, Eye, ShieldCheck } from 'lucide-react';
 import { AppSettings } from '../types';
 import { db } from '../core/db';
 import { toast } from 'sonner';
@@ -210,67 +210,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                     ? 'Dùng key ShopAIKey dạng Bearer token; nên kiểm tra model trước khi quét.'
                                     : 'Truy cập hàng loạt model đỉnh nhất như Claude 3.7, GPT-4o, DeepSeek.'}
                         </p>
-                        {settings.provider === 'shopaikey' && (
-                            <div className="mt-4 space-y-2">
-                                <button
-                                    type="button"
-                                    onClick={handleShopAIKeyCheck}
-                                    disabled={isCheckingShopAIKey || !settings.shopAIKeyKey.trim()}
-                                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-black text-emerald-700 transition-all hover:bg-emerald-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-950/50"
-                                >
-                                    <RefreshCw size={14} className={isCheckingShopAIKey ? 'animate-spin' : ''} />
-                                    {isCheckingShopAIKey ? 'ĐANG KIỂM TRA...' : 'KIỂM TRA KEY & MODEL'}
-                                </button>
-                                {shopAIKeyValidation && (
-                                    <div className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 text-[11px] leading-relaxed animate-in zoom-in-95 ${
-                                        shopAIKeyValidation.ok
-                                            ? 'border-emerald-200 bg-emerald-50/50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300'
-                                            : 'border-amber-200 bg-amber-50/50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300'
-                                    }`}>
-                                        {shopAIKeyValidation.ok ? <CheckCircle2 size={15} className="mt-0.5 flex-shrink-0 text-emerald-500" /> : <AlertCircle size={15} className="mt-0.5 flex-shrink-0 text-amber-500" />}
-                                        <span className="font-medium">
-                                            {shopAIKeyValidation.message}
-                                            {shopAIKeyValidation.models.length > 0 && ` Đã xác thực ${shopAIKeyValidation.models.length} model khả dụng.`}
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                        {settings.provider === 'google' && (
-                            <div className="mt-4 space-y-2">
-                                <button
-                                    type="button"
-                                    onClick={handleGeminiKeysCheck}
-                                    disabled={isCheckingGeminiKeys || !settings.apiKey.trim()}
-                                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs font-black text-indigo-700 transition-all hover:bg-indigo-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-300 dark:hover:bg-indigo-950/50"
-                                >
-                                    <RefreshCw size={14} className={isCheckingGeminiKeys ? 'animate-spin' : ''} />
-                                    {isCheckingGeminiKeys ? 'ĐANG ĐÁNH GIÁ SONG SONG...' : 'KIỂM TRA HÀNG LOẠT KEY (BULK CHECK)'}
-                                </button>
-                                {geminiKeysValidation && (
-                                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4 space-y-3 animate-in zoom-in-95 leading-relaxed text-xs">
-                                        <div className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-200">
-                                            <CheckCircle2 size={16} className="text-indigo-500" />
-                                            <span>Kết quả: {geminiKeysValidation.healthyCount}/{geminiKeysValidation.totalChecked} Keys hoạt động</span>
-                                        </div>
-                                        <div className="max-h-36 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
-                                            {geminiKeysValidation.results.map((res) => (
-                                                <div key={res.keyIndex} className="flex justify-between items-center gap-4 py-1 border-b border-slate-100 dark:border-slate-800 last:border-0">
-                                                    <span className="font-bold text-slate-500 dark:text-slate-400">Key #{res.keyIndex} ({res.keyTruncated})</span>
-                                                    <span className={`px-2 py-0.5 rounded-full font-black text-[10px] ${
-                                                        res.ok
-                                                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'
-                                                            : 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-300'
-                                                    }`}>
-                                                        {res.ok ? `OK (${res.latencyMs}ms)` : res.status === 'authBlocked' ? 'Lỗi Key' : res.status === 'quotaBlocked' ? 'Hết Quota' : 'Lỗi'}
-                                                    </span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        )}
                     </section>
 
                     {/* Model Selection */}
@@ -427,6 +366,79 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                         colorClass="text-indigo-500"
                                     />
                                 </div>
+
+                                {/* API Key Health Diagnostics */}
+                                {(settings.provider === 'google' || settings.provider === 'shopaikey') && (
+                                    <div className="border-t border-slate-100 dark:border-slate-800/50 pt-5 space-y-3">
+                                        <label className="text-sm font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                                            <ShieldCheck size={16} className="text-indigo-500" />
+                                            Chẩn đoán sức khỏe API Key
+                                        </label>
+                                        
+                                        {settings.provider === 'google' && (
+                                            <div className="space-y-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={handleGeminiKeysCheck}
+                                                    disabled={isCheckingGeminiKeys || !settings.apiKey.trim()}
+                                                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs font-black text-indigo-700 transition-all hover:bg-indigo-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-300 dark:hover:bg-indigo-950/50"
+                                                >
+                                                    <RefreshCw size={14} className={isCheckingGeminiKeys ? 'animate-spin' : ''} />
+                                                    {isCheckingGeminiKeys ? 'ĐANG ĐÁNH GIÁ SONG SONG...' : 'KIỂM TRA HÀNG LOẠT KEY (BULK CHECK)'}
+                                                </button>
+                                                {geminiKeysValidation && (
+                                                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4 space-y-3 animate-in zoom-in-95 leading-relaxed text-xs">
+                                                        <div className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-200">
+                                                            <CheckCircle2 size={16} className="text-indigo-500" />
+                                                            <span>Kết quả: {geminiKeysValidation.healthyCount}/{geminiKeysValidation.totalChecked} Keys hoạt động</span>
+                                                        </div>
+                                                        <div className="max-h-36 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
+                                                            {geminiKeysValidation.results.map((res) => (
+                                                                <div key={res.keyIndex} className="flex justify-between items-center gap-4 py-1 border-b border-slate-100 dark:border-slate-800 last:border-0">
+                                                                    <span className="font-bold text-slate-500 dark:text-slate-400">Key #{res.keyIndex} ({res.keyTruncated})</span>
+                                                                    <span className={`px-2 py-0.5 rounded-full font-black text-[10px] ${
+                                                                        res.ok
+                                                                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'
+                                                                            : 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-300'
+                                                                    }`}>
+                                                                        {res.ok ? `OK (${res.latencyMs}ms)` : res.status === 'authBlocked' ? 'Lỗi Key' : res.status === 'quotaBlocked' ? 'Hết Quota' : 'Lỗi'}
+                                                                    </span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {settings.provider === 'shopaikey' && (
+                                            <div className="space-y-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={handleShopAIKeyCheck}
+                                                    disabled={isCheckingShopAIKey || !settings.shopAIKeyKey.trim()}
+                                                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-black text-emerald-700 transition-all hover:bg-emerald-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-950/50"
+                                                >
+                                                    <RefreshCw size={14} className={isCheckingShopAIKey ? 'animate-spin' : ''} />
+                                                    {isCheckingShopAIKey ? 'ĐANG KIỂM TRA...' : 'KIỂM TRA KEY & MODEL'}
+                                                </button>
+                                                {shopAIKeyValidation && (
+                                                    <div className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 text-[11px] leading-relaxed animate-in zoom-in-95 ${
+                                                        shopAIKeyValidation.ok
+                                                            ? 'border-emerald-200 bg-emerald-50/50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300'
+                                                            : 'border-amber-200 bg-amber-50/50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300'
+                                                    }`}>
+                                                        {shopAIKeyValidation.ok ? <CheckCircle2 size={15} className="mt-0.5 flex-shrink-0 text-emerald-500" /> : <AlertCircle size={15} className="mt-0.5 flex-shrink-0 text-amber-500" />}
+                                                        <span className="font-medium">
+                                                            {shopAIKeyValidation.message}
+                                                            {shopAIKeyValidation.models.length > 0 && ` Đã xác thực ${shopAIKeyValidation.models.length} model khả dụng.`}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
 
                                 {/* Storage Management */}
                                 <div className="pt-4 border-t border-red-100 dark:border-red-900/20 space-y-4">

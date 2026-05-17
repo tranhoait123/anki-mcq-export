@@ -293,8 +293,8 @@ export const getProviderModelMismatchMessage = (provider: AIProvider, model: str
 const GEMINI_FLASH_PROFILE: ModelTokenProfile = {
   inputLimit: 1_048_576,
   outputLimit: 65_536,
-  safeOutputBudget: 49_152,
-  maxQuestionsPerBatch: 35,
+  safeOutputBudget: 15_000,
+  maxQuestionsPerBatch: 10,
   visionPagesPerBatch: 3,
 };
 
@@ -302,15 +302,15 @@ const GPT5_PROFILE: ModelTokenProfile = {
   inputLimit: 400_000,
   outputLimit: 128_000,
   safeOutputBudget: 65_536,
-  maxQuestionsPerBatch: 35,
+  maxQuestionsPerBatch: 10,
   visionPagesPerBatch: 3,
 };
 
 const CONSERVATIVE_PROFILE: ModelTokenProfile = {
   inputLimit: 128_000,
   outputLimit: 32_768,
-  safeOutputBudget: 24_576,
-  maxQuestionsPerBatch: 20,
+  safeOutputBudget: 15_000,
+  maxQuestionsPerBatch: 10,
   visionPagesPerBatch: 3,
 };
 

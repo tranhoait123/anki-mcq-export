@@ -172,45 +172,46 @@ describe('AI model registry', () => {
     expect(getModelTokenProfile('google', 'gemini-2.5-flash-lite')).toMatchObject({
       inputLimit: 1048576,
       outputLimit: 65536,
-      safeOutputBudget: 49152,
-      maxQuestionsPerBatch: 35,
+      safeOutputBudget: 15000,
+      maxQuestionsPerBatch: 10,
     });
     expect(getModelTokenProfile('openrouter', 'google/gemini-3-flash-preview')).toMatchObject({
-      safeOutputBudget: 49152,
-      maxQuestionsPerBatch: 35,
+      safeOutputBudget: 15000,
+      maxQuestionsPerBatch: 10,
     });
     expect(getModelTokenProfile('google', 'gemini-3.1-flash-lite-preview')).toMatchObject({
-      safeOutputBudget: 49152,
-      maxQuestionsPerBatch: 35,
+      safeOutputBudget: 15000,
+      maxQuestionsPerBatch: 10,
     });
     expect(getModelTokenProfile('openrouter', '~google/gemini-pro-latest')).toMatchObject({
-      safeOutputBudget: 49152,
-      maxQuestionsPerBatch: 35,
+      safeOutputBudget: 15000,
+      maxQuestionsPerBatch: 10,
     });
     expect(getModelTokenProfile('openrouter', 'openai/gpt-5-mini')).toMatchObject({
       inputLimit: 400000,
       outputLimit: 128000,
       safeOutputBudget: 65536,
+      maxQuestionsPerBatch: 10,
     });
     expect(getModelTokenProfile('openrouter', '~openai/gpt-latest')).toMatchObject({
       safeOutputBudget: 65536,
-      maxQuestionsPerBatch: 35,
+      maxQuestionsPerBatch: 10,
     });
     expect(getModelTokenProfile('openrouter', 'x-ai/grok-4.3')).toMatchObject({
-      safeOutputBudget: 49152,
-      maxQuestionsPerBatch: 35,
+      safeOutputBudget: 15000,
+      maxQuestionsPerBatch: 10,
     });
     expect(getModelTokenProfile('shopaikey', 'deepseek-v4-pro')).toMatchObject({
-      safeOutputBudget: 49152,
-      maxQuestionsPerBatch: 35,
+      safeOutputBudget: 15000,
+      maxQuestionsPerBatch: 10,
     });
     expect(getModelTokenProfile('shopaikey', 'MiniMax-M2.7')).toMatchObject({
-      safeOutputBudget: 49152,
-      maxQuestionsPerBatch: 35,
+      safeOutputBudget: 15000,
+      maxQuestionsPerBatch: 10,
     });
     expect(getModelTokenProfile('openrouter', 'custom/vendor-model')).toMatchObject({
-      safeOutputBudget: 24576,
-      maxQuestionsPerBatch: 20,
+      safeOutputBudget: 15000,
+      maxQuestionsPerBatch: 10,
     });
   });
 });

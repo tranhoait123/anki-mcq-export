@@ -750,6 +750,8 @@ export const generateQuestions = async (
     // --- STEP 2: BATCH PROCESSING ---
     const getConcurrencyLimit = () => {
       if (isRescueMode) return 1;
+      const hasVision = allParts.some(p => p.sourceMode === 'pdfVision' || p.sourceMode === 'image');
+      if (hasVision) return 1;
       return runtimeSettings.provider === 'google'
         ? userKeyRotator.getRecommendedConcurrency(requestedConcurrency)
         : requestedConcurrency;
@@ -780,7 +782,8 @@ export const generateQuestions = async (
     };
 
     const getSplitConcurrencyLimit = () => {
-      if (isRescueMode || isGoogleKeyConservationActive(runtimeSettings.provider, userKeyRotator.hasRecentProviderPressure())) return 1;
+      const hasVision = allParts.some(p => p.sourceMode === 'pdfVision' || p.sourceMode === 'image');
+      if (hasVision || isRescueMode || isGoogleKeyConservationActive(runtimeSettings.provider, userKeyRotator.hasRecentProviderPressure())) return 1;
       return Math.max(1, Math.min(getConcurrencyLimit(), 2));
     };
 

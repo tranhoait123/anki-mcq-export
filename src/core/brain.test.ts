@@ -1375,4 +1375,98 @@ Câu 12: Xử trí tiếp theo là gì?
     expect(parsed[1].options).toEqual(['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn']);
     expect(parsed[1].correctAnswer).toBe('C');
   });
+
+  it('strictly enforces sequential execution (concurrency = 1) for PDF Vision batches and split recoveries under high initial concurrency settings', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const pdfProcessor = await import('../utils/pdfProcessor');
+    vi.spyOn(pdfProcessor, 'analyzePdfTextLayer').mockResolvedValue({
+      pageCount: 3,
+      pages: [
+        {
+          ...pdfProcessor.scorePdfTextPage('Câu 1. Alpha\nCâu 2. Beta\nCâu 3. Gamma', 1),
+          quality: 'goodText',
+        },
+        {
+          ...pdfProcessor.scorePdfTextPage('', 2),
+          quality: 'goodText',
+        },
+        {
+          ...pdfProcessor.scorePdfTextPage('', 3),
+          quality: 'goodText',
+        },
+      ],
+      textBatches: [],
+      visionPageRanges: [{ start: 1, end: 3 }],
+      detectedMcqCount: 3,
+      mode: 'vision',
+    });
+    vi.spyOn(pdfProcessor, 'convertPdfToImages').mockResolvedValue(['image1', 'image2', 'image3']);
+
+    const makeQuestionPayload = (question: string) => ({
+      question,
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: { core: 'A đúng.', evidence: '', analysis: '', warning: '' },
+      source: 'model-source',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    });
+
+    const providerResponse = (questions: any[]) => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ questions }) } }],
+    }), { status: 200 });
+
+    let activeRequests = 0;
+    let maxConcurrentRequests = 0;
+
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      activeRequests++;
+      maxConcurrentRequests = Math.max(maxConcurrentRequests, activeRequests);
+      await new Promise(resolve => setTimeout(resolve, 20)); // tiny delay to capture overlapping requests
+      activeRequests--;
+
+      const callCount = fetchMock.mock.calls.length;
+      if (callCount === 1) {
+        // Main batch 1-3: only returns 2 questions instead of 3
+        return providerResponse([
+          makeQuestionPayload('1. Alpha stem?'),
+          makeQuestionPayload('2. Beta stem?'),
+        ]);
+      } else {
+        // Recovery splits
+        return providerResponse([
+          makeQuestionPayload('3. Gamma stem?'),
+        ]);
+      }
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-pdf-vision-concurrency',
+        name: 'test_vision.pdf',
+        type: 'application/pdf',
+        content: 'data:application/pdf;base64,JVBERi0xLjQK...',
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 5 }, // set initially high concurrency of 5
+      0,
+      undefined,
+      0
+    );
+
+    // Confirm all questions are recovered fully
+    expect(result.questions).toHaveLength(3);
+    expect(result.questions.map(q => q.question).sort()).toEqual([
+      'Alpha stem?',
+      'Beta stem?',
+      'Gamma stem?',
+    ]);
+    expect(result.failedBatches).toEqual([]);
+
+    // KEY ASSERTION: The maximum active concurrent requests must be strictly 1 at all times
+    expect(maxConcurrentRequests).toBe(1);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+
+    vi.unstubAllGlobals();
+  });
 });

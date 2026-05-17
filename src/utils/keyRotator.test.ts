@@ -144,17 +144,17 @@ describe('UserKeyRotator scheduler v2', () => {
     expect(rotator.availableKeyCount).toBe(4);
   });
 
-  it('caps per-operation key visits at eight healthy keys', () => {
+  it('caps per-operation key visits at ten healthy keys', () => {
     const rotator = new UserKeyRotator();
     const keys = Array.from({ length: 31 }, (_unused, index) => `key-${index + 1}-valid`);
     rotator.init(keys.join(','), 10);
 
     expect(rotator.availableKeyCount).toBe(31);
-    expect(rotator.getMaxKeysPerOperation()).toBe(8);
+    expect(rotator.getMaxKeysPerOperation()).toBe(10);
 
     keys.slice(0, 25).forEach(key => rotator.markKeyFailed(key));
     expect(rotator.availableKeyCount).toBe(6);
-    expect(rotator.getMaxKeysPerOperation()).toBe(8);
+    expect(rotator.getMaxKeysPerOperation()).toBe(10);
   });
 
   it('selects an available batch key outside excluded and cooling keys', () => {
@@ -317,5 +317,25 @@ describe('UserKeyRotator scheduler v2', () => {
     
     // The key should still be selected (no 2000 penalty making it impossible)
     expect(rotator.selectBestKey()).toBe('only-one-key');
+  });
+
+  it('scales recommended rotation limit and circuit breaker threshold based on key count', () => {
+    const rotator = new UserKeyRotator(() => 1000, () => 0);
+
+    // 1. Check with a small pool (3 keys)
+    rotator.init('key-1-valid,key-2-valid,key-3-valid', 3);
+    expect(rotator.getRecommendedRotationLimit()).toBe(2); // total <= 6 is 2
+    expect(rotator.getCircuitBreakerThreshold()).toBe(3);
+
+    // 2. Check with a medium pool (6 keys)
+    rotator.init('key-1-valid,key-2-valid,key-3-valid,key-4-valid,key-5-valid,key-6-valid', 6);
+    expect(rotator.getRecommendedRotationLimit()).toBe(2); // total <= 6 is 2
+    expect(rotator.getCircuitBreakerThreshold()).toBe(4); // total <= 6 is 4
+
+    // 3. Check with a large pool (31 keys)
+    const largeKeys = Array.from({ length: 31 }, (_, i) => `key-${i + 1}-valid`).join(',');
+    rotator.init(largeKeys, 31);
+    expect(rotator.getRecommendedRotationLimit()).toBe(8); // Math.max(3, Math.min(10, Math.ceil(31 * 0.25))) = 8
+    expect(rotator.getCircuitBreakerThreshold()).toBe(8); // Math.max(5, Math.min(10, Math.ceil(31 * 0.25))) = 8
   });
 });

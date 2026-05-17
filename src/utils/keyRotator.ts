@@ -73,7 +73,7 @@ const SUSPECT_BLOCK_MS = 30 * 1000;
 const SUSPECT_BLOCK_MAX_MS = 2 * 60 * 1000;
 const PRESSURE_WINDOW_MS = 45 * 1000;
 const FAILURE_SCORE_WINDOW_MS = 10 * 60 * 1000;
-const MAX_KEYS_PER_OPERATION = 8;
+const MAX_KEYS_PER_OPERATION = 10;
 
 const createKeyHealthRecord = (): KeyHealthRecord => ({
   status: 'healthy',
@@ -217,7 +217,8 @@ export class UserKeyRotator {
     if (this.keys.length === 0) return '';
     const now = this.now();
     this.normalizeAllKeyStates(now);
-    if (this.globalCooldownUntil > now && this.pressureStreak >= 3) return '';
+    const circuitThreshold = this.getCircuitBreakerThreshold();
+    if (this.globalCooldownUntil > now && this.pressureStreak >= circuitThreshold) return '';
 
     const excluded = this.getExcludedKeySet(options.excludeKeys);
     const candidates = this.keys
@@ -402,19 +403,30 @@ export class UserKeyRotator {
     return Math.max(1, Math.min(MAX_KEYS_PER_OPERATION, this.keys.length));
   }
 
+  getCircuitBreakerThreshold(): number {
+    const total = this.keys.length;
+    if (total <= 3) return 3;
+    if (total <= 6) return 4;
+    if (total <= 12) return 5;
+    // Với dàn key lớn, cho phép chịu áp lực nhiều hơn trước khi ngắt mạch hoàn toàn.
+    // Ví dụ: 31 key -> Math.min(10, Math.ceil(31 * 0.25)) = 8.
+    return Math.max(5, Math.min(10, Math.ceil(total * 0.25)));
+  }
+
   getRecommendedRotationLimit(): number {
     const total = this.keys.length;
     if (total <= 1) return 1;
     if (total <= 6) return 2;
     if (total <= 12) return 3;
-    // Với số lượng lớn key (ví dụ 31), cho phép xoay khoảng 20% tổng số key (tối đa 8).
-    return Math.max(3, Math.min(MAX_KEYS_PER_OPERATION, Math.ceil(total * 0.2)));
+    // Với số lượng lớn key (ví dụ 31), cho phép xoay khoảng 25% tổng số key (tối đa 10).
+    return Math.max(3, Math.min(MAX_KEYS_PER_OPERATION, Math.ceil(total * 0.25)));
   }
 
   getAdaptiveBatchScale(): number {
     // Nếu áp lực cực cao (liên tục lỗi 429/503), giảm quy mô batch xuống 25% hoặc 50%
-    if (this.pressureStreak >= 3) return 0.25;
-    if (this.pressureStreak >= 1) return 0.5;
+    const threshold = this.getCircuitBreakerThreshold();
+    if (this.pressureStreak >= threshold) return 0.25;
+    if (this.pressureStreak >= Math.max(1, Math.floor(threshold / 2))) return 0.5;
     return 1.0;
   }
 
@@ -620,8 +632,9 @@ export class UserKeyRotator {
     this.lastPressureAt = now;
     this.successStreak = 0;
 
-    const circuitBreakerActive = this.pressureStreak >= 3;
-    const shouldReduceNow = kind === 'rateLimit' || this.pressureStreak >= 2;
+    const circuitThreshold = this.getCircuitBreakerThreshold();
+    const circuitBreakerActive = this.pressureStreak >= circuitThreshold;
+    const shouldReduceNow = kind === 'rateLimit' || this.pressureStreak >= Math.max(2, Math.floor(circuitThreshold / 2));
 
     if ((forceSingleConcurrency || circuitBreakerActive) && this.recommendedConcurrency > 1) {
       this.recommendedConcurrency = 1;
@@ -632,7 +645,7 @@ export class UserKeyRotator {
     }
 
     if (circuitBreakerActive) {
-      const circuitCooldownMs = Math.min(30 * 1000, 5000 + Math.max(0, this.pressureStreak - 3) * 5000);
+      const circuitCooldownMs = Math.min(30 * 1000, 5000 + Math.max(0, this.pressureStreak - circuitThreshold) * 5000);
       this.globalCooldownUntil = Math.max(this.globalCooldownUntil, now + circuitCooldownMs);
       return;
     }

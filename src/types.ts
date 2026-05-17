@@ -254,6 +254,7 @@ export interface AppSettings {
   projectLibraryEnabled?: boolean;
   realtimePreviewEnabled?: boolean;
   mainBatchOnlyRescue?: boolean;
+  visionPagesPerBatch?: number;
 }
 
 export interface ProjectSettingsSummary {
@@ -265,6 +266,7 @@ export interface ProjectSettingsSummary {
   projectLibraryEnabled?: boolean;
   realtimePreviewEnabled?: boolean;
   mainBatchOnlyRescue?: boolean;
+  visionPagesPerBatch?: number;
   hasCustomPrompt: boolean;
 }
 

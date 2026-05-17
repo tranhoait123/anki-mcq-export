@@ -248,7 +248,7 @@ export const generateQuestions = async (
     const tokenProfile = getModelTokenProfile(runtimeSettings.provider, runtimeSettings.model);
     let adaptiveQuestionCap = getStructuredQuestionBatchSize(tokenProfile, adaptiveBatching);
     let adaptiveLargeBatchFailures = 0;
-    const visionPagesPerChunk = getAdaptiveVisionPagesPerChunk(tokenProfile, adaptiveBatching);
+    const visionPagesPerChunk = runtimeSettings.visionPagesPerBatch || getAdaptiveVisionPagesPerChunk(tokenProfile, adaptiveBatching);
     const textCharBudget = getAdaptiveTextCharBudget(tokenProfile, adaptiveBatching);
     // Reset session-level caching flag cho mỗi phiên mới
     resetContextCacheSession();

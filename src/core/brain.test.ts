@@ -31,6 +31,13 @@ import {
 import type { RetryProfile } from '../utils/retryStrategy';
 import { AppSettings } from '../types';
 
+vi.mock('../db', () => ({
+  db: {
+    getKeyHealth: vi.fn().mockResolvedValue(null),
+    saveKeyHealth: vi.fn().mockResolvedValue(undefined),
+  }
+}));
+
 const baseSettings: AppSettings = {
   apiKey: '',
   shopAIKeyKey: 'shop-key',
@@ -59,6 +66,7 @@ describe('Core Logic', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    userKeyRotator.init('', 1);
   });
 
   it('should be able to run mathematical checks', () => {
@@ -1466,6 +1474,45 @@ Câu 12: Xử trí tiếp theo là gì?
     // KEY ASSERTION: The maximum active concurrent requests must be strictly 1 at all times
     expect(maxConcurrentRequests).toBe(1);
     expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+
+    vi.unstubAllGlobals();
+  });
+
+  it('respects user-defined visionPagesPerBatch advanced setting for splitting PDF vision page ranges', async () => {
+    const pdfProcessor = await import('../utils/pdfProcessor');
+    const analyzeSpy = vi.spyOn(pdfProcessor, 'analyzePdfTextLayer').mockResolvedValue({
+      pageCount: 8,
+      pages: Array.from({ length: 8 }, (_, i) => ({
+        ...pdfProcessor.scorePdfTextPage('', i + 1),
+        quality: 'scanOrEmpty',
+      })),
+      textBatches: [],
+      visionPageRanges: [{ start: 1, end: 4 }, { start: 5, end: 8 }],
+      detectedMcqCount: 0,
+      mode: 'vision',
+    });
+    vi.spyOn(pdfProcessor, 'convertPdfToImages').mockResolvedValue(['img']);
+
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ questions: [] }) } }],
+    }), { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await generateQuestions(
+      [{
+        id: 'file-pdf-vision-custom-batch',
+        name: 'test_vision_custom.pdf',
+        type: 'application/pdf',
+        content: 'data:application/pdf;base64,JVBERi0xLjQK...',
+      }],
+      { ...baseSettings, visionPagesPerBatch: 4 },
+      0,
+      undefined,
+      0
+    );
+
+    // Verify analyzePdfTextLayer was called with visionPagesPerChunk = 4
+    expect(analyzeSpy).toHaveBeenCalledWith(expect.any(String), 4, 1, expect.any(Number));
 
     vi.unstubAllGlobals();
   });

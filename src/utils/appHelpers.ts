@@ -21,6 +21,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   projectLibraryEnabled: true,
   realtimePreviewEnabled: true,
   mainBatchOnlyRescue: false,
+  visionPagesPerBatch: 2,
 };
 
 export const isDocxFile = (file?: UploadedFile | null) =>
@@ -178,6 +179,7 @@ export const normalizePersistedSettings = (settings: LegacyPersistedSettings): A
   if (persistedSettings.projectLibraryEnabled === undefined) persistedSettings.projectLibraryEnabled = true;
   if (persistedSettings.realtimePreviewEnabled === undefined) persistedSettings.realtimePreviewEnabled = true;
   if (persistedSettings.mainBatchOnlyRescue === undefined) persistedSettings.mainBatchOnlyRescue = false;
+  if (persistedSettings.visionPagesPerBatch === undefined) persistedSettings.visionPagesPerBatch = 2;
 
   return persistedSettings;
 };

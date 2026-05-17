@@ -402,6 +402,28 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                     </p>
                                 </div>
 
+                                {/* Vision Pages Per Batch */}
+                                <div className="space-y-3 border-t border-slate-100 dark:border-slate-800/50 pt-5">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-sm font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                                            <RefreshCw size={16} className="text-indigo-500" />
+                                            Số trang mỗi Batch (PDF/Ảnh)
+                                        </label>
+                                        <select
+                                            value={settings.visionPagesPerBatch || 2}
+                                            onChange={e => setSettings({ ...settings, visionPagesPerBatch: parseInt(e.target.value) })}
+                                            className="text-xs font-black border-2 border-indigo-100 dark:border-indigo-900/50 rounded-xl px-3 py-1.5 bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 outline-none focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm"
+                                        >
+                                            {[1, 2, 3, 4].map(n => (
+                                                <option key={n} value={n}>{n} TRANG / BATCH</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 italic leading-relaxed px-1">
+                                        * 1-2 trang (Cực kỳ chính xác, tránh sót câu, khuyên dùng). 3-4 trang (Quét cực nhanh, tiết kiệm Token ban đầu nhưng dễ sót các chi tiết nhỏ).
+                                    </p>
+                                </div>
+
                                 {/* Adaptive Batching */}
                                 <div className="border-t border-slate-100 dark:border-slate-800/50 pt-5">
                                     <Toggle 

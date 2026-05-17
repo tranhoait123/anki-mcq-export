@@ -757,11 +757,9 @@ export const generateQuestions = async (
     // --- STEP 2: BATCH PROCESSING ---
     const getConcurrencyLimit = () => {
       if (isRescueMode) return 1;
-      const baseConcurrency = runtimeSettings.provider === 'google'
+      return runtimeSettings.provider === 'google'
         ? userKeyRotator.getRecommendedConcurrency(requestedConcurrency)
         : requestedConcurrency;
-      const hasVisionParts = allParts.some(p => p.sourceMode === 'pdfVision' || p.sourceMode === 'image');
-      return hasVisionParts ? Math.min(2, baseConcurrency) : baseConcurrency;
     };
 
     const totalBatches = totalTopLevelBatches;

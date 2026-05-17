@@ -108,4 +108,35 @@ Câu 11: Chẩn đoán:
     expect(expanded).toContain('Bệnh nhân nữ có siêu âm tử cung trống beta 1300');
     expect(applySharedCaseContextToQuestion(expanded, contexts)).toBe(expanded);
   });
+
+  it('does NOT double-prepend when OCR stem lacks diacritics but AI question has them', () => {
+    // This reproduces the exact bug: PDF has OCR text layer without Vietnamese diacritics,
+    // but AI reads the image and returns proper Vietnamese text. The stem comparison must
+    // be diacritics-insensitive to avoid duplicating the clinical context.
+    const ocrSource = `
+Tinh huong lam sang cho cau 13-14: Benh nhan nu, 54 tuoi, tang huyet ap vo can, benh than man.
+Cau 13. Vi sao nguoi benh nay co chi dinh kiem tra nhiem H.pylori?
+`;
+    const contexts = extractSharedCaseContexts(ocrSource);
+    // AI returns question with proper Vietnamese diacritics INCLUDING the stem already
+    const aiQuestion = 'Tình huống lâm sàng cho câu 13-14: Bệnh nhân nữ, 54 tuổi, tăng huyết áp vô căn, bệnh thận mạn. Câu 13. Vì sao người bệnh này có chỉ định kiểm tra nhiễm H.pylori?';
+    const result = applySharedCaseContextToQuestion(aiQuestion, contexts);
+    // Should NOT prepend the OCR stem because the stem content is already present (just with diacritics)
+    expect(result).toBe(aiQuestion);
+    expect(result).not.toContain('[TÌNH HUỐNG]');
+  });
+
+  it('detects diacritics-variant stem overlap even with mixed OCR artifacts', () => {
+    const ocrSource = `
+Tinh huong cho cau 25-26: Benh nhan nam, 68 tuoi, suy tim, tang huyet ap.
+Cau 25. Mot can lam sang nao can lam ngay?
+`;
+    const contexts = extractSharedCaseContexts(ocrSource);
+    // AI question already contains the stem content with proper Vietnamese
+    const aiQuestion = '[TÌNH HUỐNG]\nTình huống cho câu 25-26: Bệnh nhân nam, 68 tuổi, suy tim, tăng huyết áp.\n\n[CÂU HỎI]\nCâu 25. Một cận lâm sàng nào cần làm ngay?';
+    const result = applySharedCaseContextToQuestion(aiQuestion, contexts);
+    // Must NOT double-prepend
+    expect(result).toBe(aiQuestion);
+  });
 });
+

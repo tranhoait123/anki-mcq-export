@@ -138,7 +138,8 @@ describe('UserKeyRotator scheduler v2', () => {
     expect(rotator.hardFailedKeyCount).toBe(0);
     expect(rotator.getMaxKeysPerOperation()).toBe(4);
     expect(rotator.getRecommendedConcurrency()).toBe(1);
-    expect(rotator.getNextCooldownDelayMs()).toBe(12_000);
+    // With 4 keys and streak=1, global cooldown is bypassed (only triggered when keys < 3 or streak >= circuit breaker)
+    expect(rotator.getNextCooldownDelayMs()).toBe(0);
 
     now += 12_001;
     expect(rotator.availableKeyCount).toBe(4);

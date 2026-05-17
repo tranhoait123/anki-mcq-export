@@ -75,6 +75,7 @@ const FULL_CHECKPOINT_INTERVAL_MS = 30000;
 const KEY_CONSERVATION_PRESSURE_WINDOW_MS = 60 * 1000;
 const MAX_IMMEDIATE_RECOVERY_PARTS = 3;
 const DEFERRED_RECOVERY_MIN_SETTLE_MS = 1000;
+const DEFERRED_RECOVERY_MAX_RETRIES = 2;
 
 const getNowMs = () => (
   typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -756,9 +757,11 @@ export const generateQuestions = async (
     // --- STEP 2: BATCH PROCESSING ---
     const getConcurrencyLimit = () => {
       if (isRescueMode) return 1;
-      return runtimeSettings.provider === 'google'
+      const baseConcurrency = runtimeSettings.provider === 'google'
         ? userKeyRotator.getRecommendedConcurrency(requestedConcurrency)
         : requestedConcurrency;
+      const hasVisionParts = allParts.some(p => p.sourceMode === 'pdfVision' || p.sourceMode === 'image');
+      return hasVisionParts ? Math.min(2, baseConcurrency) : baseConcurrency;
     };
 
     const totalBatches = totalTopLevelBatches;
@@ -803,13 +806,16 @@ export const generateQuestions = async (
     );
 
     const enqueueDeferredRecovery = (item: DeferredRecoveryItem) => {
-      if (item.parts.length === 0 || item.missingCount <= 0) return;
-      deferredRecoveryQueue.push(item);
-      recordBatchFailure(item.index, item.label, new Error(`Thiếu ${item.missingCount}/${item.expectedQuestions || '?'} câu; đang chờ provider hạ nhiệt để cứu phần thiếu.`), item.stage, {
-        missingCount: item.missingCount,
+      if (item.parts.length === 0) return;
+      // Ensure missingCount is at least 1 to prevent silent discard of rate-limited batches
+      const safeMissingCount = Math.max(1, item.missingCount || 1);
+      const safeItem = { ...item, missingCount: safeMissingCount };
+      deferredRecoveryQueue.push(safeItem);
+      recordBatchFailure(safeItem.index, safeItem.label, new Error(`Thiếu ${safeMissingCount}/${safeItem.expectedQuestions || '?'} câu; đang chờ provider hạ nhiệt để cứu phần thiếu.`), safeItem.stage, {
+        missingCount: safeMissingCount,
         recoveredCount: 0,
       });
-      console.info(`Batch ${item.label}: Queued ${item.parts.length} deferred recovery part(s) after provider pressure/limit.`);
+      console.info(`Batch ${safeItem.label}: Queued ${safeItem.parts.length} deferred recovery part(s) after provider pressure/limit.`);
     };
 
     const buildSeenQuestionFingerprints = (questions: Array<{ question?: string }>): string =>
@@ -1330,8 +1336,8 @@ export const generateQuestions = async (
           return;
         }
 
-        if (adaptiveBatching && !forceJsonRepair && recoveryPolicy.eligibility !== 'weak' && batchDecision.cause !== 'requestTooLarge' && depth === 0 && errorKind === 'format' && (expectedQuestions > 10 || estimateTextTokens(part.text || '') > 4000)) {
-          console.info(`🔧 Batch ${batchLabel} format failed. Retrying once with strict JSON repair before splitting...`);
+        if (!forceJsonRepair && recoveryPolicy.eligibility !== 'weak' && batchDecision.cause !== 'requestTooLarge' && depth === 0 && errorKind === 'format') {
+          console.info(`🔧 Batch ${batchLabel} format failed. Retrying full batch with strict JSON repair before splitting...`);
           await processBatch(part, index, depth, true, topLevelIndex, subIndex, labelPrefix);
           return;
         }
@@ -1409,23 +1415,28 @@ export const generateQuestions = async (
         const isServerBusyError = batchDecision.cause === 'softRateLimit' || batchDecision.cause === 'serverBusy';
         if (isServerBusyError && !part.deferredRecovery) {
           console.warn(`⚠️ Batch ${batchLabel} tạm lỗi (${errorKind}); đưa vào danh sách cứu hộ trì hoãn.`);
+          // depth: 0 để deferred recovery chạy như batch chính (đủ quyền retry, rotate key)
+          // missingCount fallback to 1 to NEVER silently discard rate-limited batches
+          const safeMissingCount = Math.max(1, expectedQuestions || 1);
           enqueueDeferredRecovery({
             index,
             topLevelIndex,
             label: batchLabel,
             stage: 'partial',
-            parts: [part],
-            missingCount: expectedQuestions || 0,
+            parts: [{ ...part, deferredRecovery: false }],
+            missingCount: safeMissingCount,
             expectedQuestions,
             beforeCoverageCount: getBatchCoveredQuestionCount(topLevelIndex + 1),
             forceJsonRepair: true,
-            depth: depth + 1,
+            depth: 0,
           });
           return;
         }
 
         console.error(`❌ Batch ${batchLabel} FAILED after all retries & sub-batching (${errorKind}):`, e);
-        if (depth === 0) recordBatchFailure(index, batchLabel, e, isRescueMode ? 'rescue' : 'normal');
+        if (depth === 0 || part.deferredRecovery) {
+          recordBatchFailure(topLevelIndex, batchLabel, e, part.deferredRecovery ? 'deferred' : (isRescueMode ? 'rescue' : 'normal'));
+        }
         if (onProgress) {
           const detail = describeBatchError(e, retryProfile.name);
           const subInfo = depth > 0 ? ` (Phần ${batchLabel})` : '';
@@ -1493,22 +1504,41 @@ export const generateQuestions = async (
           const recoveryBudgetKey = item.recoveryBudgetKey || `deferred-batch-${topLevelBatchNumber}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           recoveryBudgets.set(recoveryBudgetKey, currentMissingCount);
 
-          if (onProgress) {
-            onProgress(`Đang cứu phần thiếu Batch ${item.label} sau cooldown (${item.parts.length} phần, chạy tuần tự)...`, allQuestions.length);
+          let deferredAttempt = 0;
+          let afterDeferredCount = beforeDeferredCount;
+          while (deferredAttempt <= DEFERRED_RECOVERY_MAX_RETRIES) {
+            if (deferredAttempt > 0) {
+              const retrySettleMs = Math.min(3000 * deferredAttempt, retryProfile.singleKeyBackoffCapMs);
+              console.info(`🔄 Batch ${item.label}: Deferred recovery lần ${deferredAttempt + 1}/${DEFERRED_RECOVERY_MAX_RETRIES + 1}, chờ ${Math.round(retrySettleMs / 1000)}s...`);
+              if (onProgress) {
+                onProgress(`Đang thử lại cứu Batch ${item.label} lần ${deferredAttempt + 1} sau ${Math.round(retrySettleMs / 1000)}s...`, allQuestions.length);
+              }
+              await waitWithController(retrySettleMs, controller);
+            } else if (onProgress) {
+              onProgress(`Đang cứu phần thiếu Batch ${item.label} sau cooldown (${item.parts.length} phần, chạy tuần tự)...`, allQuestions.length);
+            }
+
+            const attemptBudgetKey = `${recoveryBudgetKey}-attempt${deferredAttempt}`;
+            const currentMissingAfterRetries = Math.max(1, expectedCount - getBatchCoveredQuestionCount(topLevelBatchNumber));
+            recoveryBudgets.set(attemptBudgetKey, currentMissingAfterRetries);
+
+            await runPartsWithLimit(
+              item.parts.map((recoveryPart) => ({
+                ...recoveryPart,
+                deferredRecovery: deferredAttempt >= DEFERRED_RECOVERY_MAX_RETRIES,
+                recoveryBudgetKey: attemptBudgetKey,
+              })),
+              1,
+              (recoveryPart, i) => processBatch(recoveryPart, item.index, item.depth, item.forceJsonRepair, item.topLevelIndex, i, item.label)
+            );
+
+            recoveryBudgets.delete(attemptBudgetKey);
+            afterDeferredCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
+            if (afterDeferredCount >= expectedCount) break;
+            deferredAttempt++;
           }
 
-          await runPartsWithLimit(
-            item.parts.map((recoveryPart) => ({
-              ...recoveryPart,
-              deferredRecovery: true,
-              recoveryBudgetKey,
-            })),
-            1,
-            (recoveryPart, i) => processBatch(recoveryPart, item.index, item.depth, item.forceJsonRepair, item.topLevelIndex, i, item.label)
-          );
-
           recoveryBudgets.delete(recoveryBudgetKey);
-          const afterDeferredCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
           const actuallyRecovered = Math.max(0, afterDeferredCount - beforeDeferredCount);
 
           if (afterDeferredCount >= expectedCount) {
@@ -1516,30 +1546,45 @@ export const generateQuestions = async (
             skippedBatchSet.add(topLevelBatchNumber);
             console.log(`✅ Batch ${item.label}: Cứu hộ trì hoãn thành công! Thu về thêm ${actuallyRecovered} câu (Tổng cộng đạt ${afterDeferredCount}/${expectedCount} câu).`);
           } else {
-            recordBatchFailure(item.index, item.label, new Error(`Thiếu ${expectedCount - afterDeferredCount}/${expectedCount} câu sau deferred recovery`), item.stage, {
+            recordBatchFailure(item.index, item.label, new Error(`Thiếu ${expectedCount - afterDeferredCount}/${expectedCount} câu sau deferred recovery (${deferredAttempt + 1} lần thử)`), item.stage, {
               missingCount: expectedCount,
               recoveredCount: afterDeferredCount,
             });
-            console.info(`Batch ${item.label}: Cứu hộ trì hoãn chỉ thu về thêm ${actuallyRecovered} câu, vẫn còn thiếu ${expectedCount - afterDeferredCount}/${expectedCount} câu.`);
+            console.info(`Batch ${item.label}: Cứu hộ trì hoãn chỉ thu về thêm ${actuallyRecovered} câu sau ${deferredAttempt + 1} lần thử, vẫn còn thiếu ${expectedCount - afterDeferredCount}/${expectedCount} câu.`);
           }
         } else {
           // No reliable expected count (e.g. Scanned PDF or Vision-only without good text layer)
-          // Run recovery without restricting the budget!
-          if (onProgress) {
-            onProgress(`Đang cứu Batch ${item.label} sau cooldown (chạy tuần tự không giới hạn budget)...`, allQuestions.length);
+          // Run recovery with retry loop — không bỏ cuộc sau 1 lần!
+          let deferredAttempt = 0;
+          let afterDeferredCount = beforeDeferredCount;
+          while (deferredAttempt <= DEFERRED_RECOVERY_MAX_RETRIES) {
+            if (deferredAttempt > 0) {
+              const retrySettleMs = Math.min(3000 * deferredAttempt, retryProfile.singleKeyBackoffCapMs);
+              console.info(`🔄 Batch ${item.label}: Deferred recovery lần ${deferredAttempt + 1}/${DEFERRED_RECOVERY_MAX_RETRIES + 1}, chờ ${Math.round(retrySettleMs / 1000)}s...`);
+              if (onProgress) {
+                onProgress(`Đang thử lại cứu Batch ${item.label} lần ${deferredAttempt + 1} sau ${Math.round(retrySettleMs / 1000)}s...`, allQuestions.length);
+              }
+              await waitWithController(retrySettleMs, controller);
+            } else if (onProgress) {
+              onProgress(`Đang cứu Batch ${item.label} sau cooldown (chạy tuần tự không giới hạn budget)...`, allQuestions.length);
+            }
+
+            await runPartsWithLimit(
+              item.parts.map((recoveryPart) => ({
+                ...recoveryPart,
+                deferredRecovery: deferredAttempt >= DEFERRED_RECOVERY_MAX_RETRIES,
+                // No recoveryBudgetKey means unlimited budget!
+              })),
+              1,
+              (recoveryPart, i) => processBatch(recoveryPart, item.index, item.depth, item.forceJsonRepair, item.topLevelIndex, i, item.label)
+            );
+
+            afterDeferredCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
+            const actuallyRecovered = Math.max(0, afterDeferredCount - beforeDeferredCount);
+            if (actuallyRecovered > 0) break;
+            deferredAttempt++;
           }
 
-          await runPartsWithLimit(
-            item.parts.map((recoveryPart) => ({
-              ...recoveryPart,
-              deferredRecovery: true,
-              // No recoveryBudgetKey means unlimited budget!
-            })),
-            1,
-            (recoveryPart, i) => processBatch(recoveryPart, item.index, item.depth, item.forceJsonRepair, item.topLevelIndex, i, item.label)
-          );
-
-          const afterDeferredCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
           const actuallyRecovered = Math.max(0, afterDeferredCount - beforeDeferredCount);
 
           if (actuallyRecovered > 0) {
@@ -1547,11 +1592,11 @@ export const generateQuestions = async (
             skippedBatchSet.add(topLevelBatchNumber);
             console.log(`✅ Batch ${item.label}: Cứu hộ trì hoãn thành công! Thu về thêm ${actuallyRecovered} câu.`);
           } else {
-            recordBatchFailure(item.index, item.label, new Error(`Không thu hoạch được câu nào từ deferred recovery`), item.stage, {
+            recordBatchFailure(item.index, item.label, new Error(`Không thu hoạch được câu nào từ deferred recovery sau ${deferredAttempt + 1} lần thử`), item.stage, {
               missingCount: 1,
               recoveredCount: 0,
             });
-            console.info(`Batch ${item.label}: Cứu hộ trì hoãn không thu hoạch thêm được câu nào.`);
+            console.info(`Batch ${item.label}: Cứu hộ trì hoãn không thu hoạch thêm được câu nào sau ${deferredAttempt + 1} lần thử.`);
           }
         }
       }

@@ -89,7 +89,7 @@ export interface BatchFailureInfo {
   index: number;
   label: string;
   kind: BatchFailureKind;
-  stage: 'normal' | 'rescue' | 'split' | 'partial';
+  stage: 'normal' | 'rescue' | 'split' | 'partial' | 'deferred';
   message: string;
   advice: string;
   missingCount?: number;

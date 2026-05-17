@@ -53,6 +53,7 @@ const tinyRetryProfile: RetryProfile = {
   minAttempts: 4,
   fallbackAfterAttempt: 3,
   formatFastFailAttempt: 2,
+  serverBusyFastFailAttempt: 3,
   backoffCapMs: 1,
   singleKeyBackoffCapMs: 1,
   maxElapsedMs: 5000,

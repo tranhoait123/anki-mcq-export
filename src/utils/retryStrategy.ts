@@ -14,6 +14,7 @@ export interface RetryProfile {
   maxDepth: number;
   targetSplitParts: number;
   initialJitterMs: [number, number];
+  serverBusyFastFailAttempt: number;
 }
 
 export type RetryDecisionCause =
@@ -52,6 +53,7 @@ export const RETRY_PROFILES: Record<RetryProfileName, RetryProfile> = {
     maxDepth: 0, // Tắt hoàn toàn chia nhỏ đệ quy ở Lớp 1
     targetSplitParts: 2,
     initialJitterMs: [500, 1500],
+    serverBusyFastFailAttempt: 2,
   },
   rescue: {
     name: 'rescue',
@@ -66,6 +68,7 @@ export const RETRY_PROFILES: Record<RetryProfileName, RetryProfile> = {
     maxDepth: 1, // Kích hoạt chia nhỏ cứu hộ ở Lớp 2
     targetSplitParts: 2,
     initialJitterMs: [750, 2000],
+    serverBusyFastFailAttempt: 2,
   },
 };
 
@@ -186,13 +189,14 @@ export const getRetryDecision = (
   }
 
   if (kind === 'serverBusy') {
+    const fastFail = profile.serverBusyFastFailAttempt !== undefined && attempts >= profile.serverBusyFastFailAttempt;
     return {
       kind,
       cause: 'serverBusy',
-      action: 'retry',
+      action: fastFail ? 'split' : 'retry',
       retryDelayMs,
       shouldTryFallbackModel: attempts > profile.fallbackAfterAttempt,
-      message: 'Server/network pressure detected; use capped full-jitter backoff.',
+      message: fastFail ? 'Server busy persistently; fast-failing to trigger subdivision.' : 'Server/network pressure detected; use capped full-jitter backoff.',
     };
   }
 

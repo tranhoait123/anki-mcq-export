@@ -51,10 +51,15 @@ const getDeclaredQuestionRange = (value: string): { startQuestion: number; endQu
   };
 };
 
+/** Strip Vietnamese diacritics + combining marks for fuzzy comparison */
+const stripDiacritics = (text: string): string =>
+  text.normalize('NFD').replace(/[\u0300-\u036f\u0301-\u0309\u0323]/g, '').replace(/[đĐ]/g, 'd');
+
 const hasStemAlready = (question: string, stem: string): boolean => {
-  const normalizedQuestion = normalizeWhitespace(question).toLowerCase();
-  const normalizedStem = normalizeWhitespace(stem).toLowerCase();
+  const normalizedQuestion = stripDiacritics(normalizeWhitespace(question).toLowerCase());
+  const normalizedStem = stripDiacritics(normalizeWhitespace(stem).toLowerCase());
   if (!normalizedStem) return true;
+  // Compare up to 80 chars of the stem (diacritics-insensitive) to detect overlap
   return normalizedQuestion.includes(normalizedStem.slice(0, Math.min(80, normalizedStem.length)));
 };
 

@@ -75,7 +75,6 @@ const FULL_CHECKPOINT_INTERVAL_MS = 30000;
 const KEY_CONSERVATION_PRESSURE_WINDOW_MS = 60 * 1000;
 const MAX_IMMEDIATE_RECOVERY_PARTS = 3;
 const DEFERRED_RECOVERY_MIN_SETTLE_MS = 1000;
-const PDF_VISION_OPTION_MARKER_THRESHOLD = 3;
 
 const getNowMs = () => (
   typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -168,10 +167,12 @@ export const getRecoveryPolicyForPart = (
   }
 
   const text = String(part?.text || '');
-  const nativeExpectedCount = getNativeBatchExpectedCount(text);
+  const isVision = part?.sourceMode === 'pdfVision';
+  const isSuspect = Boolean(part?.textLayerSuspect);
+  const nativeExpectedCount = isVision ? 0 : getNativeBatchExpectedCount(text);
   const expectedCount = Math.max(0, Number(expectedQuestions || part?.expectedQuestions || nativeExpectedCount || 0));
-  const questionMarkerCount = countPdfQuestionMarkers(text);
-  const optionMarkerCount = countOptionMarkersForRecoveryEvidence(text);
+  const questionMarkerCount = isSuspect ? 0 : countPdfQuestionMarkers(text);
+  const optionMarkerCount = isSuspect ? 0 : countOptionMarkersForRecoveryEvidence(text);
   const hasStructuredEvidence = expectedCount > 0 && (
     Boolean(part?.nativeMcqBatch) ||
     Boolean(part?.structuredMcqBatch) ||
@@ -192,8 +193,10 @@ export const getRecoveryPolicyForPart = (
 
   if (part?.sourceMode === 'pdfVision') {
     const hasMediumEvidence = expectedCount > 0 ||
-      questionMarkerCount > 0 ||
-      optionMarkerCount >= PDF_VISION_OPTION_MARKER_THRESHOLD;
+      (!isSuspect && (
+        questionMarkerCount > 0 ||
+        optionMarkerCount >= 3
+      ));
     if (hasMediumEvidence) {
       return {
         allowEmpty: false,
@@ -308,7 +311,11 @@ export const generateQuestions = async (
                 const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(range));
                 const rangePages = pdfTextAnalysis.pages.slice(range.start - 1, range.end);
                 const rangeText = rangePages.map((page) => page.text).join('\n\n');
-                const expectedQuestions = countPdfQuestionMarkers(rangeText);
+                
+                // Only count expected questions if the pages have good text layer quality!
+                const allPagesGoodText = rangePages.length > 0 && rangePages.every((page) => page.quality === 'goodText');
+                const expectedQuestions = allPagesGoodText ? countPdfQuestionMarkers(rangeText) : 0;
+                
                 allParts.push({
                   inlineDataParts: images.map((imageBase64) => ({
                     mimeType: 'image/jpeg',
@@ -323,6 +330,7 @@ export const generateQuestions = async (
                   pdfTextPages: rangePages.map((page) => ({ pageNumber: page.pageNumber, text: page.text })),
                   pdfVisionQuality: 'standard',
                   trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range }, rangeText),
+                  textLayerSuspect: !allPagesGoodText,
                   ...(expectedQuestions > 0 ? { expectedQuestions } : {}),
                 });
               }
@@ -333,7 +341,11 @@ export const generateQuestions = async (
                 const sourceLabel = joinSourceLabel(file.name, range ? formatPageRangeLabel(range) : '');
                 const rangePages = range ? pdfTextAnalysis.pages.slice(range.start - 1, range.end) : [];
                 const rangeText = rangePages.map((page) => page.text).join('\n\n');
-                const expectedQuestions = countPdfQuestionMarkers(rangeText);
+                
+                // Only count expected questions if the pages have good text layer quality!
+                const allPagesGoodText = rangePages.length > 0 && rangePages.every((page) => page.quality === 'goodText');
+                const expectedQuestions = allPagesGoodText ? countPdfQuestionMarkers(rangeText) : 0;
+
                 allParts.push({
                   inlineData: { mimeType: 'application/pdf', data: chunkBase64 },
                   sourceMode: 'pdfVision',
@@ -345,6 +357,7 @@ export const generateQuestions = async (
                   pdfTextPages: rangePages.map((page) => ({ pageNumber: page.pageNumber, text: page.text })),
                   pdfVisionQuality: 'standard',
                   trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range }, rangeText),
+                  textLayerSuspect: !allPagesGoodText,
                   ...(expectedQuestions > 0 ? { expectedQuestions } : {}),
                 });
               });
@@ -827,7 +840,13 @@ export const generateQuestions = async (
         if (recoveryParts.length >= maxParts) break;
         const rangeText = getPdfVisionRangeText(part, range);
         const expectedFromText = countPdfQuestionMarkers(rangeText);
-        const expectedQuestions = Math.max(1, Math.min(missingCount, expectedFromText || missingCount));
+        
+        // Only enforce expectedQuestions in recovery if parent had a reliable count!
+        const parentHasReliableCount = typeof part.expectedQuestions === 'number' && part.expectedQuestions > 0;
+        const expectedQuestions = parentHasReliableCount 
+          ? Math.max(1, Math.min(missingCount, expectedFromText || missingCount))
+          : 0;
+
         const images = await convertPdfToImages(part.pdfDataUrl, range, { quality: 'high' });
         const sourceLabel = joinSourceLabel(fileName, formatPageRangeLabel(range));
         recoveryParts.push({
@@ -866,7 +885,9 @@ export const generateQuestions = async (
       try {
         await controller?.waitIfPaused();
 
-        const expectedAtStart = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
+        const expectedAtStart = part.sourceMode === 'pdfVision'
+          ? (part.expectedQuestions || 0)
+          : (part.expectedQuestions || getNativeBatchExpectedCount(part.text || ''));
         const currentScale = userKeyRotator.getAdaptiveBatchScale();
         const effectiveCap = adaptiveBatching ? Math.max(2, Math.floor(adaptiveQuestionCap * currentScale)) : adaptiveQuestionCap;
 
@@ -1230,7 +1251,9 @@ export const generateQuestions = async (
       } catch (e: any) {
         const errorKind = classifyBatchError(e);
         const batchDecision = getRetryDecision(e, retryProfile);
-        const expectedQuestions = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
+        const expectedQuestions = part.sourceMode === 'pdfVision'
+          ? (part.expectedQuestions || 0)
+          : (part.expectedQuestions || getNativeBatchExpectedCount(part.text || ''));
         const recoveryPolicy = getRecoveryPolicyForPart(part, expectedQuestions, runtimeSettings.mainBatchOnlyRescue);
 
         if (

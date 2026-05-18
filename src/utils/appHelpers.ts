@@ -191,19 +191,24 @@ export const summarizeBatchFailures = (
   failedBatches: number[] = []
 ) => {
   if (!details || details.length === 0) {
-    return `Phần lỗi: ${failedBatches.join(', ')}. Lý do chưa xác định rõ; hãy thử quét lại phần lỗi hoặc đổi model nếu lặp lại.`;
+    return `Còn batch cần quét lại: ${failedBatches.join(', ')}. Lý do chưa xác định rõ; hãy thử quét lại phần lỗi hoặc đổi model nếu lặp lại.`;
   }
 
   const labelsByReason: Record<string, string[]> = {};
   for (const detail of details) {
     const label = detail.label || String(detail.index);
-    labelsByReason[detail.message] = labelsByReason[detail.message] || [];
-    if (!labelsByReason[detail.message].includes(label)) labelsByReason[detail.message].push(label);
+    const partialInfo = typeof detail.partialRawCount === 'number'
+      ? ` (${detail.partialRawCount} raw, thêm ${detail.partialAddedCount || 0}, trùng ${detail.partialDuplicateCount || 0}, auto-skip ${detail.partialAutoSkippedCount || 0}, đã có ${detail.partialUnchangedCount || 0})`
+      : '';
+    const message = `${detail.message}${partialInfo}`;
+    labelsByReason[message] = labelsByReason[message] || [];
+    if (!labelsByReason[message].includes(label)) labelsByReason[message].push(label);
   }
 
   const reasons = Object.entries(labelsByReason)
     .map(([message, labels]) => `${labels.join(', ')}: ${message}`)
     .join(' • ');
   const advice = Array.from(new Set(details.map(detail => detail.advice))).slice(0, 2).join(' ');
-  return `${reasons}. ${advice}`;
+  const batchList = failedBatches.length > 0 ? `Còn batch cần quét lại: ${failedBatches.join(', ')}. ` : '';
+  return `${batchList}${reasons}. ${advice}`;
 };

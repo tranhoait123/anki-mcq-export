@@ -86,10 +86,14 @@ describe('batch retry strategy', () => {
 
   it('retries transient server errors and only recommends fallback after repeated attempts', () => {
     const first = getRetryDecision(new Error('503 UNAVAILABLE model overloaded'), getRetryProfile('normal'), 1);
+    const second = getRetryDecision(new Error('503 UNAVAILABLE model overloaded'), getRetryProfile('normal'), 2);
+    const rescueSecond = getRetryDecision(new Error('503 UNAVAILABLE model overloaded'), getRetryProfile('rescue'), 2);
     const later = getRetryDecision(new Error('503 UNAVAILABLE model overloaded'), getRetryProfile('normal'), 7);
 
     expect(first.kind).toBe('serverBusy');
     expect(first.action).toBe('retry');
+    expect(second.action).toBe('split');
+    expect(rescueSecond.action).toBe('split');
     expect(first.cooldownKind).toBeUndefined();
     expect(first.shouldTryFallbackModel).toBe(false);
     expect(later.shouldTryFallbackModel).toBe(true);

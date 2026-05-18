@@ -35,7 +35,7 @@ export interface RetryExecutionDiagnostics {
 
 export const shouldRotateKey = ({
   cause,
-  hadProviderPressure,
+  hadProviderPressure: _hadProviderPressure,
   distinctKeysTried,
   availableKeyCount,
   rotationLimit,
@@ -50,10 +50,8 @@ export const shouldRotateKey = ({
   if (distinctKeysTried >= rotationLimit) return false;
 
   if (cause === 'softRateLimit') {
-    // 429: Lỗi quota theo key, cho phép xoay mạnh mẽ để tìm key rảnh.
-    // Nếu dàn key lớn (ví dụ 31-50 key), cho phép xoay tối đa theo rotationLimit (thường là 8).
-    if (hadProviderPressure && distinctKeysTried >= Math.max(2, Math.min(4, rotationLimit))) return false;
-    return true;
+    // Free-tier safe: thử key hiện tại + tối đa 1 key dự phòng, rồi chờ cooldown.
+    return distinctKeysTried < Math.min(2, rotationLimit);
   }
 
   if (cause === 'serverBusy') {

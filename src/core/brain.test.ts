@@ -26,6 +26,7 @@ import {
   getRecoveredMissingQuestionCount,
   getRecoveryPolicyForPart,
   isGoogleKeyConservationActive,
+  shouldHoldDeferredRecoveryForPressure,
   splitRecoveryPartsForImmediateRun,
 } from './brain/generation';
 import type { RetryProfile } from '../utils/retryStrategy';
@@ -795,6 +796,13 @@ describe('Core Logic', () => {
     expect(isGoogleKeyConservationActive('openrouter', true)).toBe(false);
     expect(isGoogleKeyConservationActive('shopaikey', true)).toBe(false);
     expect(isGoogleKeyConservationActive('google', false)).toBe(false);
+  });
+
+  it('holds multi-item deferred recovery only for Google provider pressure', () => {
+    expect(shouldHoldDeferredRecoveryForPressure('google', true, 2)).toBe(true);
+    expect(shouldHoldDeferredRecoveryForPressure('google', true, 1)).toBe(false);
+    expect(shouldHoldDeferredRecoveryForPressure('google', false, 3)).toBe(false);
+    expect(shouldHoldDeferredRecoveryForPressure('openrouter', true, 3)).toBe(false);
   });
 
   it('does not retry or split a no-MCQ text batch that returns an empty result', async () => {
@@ -1718,6 +1726,78 @@ Câu 12: Xử trí tiếp theo là gì?
       kind: 'format',
       stage: 'partial',
       recoveredCount: 2,
+      partialRawCount: 2,
+      partialAddedCount: 2,
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps duplicate-only interrupted salvage retryable without counting it as added', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const pdfProcessor = await import('../utils/pdfProcessor');
+    vi.spyOn(pdfProcessor, 'analyzePdfTextLayer').mockResolvedValue({
+      pageCount: 1,
+      pages: [{
+        ...pdfProcessor.scorePdfTextPage('', 1),
+        quality: 'scanOrEmpty',
+      }],
+      textBatches: [],
+      visionPageRanges: [{ start: 1, end: 1 }],
+      detectedMcqCount: 0,
+      mode: 'vision',
+    });
+    vi.spyOn(pdfProcessor, 'convertPdfToImages').mockResolvedValue(['image1']);
+
+    const makeQuestionPayload = (question: string) => ({
+      question,
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: { core: 'A đúng.', evidence: '', analysis: '', warning: '' },
+      source: 'model-source',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    });
+    const partialText = `{"questions":[${JSON.stringify(makeQuestionPayload('1. Alpha stem?'))},{"question":"2. Beta`;
+    const truncatedProviderResponse = () => new Response(JSON.stringify({
+      choices: [{
+        finish_reason: 'length',
+        message: { content: partialText },
+      }],
+    }), { status: 200 });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(truncatedProviderResponse())
+      .mockResolvedValueOnce(truncatedProviderResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const existingQuestion = makeQuestionPayload('Alpha stem?');
+    const result = await generateQuestions(
+      [{
+        id: 'file-pdf-vision-duplicate-partial',
+        name: 'scan-duplicate-partial.pdf',
+        type: 'application/pdf',
+        content: 'data:application/pdf;base64,JVBERi0xLjQK...',
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      false,
+      { existingQuestions: [{ ...existingQuestion, id: 'seed-alpha' }] }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.questions).toHaveLength(1);
+    expect(result.failedBatches).toEqual([1]);
+    expect(result.failedBatchDetails[0]).toMatchObject({
+      index: 1,
+      kind: 'format',
+      stage: 'partial',
+      recoveredCount: 0,
+      partialRawCount: 1,
+      partialAddedCount: 0,
     });
 
     vi.unstubAllGlobals();

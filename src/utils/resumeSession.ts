@@ -57,7 +57,20 @@ export const shouldDelayAutoRescue = (
   const pressureFailureCount = failedBatchDetails.filter(detail =>
     detail.kind === 'rateLimit' || detail.kind === 'serverBusy'
   ).length;
-  if (pressureFailureCount > 0) return true;
+  const heavyPressureDiagnostics = failedBatchDetails.some(detail => {
+    const keyHealth = detail.diagnostics?.keyHealth || [];
+    const coolingOrBusyKeys = keyHealth.filter(key =>
+      key.status === 'cooldown' ||
+      key.status === 'rateLimited' ||
+      key.status === 'serverBusy' ||
+      key.status === 'quotaBlocked' ||
+      key.remainingMs > 0
+    ).length;
+    return coolingOrBusyKeys >= 3;
+  });
+  if (pressureFailureCount >= 2 || heavyPressureDiagnostics) {
+    return true;
+  }
 
   const recoveryHeavyCount = failedBatchDetails.filter(detail =>
     detail.stage === 'partial' || detail.stage === 'split'

@@ -1,15 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Settings as SettingsIcon, Trash2, ChevronDown, ShieldAlert, Gauge, Zap, Database, RefreshCw, CheckCircle2, AlertCircle, Archive, Eye, ShieldCheck, Lock } from 'lucide-react';
-import { userKeyRotator } from '../utils/keyRotator';
-import type { KeyHealthSnapshot } from '../utils/keyRotator';
 import { AppSettings } from '../types';
 import { db } from '../core/db';
 import { toast } from 'sonner';
-import { validateShopAIKeyConnection, validateGeminiKeys } from '../core/brain';
+import { validateShopAIKeyConnection } from '../core/brain';
 import { AIProvider, coerceModelForProvider, getModelGroups, getShopAIKeyVerifiedModelGroups } from '../utils/models';
 import { ConfirmDialogOptions } from '../hooks/useConfirmDialog';
 import type { ShopAIKeyValidationResult } from '../core/brain/openAiProvider';
-import type { GeminiBulkValidationResult } from '../core/brain/googleProvider';
 
 interface SettingsModalProps {
     show: boolean;
@@ -59,35 +56,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
     const [isCheckingShopAIKey, setIsCheckingShopAIKey] = useState(false);
     const [shopAIKeyValidation, setShopAIKeyValidation] = useState<ShopAIKeyValidationResult | null>(null);
     const [verifiedShopAIKeyModels, setVerifiedShopAIKeyModels] = useState<string[]>([]);
-    const [isCheckingGeminiKeys, setIsCheckingGeminiKeys] = useState(false);
-    const [geminiKeysValidation, setGeminiKeysValidation] = useState<GeminiBulkValidationResult | null>(null);
-    const [keyHealthList, setKeyHealthList] = useState<KeyHealthSnapshot[]>([]);
-
-    useEffect(() => {
-        if (!show || !showAdvanced || settings.provider !== 'google') return;
-        const updateHealth = () => {
-            setKeyHealthList(userKeyRotator.getKeyHealthSnapshot());
-        };
-        updateHealth();
-        const interval = setInterval(updateHealth, 1500);
-        return () => clearInterval(interval);
-    }, [show, showAdvanced, settings.provider]);
-
-    const handleResetStats = async () => {
-        const confirmed = await confirm({
-            title: 'ĐẶT LẠI CHỈ SỐ THỐNG KÊ?',
-            body: 'Hành động này sẽ đặt lại toàn bộ số đếm Request, Lỗi định dạng và Độ trễ trung bình của tất cả API Key về 0. Bạn có muốn tiếp tục?',
-            confirmLabel: 'ĐỒNG Ý ĐẶT LẠI',
-            cancelLabel: 'HỦY BỎ',
-            variant: 'info'
-        });
-        if (confirmed) {
-            userKeyRotator.resetHealthStats();
-            await db.saveKeyHealth(userKeyRotator.exportHealthState());
-            setKeyHealthList(userKeyRotator.getKeyHealthSnapshot());
-            toast.success('Đã đặt lại toàn bộ thống kê API Key.');
-        }
-    };
     const modelGroups = settings.provider === 'shopaikey' && verifiedShopAIKeyModels.length > 0
         ? getShopAIKeyVerifiedModelGroups(verifiedShopAIKeyModels)
         : getModelGroups(settings.provider);
@@ -120,38 +88,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
         } else {
             toast.error(result.message, { duration: 7000 });
         }
-    };
-
-    const handleGeminiKeysCheck = async () => {
-        setIsCheckingGeminiKeys(true);
-        setGeminiKeysValidation(null);
-        const result = await validateGeminiKeys(settings.apiKey, settings.model);
-        setGeminiKeysValidation(result);
-        setIsCheckingGeminiKeys(false);
-
-        if (result.ok) {
-            toast.success(result.message);
-        } else {
-            toast.error(result.message, { duration: 7000 });
-        }
-    };
-
-    const handleAutoCleanGeminiKeys = () => {
-        if (!geminiKeysValidation) return;
-        const keysToKeep = geminiKeysValidation.results
-            .filter(res => res.status !== 'authBlocked') // Only filter out authentication blocked (invalid key)
-            .map(res => res.keyRaw);
-        
-        const removedCount = geminiKeysValidation.totalChecked - keysToKeep.length;
-        if (removedCount === 0) {
-            toast.info("Không phát hiện key nào bị hỏng/lỗi xác thực để loại bỏ!");
-            return;
-        }
-
-        const newKeysString = keysToKeep.join(', ');
-        setSettings({ ...settings, apiKey: newKeysString });
-        toast.success(`Đã tự động loại bỏ ${removedCount} key bị lỗi xác thực! Còn lại ${keysToKeep.length} keys.`);
-        setGeminiKeysValidation(null);
     };
 
     const handleClearAll = async () => {
@@ -240,7 +176,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                 onChange={e => {
                                     setShopAIKeyValidation(null);
                                     setVerifiedShopAIKeyModels([]);
-                                    setGeminiKeysValidation(null);
                                     if (settings.provider === 'google') setSettings({ ...settings, apiKey: e.target.value });
                                     else if (settings.provider === 'shopaikey') setSettings({ ...settings, shopAIKeyKey: e.target.value });
                                     else setSettings({ ...settings, openRouterKey: e.target.value });
@@ -448,277 +383,37 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                     />
                                 </div>
 
-                                {/* Real-time Live API Key Monitor Dashboard */}
-                                {settings.provider === 'google' && keyHealthList.length > 0 && (
-                                    <div className="border-t border-slate-100 dark:border-slate-800/50 pt-5 space-y-4">
-                                        <div className="flex items-center justify-between">
-                                            <label className="text-sm font-black text-slate-700 dark:text-slate-200 flex items-center gap-2 uppercase tracking-wider text-[11px]">
-                                                <Gauge size={16} className="text-indigo-500 animate-pulse" />
-                                                GIÁM SÁT KEY THỜI GIAN THỰC (LIVE)
-                                            </label>
-                                            <button
-                                                type="button"
-                                                onClick={handleResetStats}
-                                                className="text-[10px] font-black text-rose-500 hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300 transition-colors uppercase tracking-wider border border-rose-200 dark:border-rose-900/30 px-2 py-1 rounded-lg bg-rose-50/50 dark:bg-rose-950/20 active:scale-[0.98]"
-                                            >
-                                                ĐẶT LẠI THỐNG KÊ
-                                            </button>
-                                        </div>
-
-                                        {/* Premium Summary Cards */}
-                                        {(() => {
-                                            let totalRequests = 0;
-                                            let totalSuccess = 0;
-                                            let latencies: number[] = [];
-                                            keyHealthList.forEach(item => {
-                                                const s = item.successCount || 0;
-                                                const f = item.failureCount || 0;
-                                                const fmt = item.formatErrorCount || 0;
-                                                totalRequests += (s + f + fmt);
-                                                totalSuccess += s;
-                                                if (item.averageLatencyMs && item.averageLatencyMs > 0) {
-                                                    latencies.push(item.averageLatencyMs);
-                                                }
-                                            });
-                                            const successRate = totalRequests > 0 ? Math.round((totalSuccess / totalRequests) * 100) : 0;
-                                            const avgLatency = latencies.length > 0 ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0;
-
-                                            return (
-                                                <div className="space-y-3">
-                                                    <div className="grid grid-cols-3 gap-3">
-                                                        <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 p-2.5 text-center shadow-sm">
-                                                            <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">TỔNG REQUEST</div>
-                                                            <div className="text-lg font-black text-slate-700 dark:text-slate-200 mt-0.5">{totalRequests}</div>
-                                                        </div>
-                                                        <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 p-2.5 text-center shadow-sm">
-                                                            <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">TỶ LỆ THÀNH CÔNG</div>
-                                                            <div className={`text-lg font-black mt-0.5 ${
-                                                                successRate >= 90 ? 'text-emerald-500' : successRate >= 70 ? 'text-amber-500' : 'text-rose-500'
-                                                            }`}>{successRate}%</div>
-                                                        </div>
-                                                        <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 p-2.5 text-center shadow-sm">
-                                                            <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">ĐỘ TRỄ AVG</div>
-                                                            <div className="text-lg font-black text-indigo-500 mt-0.5">{avgLatency > 0 ? `${(avgLatency / 1000).toFixed(1)}s` : '--'}</div>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Success Rate Progress Bar */}
-                                                    <div className="space-y-1">
-                                                        <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 dark:text-slate-500 px-0.5">
-                                                            <span>CHẤT LƯỢNG TRÍCH XUẤT CỦA POOL</span>
-                                                            <span className={successRate >= 90 ? 'text-emerald-500' : successRate >= 70 ? 'text-amber-500' : 'text-rose-500'}>{successRate}%</span>
-                                                        </div>
-                                                        <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden shadow-inner">
-                                                            <div 
-                                                                className={`h-full rounded-full transition-all duration-500 ${
-                                                                    successRate >= 90 ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : successRate >= 70 ? 'bg-amber-500 shadow-[0_0_8px_#f59e0b]' : 'bg-rose-500 shadow-[0_0_8px_#f43f5e]'
-                                                                }`}
-                                                                style={{ width: `${Math.max(3, successRate)}%` }}
-                                                            />
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Key Grid Monitor */}
-                                                    <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1 custom-scrollbar pt-1">
-                                                        {keyHealthList.map(item => {
-                                                            const s = item.successCount || 0;
-                                                            const f = item.failureCount || 0;
-                                                            const fmt = item.formatErrorCount || 0;
-                                                            const keyTotal = s + f + fmt;
-                                                            const keyRate = keyTotal > 0 ? Math.round((s / keyTotal) * 100) : 0;
-
-                                                            // Determine status colors & descriptions
-                                                            let statusText = 'Khỏe mạnh';
-                                                            let pulseColor = 'bg-emerald-500';
-                                                            let borderColor = 'border-slate-100 dark:border-slate-800/80';
-                                                            let bgClass = 'bg-white dark:bg-slate-900/20';
-
-                                                            if (item.status === 'cooldown') {
-                                                                statusText = `Hồi ${Math.ceil(item.remainingMs / 1000)}s`;
-                                                                pulseColor = 'bg-amber-500';
-                                                                borderColor = 'border-amber-200/60 dark:border-amber-900/30';
-                                                                bgClass = 'bg-amber-50/10 dark:bg-amber-950/5';
-                                                            } else if (item.status === 'quotaBlocked') {
-                                                                statusText = `Hết quota ${Math.ceil(item.remainingMs / 60000)}m`;
-                                                                pulseColor = 'bg-amber-600 animate-ping';
-                                                                borderColor = 'border-amber-300 dark:border-amber-900/50';
-                                                                bgClass = 'bg-amber-50/20 dark:bg-amber-950/10';
-                                                            } else if (item.status === 'authBlocked') {
-                                                                statusText = 'Lỗi Key (401)';
-                                                                pulseColor = 'bg-rose-500';
-                                                                borderColor = 'border-rose-300 dark:border-rose-950/50';
-                                                                bgClass = 'bg-rose-50/20 dark:bg-rose-950/10';
-                                                            } else if (item.status === 'suspect') {
-                                                                statusText = `Nghi ngờ ${Math.ceil(item.remainingMs / 1000)}s`;
-                                                                pulseColor = 'bg-orange-400';
-                                                                borderColor = 'border-orange-200 dark:border-orange-950/30';
-                                                                bgClass = 'bg-orange-50/10';
-                                                            } else if (item.status === 'providerPressure') {
-                                                                statusText = 'Áp lực 429';
-                                                                pulseColor = 'bg-amber-500 animate-pulse';
-                                                            }
-
-                                                            return (
-                                                                <div 
-                                                                    key={item.keyNumber} 
-                                                                    className={`rounded-xl border p-2.5 flex flex-col justify-between transition-all duration-300 shadow-sm hover:scale-[1.01] hover:shadow-md ${borderColor} ${bgClass}`}
-                                                                >
-                                                                    <div className="flex items-center justify-between gap-1">
-                                                                        <span className="text-[11px] font-black text-slate-700 dark:text-slate-200">
-                                                                            Key #{item.keyNumber}
-                                                                        </span>
-                                                                        
-                                                                        <div className="flex items-center gap-1.5" title={statusText}>
-                                                                            <span className="text-[9px] font-semibold text-slate-400 dark:text-slate-500 truncate max-w-[55px]">
-                                                                                {statusText}
-                                                                            </span>
-                                                                            <span className="relative flex h-2 w-2">
-                                                                                {item.status === 'healthy' && (
-                                                                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                                                                )}
-                                                                                <span className={`relative inline-flex rounded-full h-2 w-2 ${pulseColor}`}></span>
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-
-                                                                    <div className="text-[9px] font-medium text-slate-400 dark:text-slate-500 mt-1 truncate">
-                                                                        {item.keyTruncated}
-                                                                    </div>
-
-                                                                    <div className="flex items-center justify-between gap-1.5 mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800/60">
-                                                                        {/* Success counters */}
-                                                                        <div className="flex items-center gap-1 text-[9px] font-black text-slate-500 dark:text-slate-400">
-                                                                            <span className="text-emerald-500" title="Trích xuất thành công">🟢{s}</span>
-                                                                            <span className="text-rose-500" title="Lỗi API / Mạng">🔴{f}</span>
-                                                                            <span className="text-amber-500" title="Lỗi định dạng trích xuất">⚠️{fmt}</span>
-                                                                        </div>
-                                                                        
-                                                                        {/* Success rate percentage badge */}
-                                                                        <span className={`px-1.5 py-0.5 rounded-full font-black text-[9px] scale-95 ${
-                                                                            keyTotal === 0
-                                                                                ? 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
-                                                                                : keyRate >= 90
-                                                                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'
-                                                                                    : keyRate >= 70
-                                                                                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300'
-                                                                                        : 'bg-rose-100 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300'
-                                                                        }`}>
-                                                                            {keyTotal === 0 ? '--' : `${keyRate}%`}
-                                                                        </span>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })()}
-                                    </div>
-                                )}
-
                                 {/* API Key Health Diagnostics */}
-                                {(settings.provider === 'google' || settings.provider === 'shopaikey') && (
+                                {settings.provider === 'shopaikey' && (
                                     <div className="border-t border-slate-100 dark:border-slate-800/50 pt-5 space-y-3">
                                         <label className="text-sm font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                                             <ShieldCheck size={16} className="text-indigo-500" />
                                             Chẩn đoán sức khỏe API Key
                                         </label>
-                                        
-                                        {settings.provider === 'google' && (
-                                            <div className="space-y-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={handleGeminiKeysCheck}
-                                                    disabled={isCheckingGeminiKeys || !settings.apiKey.trim()}
-                                                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs font-black text-indigo-700 transition-all hover:bg-indigo-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-300 dark:hover:bg-indigo-950/50"
-                                                >
-                                                    <RefreshCw size={14} className={isCheckingGeminiKeys ? 'animate-spin' : ''} />
-                                                    {isCheckingGeminiKeys ? 'ĐANG ĐÁNH GIÁ SONG SONG...' : 'KIỂM TRA HÀNG LOẠT KEY (BULK CHECK)'}
-                                                </button>
-                                                {geminiKeysValidation && (
-                                                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4 space-y-3 animate-in zoom-in-95 leading-relaxed text-xs">
-                                                        <div className="space-y-1">
-                                                            <div className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-200">
-                                                                <CheckCircle2 size={16} className="text-indigo-500" />
-                                                                <span>Kết quả: {geminiKeysValidation.healthyCount}/{geminiKeysValidation.totalChecked} Keys hoạt động</span>
-                                                            </div>
-                                                            <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium px-6">
-                                                                * Đã thực hiện kiểm tra: 1 request/key (tổng cộng {geminiKeysValidation.totalChecked} requests song song).
-                                                            </div>
-                                                        </div>
-                                                        <div className="max-h-36 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
-                                                            {geminiKeysValidation.results.map((res) => (
-                                                                <div key={res.keyIndex} className="flex justify-between items-center gap-4 py-1 border-b border-slate-100 dark:border-slate-800 last:border-0">
-                                                                    <span className="font-bold text-slate-500 dark:text-slate-400">Key #{res.keyIndex} ({res.keyTruncated})</span>
-                                                                    <span className={`px-2 py-0.5 rounded-full font-black text-[10px] ${
-                                                                        res.ok
-                                                                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'
-                                                                            : res.status === 'authBlocked'
-                                                                                ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300'
-                                                                                : res.status === 'quotaBlocked'
-                                                                                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300'
-                                                                                    : res.status === 'serverBusy'
-                                                                                        ? 'bg-orange-100 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300'
-                                                                                        : 'bg-slate-100 text-slate-700 dark:bg-slate-950/30 dark:text-slate-300'
-                                                                    }`}>
-                                                                        {res.ok
-                                                                            ? `OK (${res.latencyMs}ms)`
-                                                                            : res.status === 'authBlocked'
-                                                                                ? 'Lỗi Key'
-                                                                                : res.status === 'quotaBlocked'
-                                                                                    ? 'Hết Quota'
-                                                                                    : res.status === 'serverBusy'
-                                                                                        ? '503 Bận'
-                                                                                        : 'Lỗi'}
-                                                                    </span>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                        {(() => {
-                                                            const authBlockedCount = geminiKeysValidation.results.filter(res => res.status === 'authBlocked').length;
-                                                            if (authBlockedCount === 0) return null;
-                                                            return (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={handleAutoCleanGeminiKeys}
-                                                                    className="group relative flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-black text-rose-700 transition-all hover:bg-rose-100 active:scale-[0.98] dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300 dark:hover:bg-rose-950/50 mt-2"
-                                                                >
-                                                                    <Trash2 size={13} className="group-hover:rotate-12 transition-transform" />
-                                                                    TỰ ĐỘNG LOẠI BỎ KEY LỖI ({authBlockedCount} KEYS)
-                                                                </button>
-                                                            );
-                                                        })()}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-
-                                        {settings.provider === 'shopaikey' && (
-                                            <div className="space-y-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={handleShopAIKeyCheck}
-                                                    disabled={isCheckingShopAIKey || !settings.shopAIKeyKey.trim()}
-                                                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-black text-emerald-700 transition-all hover:bg-emerald-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-950/50"
-                                                >
-                                                    <RefreshCw size={14} className={isCheckingShopAIKey ? 'animate-spin' : ''} />
-                                                    {isCheckingShopAIKey ? 'ĐANG KIỂM TRA...' : 'KIỂM TRA KEY & MODEL'}
-                                                </button>
-                                                {shopAIKeyValidation && (
-                                                    <div className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 text-[11px] leading-relaxed animate-in zoom-in-95 ${
-                                                        shopAIKeyValidation.ok
-                                                            ? 'border-emerald-200 bg-emerald-50/50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300'
-                                                            : 'border-amber-200 bg-amber-50/50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300'
-                                                    }`}>
-                                                        {shopAIKeyValidation.ok ? <CheckCircle2 size={15} className="mt-0.5 flex-shrink-0 text-emerald-500" /> : <AlertCircle size={15} className="mt-0.5 flex-shrink-0 text-amber-500" />}
-                                                        <span className="font-medium">
-                                                            {shopAIKeyValidation.message}
-                                                            {shopAIKeyValidation.models.length > 0 && ` Đã xác thực ${shopAIKeyValidation.models.length} model khả dụng.`}
-                                                        </span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
+                                        <div className="space-y-2">
+                                            <button
+                                                type="button"
+                                                onClick={handleShopAIKeyCheck}
+                                                disabled={isCheckingShopAIKey || !settings.shopAIKeyKey.trim()}
+                                                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-black text-emerald-700 transition-all hover:bg-emerald-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-950/50"
+                                            >
+                                                <RefreshCw size={14} className={isCheckingShopAIKey ? 'animate-spin' : ''} />
+                                                {isCheckingShopAIKey ? 'ĐANG KIỂM TRA...' : 'KIỂM TRA KEY & MODEL'}
+                                            </button>
+                                            {shopAIKeyValidation && (
+                                                <div className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 text-[11px] leading-relaxed animate-in zoom-in-95 ${
+                                                    shopAIKeyValidation.ok
+                                                        ? 'border-emerald-200 bg-emerald-50/50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300'
+                                                        : 'border-amber-200 bg-amber-50/50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300'
+                                                }`}>
+                                                    {shopAIKeyValidation.ok ? <CheckCircle2 size={15} className="mt-0.5 flex-shrink-0 text-emerald-500" /> : <AlertCircle size={15} className="mt-0.5 flex-shrink-0 text-amber-500" />}
+                                                    <span className="font-medium">
+                                                        {shopAIKeyValidation.message}
+                                                        {shopAIKeyValidation.models.length > 0 && ` Đã xác thực ${shopAIKeyValidation.models.length} model khả dụng.`}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
 

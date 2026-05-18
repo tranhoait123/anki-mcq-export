@@ -16,7 +16,6 @@ export {
 export {
   buildGoogleBatchMessage,
   getModelConfig,
-  validateGeminiKeys,
 } from './googleProvider';
 
 export {

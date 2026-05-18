@@ -94,6 +94,12 @@ export interface BatchFailureInfo {
   advice: string;
   missingCount?: number;
   recoveredCount?: number;
+  partialRawCount?: number;
+  partialAddedCount?: number;
+  partialDuplicateCount?: number;
+  partialAutoSkippedCount?: number;
+  partialUnchangedCount?: number;
+  expectedQuestions?: number;
   diagnostics?: BatchFailureDiagnostics;
 }
 

@@ -164,6 +164,12 @@ export const isGoogleKeyConservationActive = (
   hasRecentProviderPressure: boolean
 ): boolean => provider === 'google' && hasRecentProviderPressure;
 
+export const shouldHoldDeferredRecoveryForPressure = (
+  provider: AppSettings['provider'],
+  hasRecentProviderPressure: boolean,
+  deferredRecoveryCount: number
+): boolean => provider === 'google' && hasRecentProviderPressure && deferredRecoveryCount > 1;
+
 export const getRecoveryPolicyForPart = (
   part: any,
   expectedQuestions: number = 0,
@@ -737,7 +743,23 @@ export const generateQuestions = async (
       return Object.values(diagnostics).some(value => value !== undefined) ? diagnostics : undefined;
     };
 
-    const recordBatchFailure = (index: number, label: string, error: any, stage: BatchFailureInfo['stage'], extras: Partial<Pick<BatchFailureInfo, 'missingCount' | 'recoveredCount' | 'diagnostics'>> = {}) => {
+    const recordBatchFailure = (
+      index: number,
+      label: string,
+      error: any,
+      stage: BatchFailureInfo['stage'],
+      extras: Partial<Pick<BatchFailureInfo,
+        'missingCount' |
+        'recoveredCount' |
+        'partialRawCount' |
+        'partialAddedCount' |
+        'partialDuplicateCount' |
+        'partialAutoSkippedCount' |
+        'partialUnchangedCount' |
+        'expectedQuestions' |
+        'diagnostics'
+      >> = {}
+    ) => {
       const batchNumber = index + 1;
       const detail = describeBatchError(error, retryProfile.name);
       const { diagnostics: extraDiagnostics, ...failureExtras } = extras;
@@ -1023,6 +1045,20 @@ export const generateQuestions = async (
           if (recoveryBudgetKey && typeof postprocessResult.recoveryBudgetRemaining === 'number') {
             recoveryBudgets.set(recoveryBudgetKey, postprocessResult.recoveryBudgetRemaining);
           }
+          const partialDuplicateCount = batchNewDuplicates.length;
+          const partialAutoSkippedCount = batchNewAutoSkipped;
+          const partialUnchangedCount = Math.max(0, rawNewQs.length - newQs.length - partialDuplicateCount - partialAutoSkippedCount);
+          const expectedLabel = expectedQuestions > 0 ? String(expectedQuestions) : 'unknown';
+          const partialNoAddReason = newQs.length > 0
+            ? ''
+            : partialDuplicateCount > 0
+            ? 'duplicate'
+            : partialAutoSkippedCount > 0
+            ? 'auto-skip'
+            : partialUnchangedCount > 0
+            ? 'không có câu mới sau dedupe'
+            : 'không có câu mới';
+          const partialStats = `raw=${rawNewQs.length}, added=${newQs.length}, duplicates=${partialDuplicateCount}, autoSkipped=${partialAutoSkippedCount}, unchanged=${partialUnchangedCount}, expected=${expectedLabel}`;
 
           if (batchNewDuplicates.length > 0) {
             allDuplicates.push(...batchNewDuplicates);
@@ -1046,11 +1082,21 @@ export const generateQuestions = async (
             console.info(`✅ Batch ${batchLabel}: Hoàn tất (Tìm thấy ${newQs.length} câu, tổng cộng: ${allQuestions.length}).`);
           }
 
+          if (salvagedPartial) {
+            console.info(`Batch ${batchLabel}: Partial salvage ${partialStats}${partialNoAddReason ? `; ${partialNoAddReason}.` : '.'}`);
+          }
+
           if (salvagedPartial && expectedQuestions <= 0 && !part.deferredRecovery && depth === 0) {
-            recordBatchFailure(index, batchLabel, salvageReasonError || new Error(`Đã cứu ${rawNewQs.length} câu từ phản hồi bị cắt nhưng chưa xác minh đủ vì không có số câu kỳ vọng đáng tin.`), 'partial', {
-              recoveredCount: rawNewQs.length,
+            recordBatchFailure(index, batchLabel, salvageReasonError || new Error(`Đã thêm ${newQs.length}/${rawNewQs.length} câu từ phản hồi bị cắt nhưng chưa xác minh đủ vì không có số câu kỳ vọng đáng tin.`), 'partial', {
+              recoveredCount: newQs.length,
+              partialRawCount: rawNewQs.length,
+              partialAddedCount: newQs.length,
+              partialDuplicateCount,
+              partialAutoSkippedCount,
+              partialUnchangedCount,
+              expectedQuestions,
             });
-            console.info(`Batch ${batchLabel}: Salvage lấy được ${rawNewQs.length} câu nhưng chưa xác minh đủ; giữ batch trong danh sách quét lại.`);
+            console.info(`Batch ${batchLabel}: Đã thêm ${newQs.length}/${rawNewQs.length} câu từ partial salvage nhưng chưa biết đủ tổng; giữ batch trong danh sách quét lại.`);
           }
 
           if (salvagedPartial && missingCount > 0 && !part.deferredRecovery) {
@@ -1134,6 +1180,12 @@ export const generateQuestions = async (
                 recordBatchFailure(index, batchLabel, new Error(`Thiếu ${missingCount - recoveredCount}/${expectedQuestions} câu`), 'partial', {
                   missingCount,
                   recoveredCount,
+                  partialRawCount: rawNewQs.length,
+                  partialAddedCount: newQs.length,
+                  partialDuplicateCount,
+                  partialAutoSkippedCount,
+                  partialUnchangedCount,
+                  expectedQuestions,
                 });
               } else if (recoveredCount > 0) {
                 console.log(`✅ Batch ${batchLabel}: Recovered ${recoveredCount}/${missingCount} missing question(s) from partial salvage.`);
@@ -1142,6 +1194,12 @@ export const generateQuestions = async (
               recordBatchFailure(index, batchLabel, new Error(`Thiếu ${missingCount}/${expectedQuestions} câu`), 'partial', {
                 missingCount,
                 recoveredCount: 0,
+                partialRawCount: rawNewQs.length,
+                partialAddedCount: newQs.length,
+                partialDuplicateCount,
+                partialAutoSkippedCount,
+                partialUnchangedCount,
+                expectedQuestions,
               });
             }
           }
@@ -1319,7 +1377,7 @@ export const generateQuestions = async (
           try {
             const partialPostprocessResult = await batchPostprocessor!.processBatch(createPostprocessInputForPartial(partialText));
             if (partialPostprocessResult.rawQuestions.length > 0) {
-              console.info(`Batch ${batchLabel}: Salvaged ${partialPostprocessResult.rawQuestions.length}${expectedQuestions > 0 ? `/${expectedQuestions}` : ''} question(s) from interrupted response.`);
+              console.info(`Batch ${batchLabel}: Interrupted response parsed; post-processing partial salvage now.`);
               const handledPartial = await handlePostprocessResultForPartial(partialPostprocessResult, e);
               if (handledPartial) return;
             }
@@ -1528,6 +1586,29 @@ export const generateQuestions = async (
 
     const runDeferredRecoveryQueue = async () => {
       if (deferredRecoveryQueue.length === 0) return;
+      const shouldHoldDeferredForPressure = (
+        shouldHoldDeferredRecoveryForPressure(
+          runtimeSettings.provider,
+          userKeyRotator.hasRecentProviderPressure(KEY_CONSERVATION_PRESSURE_WINDOW_MS),
+          deferredRecoveryQueue.length
+        )
+      );
+      if (shouldHoldDeferredForPressure) {
+        if (onProgress) {
+          onProgress(`Provider đang nóng; giữ ${deferredRecoveryQueue.length} phần cứu hộ để quét lại sau thay vì tạo thêm request.`, allQuestions.length);
+        }
+        while (deferredRecoveryQueue.length > 0) {
+          const item = deferredRecoveryQueue.shift()!;
+          const topLevelBatchNumber = item.topLevelIndex + 1;
+          const currentCoveredCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
+          recordBatchFailure(item.index, item.label, item.reasonError || createProviderPressureDeferredError(), item.stage, {
+            missingCount: item.missingCount,
+            recoveredCount: currentCoveredCount,
+            expectedQuestions: item.expectedQuestions,
+          });
+        }
+        return;
+      }
 
       const cooldownDelay = runtimeSettings.provider === 'google'
         ? userKeyRotator.getNextCooldownDelayMs()

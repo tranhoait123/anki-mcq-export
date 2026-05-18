@@ -3,7 +3,9 @@
 > **Turn any medical document (blurry scans, quick photos, heavy PDFs) into high-quality Anki flipcards in minutes.**
 > *Developed by [PonZ](https://github.com/tranhoait123)*
 >
-> **Current version: v7**
+> **Current version: v8**
+>
+> **Latest update: v8 — Free-tier Safe Recovery, clearer Partial Rescue logs, Clinical Case Guard**
 
 ---
 
@@ -34,16 +36,36 @@
 
 | Feature | Description |
 |:---|:---|
-| 🤖 **AI MCQ Extraction** | Uses Google Gemini AI to "read" scanned documents, photos, PDFs and extract multiple-choice questions. |
+| 🤖 **AI MCQ Extraction** | Uses Gemini/OpenRouter/ShopAIKey models to read scanned documents, photos, PDFs, and DOCX files. |
+| 🛡️ **Free-tier Safe Recovery V8** | On repeated 429/503 pressure, the app preserves `failedBatches` for later retry instead of rotating too many keys or firing rescue requests aggressively. |
 | 🩺 **Professor-level Explanations** | Every question includes: core answer, deep analysis, medical evidence, and clinical warnings. |
 | 💾 **Anki-ready CSV/DOCX Export** | Generates Anki-ready CSV and study DOCX files — no additional editing needed. |
-| 🔄 **Smart Deduplication** | Automatically detects and manages duplicate questions when processing multiple tests. |
+| 🔄 **Clinical-aware Deduplication** | Detects duplicates while protecting adjacent clinical-case questions that share a stem but ask different objectives. |
 | 🌙 **Dark Mode & Split View** | Easy on the eyes for night studying, view original documents and extracted results side-by-side. |
 
 ### Overall Flow
 
 ```text
 Source document → scan/estimate → extract MCQs → dedupe → edit/review → export CSV/DOCX → study or import into Anki
+```
+
+### Processing Flow
+
+```mermaid
+flowchart TD
+    A["Upload PDF / image / DOCX / text"] --> B["Source analysis<br/>text layer, DOCX native, Vision, estimated count"]
+    B --> C["Safe batching<br/>page-lock, clinical-case grouping, overlap when needed"]
+    C --> D["AI provider request<br/>Gemini / OpenRouter / ShopAIKey"]
+    D --> E{"Valid output?"}
+    E -->|Yes| F["Post-process<br/>normalize MCQ, source trace, dedupe"]
+    E -->|Interrupted stream / malformed JSON| G["Partial salvage<br/>raw, added, duplicate, auto-skip, unchanged"]
+    G --> F
+    F --> H{"Reliable enough?"}
+    H -->|Yes| I["Add to question list"]
+    H -->|Uncertain / provider pressure| J["Keep failedBatches<br/>retry later without request spikes"]
+    I --> K["Review / edit / duplicate center"]
+    J --> K
+    K --> L["Export CSV/DOCX or save Project Library"]
 ```
 
 **3 ways to use it:**
@@ -91,10 +113,12 @@ The app is deployed online. You can use it **instantly** on any device (PC, Mac,
 | Area | Details |
 |:---|:---|
 | **Flexible AI Engine** | Supports Google Gemini, OpenRouter, and ShopAIKey. The app coerces incompatible model choices before runtime. |
-| **PDF/Image Handling** | PDFs are split into overlapping chunks; providers that do not accept raw PDFs can receive rasterized page images. |
+| **Free-tier-safe Key Rotation** | Multiple Google keys are rotated with limits: auth-bad keys are blocked temporarily, soft 429 tries the current key plus one backup, and repeated 503/429 keeps batches retryable for later. |
+| **PDF Safe Hybrid** | PDFs are scored page by page; clean text layers use text-first extraction, while risky scan/table/two-column pages fall back to Vision with overlap. |
 | **DOCX Native + Smart Fallback** | Real-text Word files are parsed from `word/document.xml`; yellow highlights are preserved as correct answers; scanned Word files are flagged for PDF/image Vision mode. |
 | **Fast Mode** | Skip the initial analysis step when you already know the file and want faster extraction. |
 | **Rich Explanations** | Each card can include core answer, evidence, deep analysis, warning, source, difficulty, and reasoning key point. |
+| **Transparent Partial Rescue** | Logs and final warnings distinguish `raw`, `added`, `duplicates`, `autoSkipped`, `unchanged`, and `expected` so it is clear what was really saved. |
 | **Source/Page Trace V7** | Each extracted question can carry file, page/range, batch, and snippet metadata; click the source chip to open Split View for verification. |
 | **Project Library V7** | Completed extraction runs are auto-saved locally; rename, reopen, re-export CSV/DOCX, delete, and compare projects. |
 | **Duplicate Review** | Suspected duplicates are reviewed instead of silently deleted; keep both, skip, or replace. |
@@ -166,9 +190,9 @@ The API Key is the "key" for the app to communicate with Google's AI. It is **co
 
 > ⚠️ **API Key Security:** Do not share your Key with others.
 
-### 🔥 Tip: Create Multiple Keys to Bypass Quotas
+### 🔥 Tip: Create a Few Backup Keys Safely
 
-Each API Key belongs to a **Google Cloud Project**, and each Project has its own **free quote**. By creating keys across multiple projects, you can **multiply** your free tier limit!
+Each API Key belongs to a **Google Cloud Project**, and each Project has its own free-tier limits. Having a few backup keys helps when one key cools down, but v8 prioritizes **cooldown and retrying failed batches later** instead of rotating through many keys in a short burst.
 
 #### How to create multiple keys:
 
@@ -190,7 +214,7 @@ Go to **⚙️ Settings → Google Gemini API Key**, paste all keys separated by
 AIzaSyA...,AIzaSyB...,AIzaSyC...
 ```
 
-The system will **automatically rotate** — if a key runs out of quota (429 Error), it shifts to the next one automatically seamlessly!
+The system rotates keys with a free-tier-safe cap. For a soft 429, each operation tries the current key and at most one backup key, then lets cooldown/failed-batch retry handle the rest.
 
 ---
 
@@ -206,7 +230,7 @@ The system will **automatically rotate** — if a key runs out of quota (429 Err
 | Option | Guide |
 |:---|:---|
 | **AI Engine** | Choose Google Gemini, OpenRouter, or ShopAIKey. New users should start with Google Gemini. |
-| **Google Gemini API Key** | Paste the API Key you generated. *Can input multiple keys separated by commas.* |
+| **Google Gemini API Key** | Paste the API Key you generated. You can input multiple comma-separated keys as backups; rotation is intentionally capped for free-tier safety. |
 | **OpenRouter / ShopAIKey API Key** | Use gateway providers when you want access to other model families. |
 | **AI Model** | Choose an appropriate model. **Recommended: `Gemini 3.1 Flash-Lite`** — fastest and sharpest. |
 | **AI Persona** | Select the domain: **Medical**, **English**, **Law**, **IT** — or write a custom prompt. |
@@ -259,8 +283,10 @@ A **two-phase** sequential process:
 
 1. Click **"✨ TRÍCH XUẤT CÂU HỎI" (Extract Questions)**
 2. The system will:
-   - Chunk PDFs into smaller overlapping parts (3 pages/part).
-   - Scan in parallel for maximum speed.
+   - Check PDF text layers page by page.
+   - Use text-first extraction for clean batches and Vision for risky scan/table/two-column batches.
+   - Process with your selected concurrency, defaulting to 1 for better free-tier stability.
+   - On 429/503, retry with capped key rotation and keep failed batches for later retry when the provider is hot.
    - Auto-filter duplicates.
 3. The **Progress bar** updates the extracted count in real time.
 
@@ -427,7 +453,7 @@ npm test
 npm run build
 ```
 
-Current tests cover Anki HTML escaping/formatting, DOCX export, DOCX native parsing, dedupe, model registry, retry strategy, and provider request/error handling.
+Current tests cover Anki HTML escaping/formatting, DOCX export, DOCX native parsing, dedupe, model registry, retry strategy, provider request/error handling, partial salvage accounting, free-tier key rotation caps, deferred recovery pressure guards, and safe resume.
 
 ---
 
@@ -452,7 +478,9 @@ Runs on **http://localhost:8501**.
 | **DOCX text fallback** | Word has text but not clear question → A/B/C/D blocks | It can still scan; if missing questions, make each option a separate line or export to PDF/image. |
 | **Use PDF/Image shown for DOCX** | Word contains scanned images instead of real text | Export the Word file to PDF or clear images, then upload again for Vision. |
 | **PDF fails on a gateway provider** | Provider does not accept raw PDFs | The app rasterizes PDF pages for compatible Vision models. |
-| **Quota/rate limit** | API key reached provider limits | Add multiple Google keys separated by commas or switch model/provider. |
+| **Quota/rate limit** | API key or provider reached free-tier limits | Wait a few minutes, then retry failed batches. A few backup keys help, but v8 avoids rotating through many keys in one operation. |
+| **Partial salvage logged but batch is not green** | The interrupted stream contained parseable raw questions, but none were newly added after dedupe/auto-skip/unchanged checks | Check `raw/added/duplicates/autoSkipped/unchanged`; the batch remains retryable when it is not verified enough. |
+| **Many 503/429 errors in a row** | Google/provider is hot or the free tier is being throttled | Let the app keep failed batches, wait for cooldown, then use failed-batch retry instead of forcing immediate rescue. |
 | **Source chip does not jump to an exact page** | Non-PDF file, missing original file, or Vision batch only has a page range | Reopen the project from Library if needed; check the displayed source range for scanned PDFs. |
 | **Project is missing from Library** | Extraction did not finish with valid questions, or browser IndexedDB was cleared | Run extraction again and avoid clearing browser site data if you want to keep Library projects. |
 | **Opening an old project replaces the current deck** | Library snapshots load into the active workspace | Export or auto-save the current deck before opening another project. |
@@ -465,6 +493,8 @@ Runs on **http://localhost:8501**.
 |:---|:---|
 | `Unchecked runtime.lastError: Could not establish connection...` | Usually from a browser extension, not the app, if the workflow continues. |
 | `Backoff`, `Provider pressure cooldown`, `rate-limit cooldown` | Automatic retry while the provider/API is busy; the app is still working. |
+| `Partial salvage raw=..., added=...` | An interrupted stream was parsed. Only `added` is the number of questions actually saved; `raw` is what could be read from the cut response. |
+| `Provider đang nóng; giữ ... phần cứu hộ` | The app is deliberately holding deferred recovery to protect free-tier keys; those batches remain retryable. |
 | `PDF worker unavailable; using main-thread rasterization` | PDF worker rendering is unavailable for this session, so the app falls back to main-thread canvas; it may be slower but remains valid. |
 | `HighlightAnnotation` / `Popup annotation` warnings from `pdf.worker` | PDF.js is reporting non-standard PDF annotations; these usually do not affect MCQ extraction. |
 | `failed batches`, missing-question messages, quota/auth errors | Check the file, API key, provider, or retry the failed section. |
@@ -509,6 +539,7 @@ V7 trace points to the file and page/range/snippet, not an exact OCR bounding bo
 
 | Version | Date | Highlights |
 | :--- | :--- | :--- |
+| **v8.0 (Free-tier Safe Recovery)** | 05/18/2026 | Removed Google bulk key check and live key monitor from Settings; soft 429 tries only current key + one backup; repeated 503/429 keeps failed batches for later retry; partial salvage now reports `raw/added/duplicates/autoSkipped/unchanged/expected`; clinical-case dedupe is safer for adjacent questions |
 | **v7.0 (Trace + Project Library + Mobile/PWA Polish)** | 05/01/2026 | Source/Page Trace, local Project Library with rename/reopen/re-export/compare, safe confirm modals, mobile bottom action bar, and PWA update banner |
 | **v5.5 (DOCX Native)** | 04/22/2026 | Native DOCX parser, yellow-highlight answer detection, 10-question batching, text fallback, and PDF/image warning for scanned Word files |
 | **v5.4 (Export Polish)** | 04/22/2026 | DOCX Study Export, stable left alignment after tables, expanded documentation |

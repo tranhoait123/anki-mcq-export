@@ -76,9 +76,32 @@ describe('resume session selection', () => {
     expect(result.forcedOcrMode).toBe('tesseract');
   });
 
-  it('delays auto-rescue when failures indicate provider pressure or many recovery-heavy batches', () => {
+  it('runs limited auto-rescue for small pressure failures but delays heavy pressure', () => {
     expect(shouldDelayAutoRescue([
       { index: 1, label: '1', kind: 'rateLimit', stage: 'normal', message: '429', advice: 'Đợi.' },
+    ], [1])).toBe(false);
+
+    expect(shouldDelayAutoRescue([
+      { index: 1, label: '1', kind: 'rateLimit', stage: 'normal', message: '429', advice: 'Đợi.' },
+      { index: 2, label: '2', kind: 'serverBusy', stage: 'partial', message: '503', advice: 'Đợi.' },
+    ], [1, 2])).toBe(true);
+
+    expect(shouldDelayAutoRescue([
+      {
+        index: 1,
+        label: '1',
+        kind: 'serverBusy',
+        stage: 'partial',
+        message: '503',
+        advice: 'Đợi.',
+        diagnostics: {
+          keyHealth: [
+            { keyNumber: 1, status: 'cooldown', remainingMs: 1000, inFlightCount: 0, failureCount: 1, successCount: 0 },
+            { keyNumber: 2, status: 'cooldown', remainingMs: 1000, inFlightCount: 0, failureCount: 1, successCount: 0 },
+            { keyNumber: 3, status: 'serverBusy', remainingMs: 1000, inFlightCount: 0, failureCount: 1, successCount: 0 },
+          ],
+        },
+      },
     ], [1])).toBe(true);
 
     expect(shouldDelayAutoRescue([

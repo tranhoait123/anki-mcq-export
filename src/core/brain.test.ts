@@ -936,6 +936,38 @@ describe('Core Logic', () => {
     expect(maxInFlight).toBe(1);
   });
 
+  it('keeps targeted rescue batches failed when an unknown-count retry returns empty', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
+      choices: [{ message: { content: '{"questions":[]}' } }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateQuestions(
+      [{ id: 'failed', name: 'failed-vision-like.txt', type: 'text/plain', content: 'Batch lỗi cũ cần xác minh lại.' }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0,
+      undefined,
+      [1],
+      true,
+      {
+        retryProfile: 'rescue',
+      }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.failedBatches).toEqual([1]);
+    expect(result.failedBatchDetails[0]).toMatchObject({
+      index: 1,
+      stage: 'rescue',
+      recoveredCount: 0,
+      partialRawCount: 0,
+      partialAddedCount: 0,
+    });
+  });
+
   it('does not infer-skip explicit rescue retry indices from seeded partial questions', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const makeQuestionPayload = (question: string) => ({

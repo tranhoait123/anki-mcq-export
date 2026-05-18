@@ -991,6 +991,7 @@ export const generateQuestions = async (
         const expectedQuestions = expectedAtStart;
         const recoveryPolicy = getRecoveryPolicyForPart(part, expectedQuestions, runtimeSettings.mainBatchOnlyRescue);
         const topLevelBatchNumber = topLevelIndex + 1;
+        const isTargetedRetryBatch = Boolean(retryIndices?.includes(topLevelBatchNumber));
         const recoveryBudgetKey = typeof part.recoveryBudgetKey === 'string' ? part.recoveryBudgetKey : '';
         const createPostprocessInput = (fullText: string): BatchPostprocessInput => ({
           allowEmpty: recoveryPolicy.allowEmpty,
@@ -1204,6 +1205,25 @@ export const generateQuestions = async (
             }
           }
 
+          if (
+            isTargetedRetryBatch &&
+            depth === 0 &&
+            expectedQuestions <= 0 &&
+            !salvagedPartial &&
+            newQs.length === 0
+          ) {
+            recordBatchFailure(index, batchLabel, new Error(`Quét lại Batch ${batchLabel} không thêm được câu mới và chưa có số câu kỳ vọng đáng tin để xác minh đã đủ.`), 'rescue', {
+              recoveredCount: 0,
+              partialRawCount: rawNewQs.length,
+              partialAddedCount: newQs.length,
+              partialDuplicateCount,
+              partialAutoSkippedCount,
+              partialUnchangedCount,
+              expectedQuestions,
+            });
+            console.info(`Batch ${batchLabel}: Quét lại không thêm câu mới (${partialStats}); giữ batch trong danh sách quét lại vì chưa xác minh đủ.`);
+          }
+
           return true;
         };
         handlePostprocessResultForPartial = handlePostprocessResult;
@@ -1364,7 +1384,24 @@ export const generateQuestions = async (
             )
         );
 
-        await handlePostprocessResult(postprocessResult);
+        const handledPostprocess = await handlePostprocessResult(postprocessResult);
+        if (
+          !handledPostprocess &&
+          isTargetedRetryBatch &&
+          depth === 0 &&
+          expectedQuestions <= 0
+        ) {
+          recordBatchFailure(index, batchLabel, new Error(`Quét lại Batch ${batchLabel} trả rỗng và chưa có số câu kỳ vọng đáng tin để xác minh đã đủ.`), 'rescue', {
+            recoveredCount: 0,
+            partialRawCount: 0,
+            partialAddedCount: 0,
+            partialDuplicateCount: 0,
+            partialAutoSkippedCount: 0,
+            partialUnchangedCount: 0,
+            expectedQuestions,
+          });
+          console.info(`Batch ${batchLabel}: Quét lại trả rỗng; giữ batch trong danh sách quét lại vì chưa xác minh đủ.`);
+        }
       } catch (e: any) {
         const errorKind = classifyBatchError(e);
         const batchDecision = getRetryDecision(e, retryProfile);

@@ -307,4 +307,43 @@ describe('processBatchPostprocess', () => {
     expect(result.missingCount).toBe(2);
     expect(result.newQuestions).toHaveLength(1);
   });
+
+  it('treats PDF Vision expected counts as advisory instead of partial failure', async () => {
+    const state = createBatchPostprocessState();
+    const result = await processBatchPostprocess({
+      allowEmpty: false,
+      batchIndex: 0,
+      expectedQuestions: 3,
+      fullText: JSON.stringify({ questions: [makeQuestion(1)] }),
+      partMeta: {
+        sourceLabel: 'scan.pdf | Trang 1-2',
+        sourceMode: 'pdfVision',
+      },
+      topLevelBatchNumber: 1,
+    }, state);
+
+    expect(result.rawQuestions).toHaveLength(1);
+    expect(result.salvagedPartial).toBe(false);
+    expect(result.missingCount).toBe(0);
+    expect(result.newQuestions).toHaveLength(1);
+  });
+
+  it('enforces expected counts when the caller marks them reliable', async () => {
+    const state = createBatchPostprocessState();
+    const result = await processBatchPostprocess({
+      allowEmpty: false,
+      batchIndex: 0,
+      enforceExpectedCount: true,
+      expectedQuestions: 3,
+      fullText: JSON.stringify({ questions: [makeQuestion(1)] }),
+      partMeta: {
+        sourceLabel: 'structured.pdf | Trang 1',
+        sourceMode: 'pdfVision',
+      },
+      topLevelBatchNumber: 1,
+    }, state);
+
+    expect(result.salvagedPartial).toBe(true);
+    expect(result.missingCount).toBe(2);
+  });
 });

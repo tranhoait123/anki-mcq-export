@@ -22,6 +22,7 @@ export interface BatchPostprocessInput {
   allowEmpty: boolean;
   batchIndex: number;
   duplicateCounterStart?: number;
+  enforceExpectedCount?: boolean;
   expectedQuestions: number;
   fullText: string;
   partMeta: BatchPostprocessPartMeta;
@@ -225,7 +226,7 @@ export const processBatchPostprocess = async (
     input.expectedQuestions,
     {
       allowEmpty: input.allowEmpty,
-      sourceMode: input.partMeta?.sourceMode,
+      enforceExpectedCount: input.enforceExpectedCount ?? (input.partMeta?.sourceMode !== 'pdfVision'),
     }
   ) as MCQ[];
   const salvagedPartial = Boolean((rawQuestions as any).__salvagedPartial);

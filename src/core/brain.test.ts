@@ -1571,6 +1571,9 @@ Câu 12: Xử trí tiếp theo là gì?
     const providerResponse = (questions: any[]) => new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({ questions }) } }],
     }), { status: 200 });
+    const rawProviderResponse = (content: string) => new Response(JSON.stringify({
+      choices: [{ message: { content } }],
+    }), { status: 200 });
 
     let activeRequests = 0;
     let maxConcurrentRequests = 0;
@@ -1583,14 +1586,13 @@ Câu 12: Xử trí tiếp theo là gì?
 
       const callCount = fetchMock.mock.calls.length;
       if (callCount === 1) {
-        // Main batch 1-3: only returns 2 questions instead of 3
+        // Main batch 1-3: malformed response should trigger PDF Vision split recovery.
+        return rawProviderResponse('not json');
+      } else {
+        // Recovery split returns the full visible range; concurrency must still stay at 1.
         return providerResponse([
           makeQuestionPayload('1. Alpha stem?'),
           makeQuestionPayload('2. Beta stem?'),
-        ]);
-      } else {
-        // Recovery splits
-        return providerResponse([
           makeQuestionPayload('3. Gamma stem?'),
         ]);
       }

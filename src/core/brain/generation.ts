@@ -151,6 +151,7 @@ export type RecoveryEligibility = 'strong' | 'medium' | 'weak';
 export interface RecoveryPolicy {
   allowEmpty: boolean;
   eligibility: RecoveryEligibility;
+  expectedCountReliable: boolean;
   maxRecoveryRequests: number;
   reason: string;
   shouldRecoverMissing: boolean;
@@ -179,17 +180,6 @@ export const getRecoveryPolicyForPart = (
   expectedQuestions: number = 0,
   mainBatchOnlyRescue: boolean = false
 ): RecoveryPolicy => {
-  if (mainBatchOnlyRescue) {
-    return {
-      allowEmpty: true,
-      eligibility: 'weak',
-      maxRecoveryRequests: 0,
-      reason: 'main-batch-only-enforced',
-      shouldRecoverMissing: false,
-      shouldSplitEmpty: false,
-    };
-  }
-
   const text = String(part?.text || '');
   const isVision = part?.sourceMode === 'pdfVision';
   const isSuspect = Boolean(part?.textLayerSuspect);
@@ -204,10 +194,23 @@ export const getRecoveryPolicyForPart = (
     nativeExpectedCount > 0
   );
 
+  if (mainBatchOnlyRescue) {
+    return {
+      allowEmpty: true,
+      eligibility: 'weak',
+      expectedCountReliable: hasStructuredEvidence,
+      maxRecoveryRequests: 0,
+      reason: 'main-batch-only-enforced',
+      shouldRecoverMissing: false,
+      shouldSplitEmpty: false,
+    };
+  }
+
   if (hasStructuredEvidence) {
     return {
       allowEmpty: false,
       eligibility: 'strong',
+      expectedCountReliable: true,
       maxRecoveryRequests: 3,
       reason: 'structured-count',
       shouldRecoverMissing: true,
@@ -225,6 +228,7 @@ export const getRecoveryPolicyForPart = (
       return {
         allowEmpty: false,
         eligibility: 'medium',
+        expectedCountReliable: false,
         maxRecoveryRequests: 1,
         reason: 'pdf-vision-marker',
         shouldRecoverMissing: true,
@@ -236,6 +240,7 @@ export const getRecoveryPolicyForPart = (
   return {
     allowEmpty: true,
     eligibility: 'weak',
+    expectedCountReliable: false,
     maxRecoveryRequests: 0,
     reason: expectedCount <= 0 ? 'no-expected-count-or-marker' : 'weak-local-evidence',
     shouldRecoverMissing: false,
@@ -327,6 +332,7 @@ export const generateQuestions = async (
                 sourceMode: 'pdfText',
                 sourceLabel,
                 trace: buildTrace(file, sourceLabel, 'pdfText', { pageRange: batch.pageRange, batchIndex: batchIndex + 1 }, text),
+                expectedQuestionsReliable: true,
                 expectedQuestions: batch.expectedQuestions,
               });
             });
@@ -361,6 +367,7 @@ export const generateQuestions = async (
                   pdfVisionQuality: 'standard',
                   trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range }, rangeText),
                   textLayerSuspect: !allPagesGoodText,
+                  expectedQuestionsReliable: false,
                   ...(expectedQuestions > 0 ? { expectedQuestions } : {}),
                 });
               }
@@ -388,6 +395,7 @@ export const generateQuestions = async (
                   pdfVisionQuality: 'standard',
                   trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range }, rangeText),
                   textLayerSuspect: !allPagesGoodText,
+                  expectedQuestionsReliable: false,
                   ...(expectedQuestions > 0 ? { expectedQuestions } : {}),
                 });
               });
@@ -411,6 +419,7 @@ export const generateQuestions = async (
                 rawPdfBase64: rawBase64,
                 pdfFileName: file.name,
                 pdfVisionQuality: 'standard',
+                expectedQuestionsReliable: false,
                 trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range }),
               });
             }
@@ -427,6 +436,7 @@ export const generateQuestions = async (
                 rawPdfBase64: rawBase64,
                 pdfFileName: file.name,
                 pdfVisionQuality: 'standard',
+                expectedQuestionsReliable: false,
                 trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range }),
               });
             });
@@ -450,6 +460,7 @@ export const generateQuestions = async (
               nativeMcqBatch: true,
               sourceLabel,
               trace: buildTrace(file, sourceLabel, 'docxText', { batchIndex: batchIndex + 1 }, text),
+              expectedQuestionsReliable: true,
               expectedQuestions: getNativeBatchExpectedCount(text),
             });
           });
@@ -475,6 +486,7 @@ export const generateQuestions = async (
               nativeMcqBatch: true,
               sourceLabel,
               trace: buildTrace(file, sourceLabel, 'docxText', { batchIndex: batchIndex + 1 }, text),
+              expectedQuestionsReliable: true,
               expectedQuestions: getNativeBatchExpectedCount(text),
             });
           });
@@ -580,6 +592,7 @@ export const generateQuestions = async (
       parts: any[];
       missingCount: number;
       expectedQuestions: number;
+      expectedQuestionsReliable: boolean;
       beforeCoverageCount: number;
       recoveryBudgetKey?: string;
       reasonError?: any;
@@ -909,8 +922,8 @@ export const generateQuestions = async (
         const rangeText = getPdfVisionRangeText(part, range);
         const expectedFromText = countPdfQuestionMarkers(rangeText);
         
-        // Only enforce expectedQuestions in recovery if parent had a reliable count!
-        const parentHasReliableCount = typeof part.expectedQuestions === 'number' && part.expectedQuestions > 0;
+        // Only enforce expectedQuestions in recovery if the parent count came from structured blocks.
+        const parentHasReliableCount = part.expectedQuestionsReliable === true && typeof part.expectedQuestions === 'number' && part.expectedQuestions > 0;
         const expectedQuestions = parentHasReliableCount 
           ? Math.max(1, Math.min(missingCount, expectedFromText || missingCount))
           : 0;
@@ -935,6 +948,7 @@ export const generateQuestions = async (
             snippet: buildSourceSnippet(rangeText),
           },
           expectedQuestions,
+          expectedQuestionsReliable: parentHasReliableCount,
           partialRecovery: true,
           recoveryAttemptedFromPartial: true,
           forceMissingOnly: true,
@@ -1003,6 +1017,7 @@ export const generateQuestions = async (
         const batchStartingKey = runtimeSettings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
         const expectedQuestions = expectedAtStart;
         const recoveryPolicy = getRecoveryPolicyForPart(part, expectedQuestions, runtimeSettings.mainBatchOnlyRescue);
+        const hasReliableExpectedCount = recoveryPolicy.expectedCountReliable && expectedQuestions > 0;
         const topLevelBatchNumber = topLevelIndex + 1;
         const isTargetedRetryBatch = Boolean(retryIndices?.includes(topLevelBatchNumber));
         const recoveryBudgetKey = typeof part.recoveryBudgetKey === 'string' ? part.recoveryBudgetKey : '';
@@ -1010,10 +1025,12 @@ export const generateQuestions = async (
           allowEmpty: recoveryPolicy.allowEmpty,
           batchIndex: index,
           duplicateCounterStart: duplicateCounter,
+          enforceExpectedCount: recoveryPolicy.expectedCountReliable,
           expectedQuestions,
           fullText,
           partMeta: {
             sourceLabel: part.sourceLabel,
+            sourceMode: part.sourceMode,
             text: part.text,
             trace: part.trace,
           },
@@ -1063,7 +1080,11 @@ export const generateQuestions = async (
           const partialDuplicateCount = batchNewDuplicates.length;
           const partialAutoSkippedCount = batchNewAutoSkipped;
           const partialUnchangedCount = Math.max(0, rawNewQs.length - newQs.length - partialDuplicateCount - partialAutoSkippedCount);
-          const expectedLabel = expectedQuestions > 0 ? String(expectedQuestions) : 'unknown';
+          const expectedLabel = hasReliableExpectedCount
+            ? String(expectedQuestions)
+            : expectedQuestions > 0
+            ? `${expectedQuestions} advisory`
+            : 'unknown';
           const partialNoAddReason = newQs.length > 0
             ? ''
             : partialDuplicateCount > 0
@@ -1101,7 +1122,7 @@ export const generateQuestions = async (
             console.info(`Batch ${batchLabel}: Partial salvage ${partialStats}${partialNoAddReason ? `; ${partialNoAddReason}.` : '.'}`);
           }
 
-          if (salvagedPartial && expectedQuestions <= 0 && !part.deferredRecovery && depth === 0) {
+          if (salvagedPartial && !hasReliableExpectedCount && !part.deferredRecovery && depth === 0) {
             recordBatchFailure(index, batchLabel, salvageReasonError || new Error(`Đã thêm ${newQs.length}/${rawNewQs.length} câu từ phản hồi bị cắt nhưng chưa xác minh đủ vì không có số câu kỳ vọng đáng tin.`), 'partial', {
               recoveredCount: newQs.length,
               partialRawCount: rawNewQs.length,
@@ -1115,7 +1136,7 @@ export const generateQuestions = async (
           }
 
           if (salvagedPartial && missingCount > 0 && !part.deferredRecovery) {
-            const missingRatio = expectedQuestions > 0 ? missingCount / expectedQuestions : 0;
+            const missingRatio = hasReliableExpectedCount ? missingCount / expectedQuestions : 0;
             const canRecoverPdfVision = recoveryPolicy.shouldRecoverMissing && part.sourceMode === 'pdfVision' && !part.partialRecovery && part.pdfDataUrl;
             const canRecoverPartial = recoveryPolicy.shouldRecoverMissing && recoveryPolicy.maxRecoveryRequests > 0;
             if (missingRatio > 0.4 && !canRecoverPdfVision && !isKeyConservationActive()) {
@@ -1143,6 +1164,7 @@ export const generateQuestions = async (
                     recoveryAttemptedFromPartial: true,
                     forceMissingOnly: true,
                     expectedQuestions: missingCount,
+                    expectedQuestionsReliable: recoveryPolicy.expectedCountReliable,
                     existingQuestionFingerprints: buildSeenQuestionFingerprints(rawNewQs),
                   }];
 
@@ -1177,6 +1199,7 @@ export const generateQuestions = async (
                     parts: deferredParts,
                     missingCount: remainingMissingCount,
                     expectedQuestions,
+                    expectedQuestionsReliable: hasReliableExpectedCount,
                     beforeCoverageCount: afterImmediateCount,
                     recoveryBudgetKey,
                     reasonError: isKeyConservationActive() ? createProviderPressureDeferredError() : undefined,
@@ -1221,7 +1244,7 @@ export const generateQuestions = async (
 
           if (
             salvagedPartial &&
-            expectedQuestions <= 0 &&
+            !hasReliableExpectedCount &&
             rawNewQs.length > 0 &&
             part.sourceMode === 'pdfVision' &&
             !part.partialRecovery &&
@@ -1254,6 +1277,7 @@ export const generateQuestions = async (
                   parts: deferredParts,
                   missingCount: 1,
                   expectedQuestions: 0,
+                  expectedQuestionsReliable: false,
                   beforeCoverageCount: getBatchCoveredQuestionCount(topLevelIndex + 1),
                   reasonError: isKeyConservationActive() ? createProviderPressureDeferredError() : undefined,
                   forceJsonRepair: true,
@@ -1266,7 +1290,7 @@ export const generateQuestions = async (
           if (
             isTargetedRetryBatch &&
             depth === 0 &&
-            expectedQuestions <= 0 &&
+            !hasReliableExpectedCount &&
             !salvagedPartial &&
             newQs.length === 0
           ) {
@@ -1452,7 +1476,7 @@ export const generateQuestions = async (
           !handledPostprocess &&
           isTargetedRetryBatch &&
           depth === 0 &&
-          expectedQuestions <= 0
+          !hasReliableExpectedCount
         ) {
           recordBatchFailure(index, batchLabel, new Error(`Quét lại Batch ${batchLabel} trả rỗng và chưa có số câu kỳ vọng đáng tin để xác minh đã đủ.`), 'rescue', {
             recoveredCount: 0,
@@ -1517,6 +1541,7 @@ export const generateQuestions = async (
               parts: recoveryParts,
               missingCount,
               expectedQuestions,
+              expectedQuestionsReliable: recoveryPolicy.expectedCountReliable,
               beforeCoverageCount: getBatchCoveredQuestionCount(topLevelIndex + 1),
               reasonError: e,
               forceJsonRepair: true,
@@ -1602,6 +1627,7 @@ export const generateQuestions = async (
               parts: budgetedParts,
               missingCount: Math.max(1, expectedQuestions || parts.length),
               expectedQuestions,
+              expectedQuestionsReliable: recoveryPolicy.expectedCountReliable,
               beforeCoverageCount: getBatchCoveredQuestionCount(topLevelIndex + 1),
               reasonError: e,
               forceJsonRepair: true,
@@ -1645,6 +1671,7 @@ export const generateQuestions = async (
             parts: [{ ...part, deferredRecovery: true }],
             missingCount: safeMissingCount,
             expectedQuestions,
+            expectedQuestionsReliable: recoveryPolicy.expectedCountReliable,
             beforeCoverageCount: getBatchCoveredQuestionCount(topLevelIndex + 1),
             reasonError: e,
             forceJsonRepair: true,
@@ -1732,7 +1759,7 @@ export const generateQuestions = async (
         const item = deferredRecoveryQueue.shift()!;
         const topLevelBatchNumber = item.topLevelIndex + 1;
         const beforeDeferredCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
-        const hasReliableCount = typeof item.expectedQuestions === 'number' && item.expectedQuestions > 0;
+        const hasReliableCount = item.expectedQuestionsReliable && typeof item.expectedQuestions === 'number' && item.expectedQuestions > 0;
 
         if (hasReliableCount) {
           const expectedCount = item.expectedQuestions;

@@ -528,7 +528,7 @@ export const createStreamingQuestionBuffer = (): StreamingQuestionBuffer => {
 
 interface ParseQuestionsOptions {
   allowEmpty?: boolean;
-  sourceMode?: string;
+  enforceExpectedCount?: boolean;
 }
 
 export const parseQuestionsFromModelText = (
@@ -540,6 +540,7 @@ export const parseQuestionsFromModelText = (
   let jsonStr = extractJson(text);
   if (!jsonStr) throw new Error("📄 AI không trả về dữ liệu đúng định dạng. Batch này sẽ được tự động chia nhỏ và thử lại.");
   const allowEmpty = options.allowEmpty ?? expectedQuestions === 0;
+  const enforceExpectedCount = options.enforceExpectedCount ?? true;
 
   try {
     jsonStr = jsonStr.replace(/,\s*([\]\}])/g, '$1');
@@ -556,19 +557,16 @@ export const parseQuestionsFromModelText = (
       }
       return questions;
     }
-    if (expectedQuestions > 0 && questions.length < expectedQuestions) {
-      const isVision = options.sourceMode === 'pdfVision';
-      if (!isVision) {
-        (questions as any).__salvagedPartial = true;
-        (questions as any).__missingCount = expectedQuestions - questions.length;
-      }
+    if (enforceExpectedCount && expectedQuestions > 0 && questions.length < expectedQuestions) {
+      (questions as any).__salvagedPartial = true;
+      (questions as any).__missingCount = expectedQuestions - questions.length;
     }
     return questions;
   } catch (error) {
     const salvaged = salvageCompleteQuestionsFromJson(text);
     if (salvaged.length > 0) {
       (salvaged as any).__salvagedPartial = true;
-      (salvaged as any).__missingCount = expectedQuestions > 0 ? Math.max(0, expectedQuestions - salvaged.length) : 0;
+      (salvaged as any).__missingCount = enforceExpectedCount && expectedQuestions > 0 ? Math.max(0, expectedQuestions - salvaged.length) : 0;
       console.info(`🧩 Salvaged ${salvaged.length}${expectedQuestions > 0 ? `/${expectedQuestions}` : ''} complete questions from malformed JSON in batch ${batchIndex + 1}.`);
       return salvaged;
     }

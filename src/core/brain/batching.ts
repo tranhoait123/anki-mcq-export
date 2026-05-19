@@ -37,7 +37,7 @@ export const getNativeBatchExpectedCount = (text: string): number => {
 };
 
 export const inferCompletedBatchIndicesFromExistingQuestions = (
-  parts: Array<{ text?: string; expectedQuestions?: number; sourceLabel?: string }>,
+  parts: Array<{ text?: string; expectedQuestions?: number; expectedQuestionsReliable?: boolean; sourceLabel?: string }>,
   existingQuestions: MCQ[] = []
 ): number[] => {
   if (existingQuestions.length === 0) return [];
@@ -50,7 +50,10 @@ export const inferCompletedBatchIndicesFromExistingQuestions = (
   });
 
   return parts.reduce<number[]>((completed, part, index) => {
-    const expected = part.expectedQuestions || getNativeBatchExpectedCount(part.text || '');
+    const nativeExpected = getNativeBatchExpectedCount(part.text || '');
+    const expected = part.expectedQuestionsReliable === false
+      ? nativeExpected
+      : (part.expectedQuestions || nativeExpected);
     if (expected <= 0) return completed;
 
     const source = normalizeSourceLabel(getTrustedSourceLabel(part));

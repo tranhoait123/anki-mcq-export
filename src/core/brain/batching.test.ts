@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { UploadedFile } from '../../types';
-import { hashFiles } from './batching';
+import { MCQ, UploadedFile } from '../../types';
+import { hashFiles, inferCompletedBatchIndicesFromExistingQuestions } from './batching';
 
 const file = (overrides: Partial<UploadedFile>): UploadedFile => ({
   id: overrides.id || 'file-1',
@@ -8,6 +8,22 @@ const file = (overrides: Partial<UploadedFile>): UploadedFile => ({
   type: overrides.type || 'text/plain',
   content: overrides.content || 'content',
   contentHash: overrides.contentHash,
+});
+
+const questionFromSource = (source: string): MCQ => ({
+  id: `q-${source}`,
+  question: 'Câu hỏi mock?',
+  options: ['A. Một', 'B. Hai'],
+  correctAnswer: 'A',
+  explanation: {
+    core: '',
+    evidence: '',
+    analysis: '',
+    warning: '',
+  },
+  source,
+  difficulty: 'Easy',
+  depthAnalysis: '',
 });
 
 describe('brain batching helpers', () => {
@@ -23,5 +39,31 @@ describe('brain batching helpers', () => {
     const second = await hashFiles([file({ content: 'second-content' })]);
 
     expect(first).not.toBe(second);
+  });
+
+  it('does not infer completion from advisory PDF Vision expected counts', () => {
+    const sourceLabel = 'scan.pdf | Trang 1-2';
+    const inferred = inferCompletedBatchIndicesFromExistingQuestions([
+      {
+        expectedQuestions: 1,
+        expectedQuestionsReliable: false,
+        sourceLabel,
+      },
+    ], [questionFromSource(sourceLabel)]);
+
+    expect(inferred).toEqual([]);
+  });
+
+  it('still infers completion when expected counts are marked reliable', () => {
+    const sourceLabel = 'deck.docx | Nhóm 1';
+    const inferred = inferCompletedBatchIndicesFromExistingQuestions([
+      {
+        expectedQuestions: 1,
+        expectedQuestionsReliable: true,
+        sourceLabel,
+      },
+    ], [questionFromSource(sourceLabel)]);
+
+    expect(inferred).toEqual([1]);
   });
 });

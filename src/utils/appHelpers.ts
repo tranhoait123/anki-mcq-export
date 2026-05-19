@@ -1,5 +1,6 @@
 import { AppSettings, GeneratedResponse, MCQ, ProcessingPhase, ProcessingSessionStatus, UploadedFile } from '../types';
 import { coerceModelForProvider, DEFAULT_GEMINI_MODEL, isModelAllowedForProvider } from './models';
+import { DEFAULT_GOOGLE_RPM_LIMIT, normalizeGoogleRpmLimit } from './rateLimitSettings';
 
 type LegacyPersistedSettings = Omit<Partial<AppSettings>, 'provider'> & {
   provider?: AppSettings['provider'] | string;
@@ -23,6 +24,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   mainBatchOnlyRescue: false,
   visionPagesPerBatch: 2,
   autoGroupClinicalCases: true,
+  googleRpmLimiterEnabled: true,
+  googleRpmLimitPerMinute: DEFAULT_GOOGLE_RPM_LIMIT,
 };
 
 export const isDocxFile = (file?: UploadedFile | null) =>
@@ -182,6 +185,8 @@ export const normalizePersistedSettings = (settings: LegacyPersistedSettings): A
   if (persistedSettings.mainBatchOnlyRescue === undefined) persistedSettings.mainBatchOnlyRescue = false;
   if (persistedSettings.visionPagesPerBatch === undefined) persistedSettings.visionPagesPerBatch = 2;
   if (persistedSettings.autoGroupClinicalCases === undefined) persistedSettings.autoGroupClinicalCases = true;
+  persistedSettings.googleRpmLimiterEnabled = persistedSettings.googleRpmLimiterEnabled !== false;
+  persistedSettings.googleRpmLimitPerMinute = normalizeGoogleRpmLimit(persistedSettings.googleRpmLimitPerMinute);
 
   return persistedSettings;
 };

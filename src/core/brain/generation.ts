@@ -59,6 +59,10 @@ import {
   resetContextCacheSession,
 } from './contextCache';
 import {
+  getGoogleRequestRateLimitOptions,
+  isGoogleRpmLimiterEnabled,
+} from './requestRateLimiter';
+import {
   extractQuestionNumber,
   GenerateQuestionsOptions,
   partsRequireVision,
@@ -1263,7 +1267,11 @@ export const generateQuestions = async (
                   const hasInlineVisionInput = Boolean(part.inlineData) || (Array.isArray(part.inlineDataParts) && part.inlineDataParts.length > 0);
                   if (!part.text && !hasInlineVisionInput && !sessionCache[cacheSessionKey]) {
                     sessionCache[cacheSessionKey] = (async () => {
-                      try { return await getOrSetContextCache(aiInstance, files, activeModel, finalInstruction, currentKey); } catch { return null; }
+                      try {
+                        return await getOrSetContextCache(aiInstance, files, activeModel, finalInstruction, currentKey, {
+                          allowCreate: !isGoogleRpmLimiterEnabled(runtimeSettings),
+                        });
+                      } catch { return null; }
                     })();
                   }
                   const kCacheName = part.text || hasInlineVisionInput ? null : await sessionCache[cacheSessionKey];
@@ -1380,7 +1388,8 @@ export const generateQuestions = async (
               batchStartingKey, // Per-batch key assignment
               stableFallbackModel,
               retryProfile,
-              controller
+              controller,
+              getGoogleRequestRateLimitOptions(runtimeSettings)
             )
         );
 

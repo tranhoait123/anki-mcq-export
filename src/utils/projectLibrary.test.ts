@@ -18,6 +18,8 @@ const settings: AppSettings = {
   batchingMode: 'safe',
   projectLibraryEnabled: true,
   realtimePreviewEnabled: false,
+  googleRpmLimiterEnabled: true,
+  googleRpmLimitPerMinute: 14,
 };
 
 const makeMcq = (id: string, question: string, answer = 'A'): MCQ => ({
@@ -85,6 +87,8 @@ describe('project library helpers', () => {
       adaptiveBatching: true,
       projectLibraryEnabled: true,
       realtimePreviewEnabled: false,
+      googleRpmLimiterEnabled: true,
+      googleRpmLimitPerMinute: 14,
       hasCustomPrompt: true,
     });
     expect(JSON.stringify(project)).not.toContain('secret');

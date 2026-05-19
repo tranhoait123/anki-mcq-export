@@ -262,6 +262,8 @@ export interface AppSettings {
   mainBatchOnlyRescue?: boolean;
   visionPagesPerBatch?: number;
   autoGroupClinicalCases?: boolean;
+  googleRpmLimiterEnabled?: boolean;
+  googleRpmLimitPerMinute?: number;
 }
 
 export interface ProjectSettingsSummary {
@@ -275,6 +277,8 @@ export interface ProjectSettingsSummary {
   mainBatchOnlyRescue?: boolean;
   visionPagesPerBatch?: number;
   autoGroupClinicalCases?: boolean;
+  googleRpmLimiterEnabled?: boolean;
+  googleRpmLimitPerMinute?: number;
   hasCustomPrompt: boolean;
 }
 

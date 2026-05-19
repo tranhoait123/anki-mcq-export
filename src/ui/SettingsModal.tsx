@@ -7,6 +7,7 @@ import { validateShopAIKeyConnection } from '../core/brain';
 import { AIProvider, coerceModelForProvider, getModelGroups, getShopAIKeyVerifiedModelGroups } from '../utils/models';
 import { ConfirmDialogOptions } from '../hooks/useConfirmDialog';
 import type { ShopAIKeyValidationResult } from '../core/brain/openAiProvider';
+import { GOOGLE_RPM_PRESETS, normalizeGoogleRpmLimit } from '../utils/rateLimitSettings';
 
 interface SettingsModalProps {
     show: boolean;
@@ -59,8 +60,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
     const modelGroups = settings.provider === 'shopaikey' && verifiedShopAIKeyModels.length > 0
         ? getShopAIKeyVerifiedModelGroups(verifiedShopAIKeyModels)
         : getModelGroups(settings.provider);
+    const googleRpmLimiterEnabled = settings.googleRpmLimiterEnabled !== false;
+    const googleRpmLimit = normalizeGoogleRpmLimit(settings.googleRpmLimitPerMinute);
     
     if (!show) return null;
+
+    const setGoogleRpmLimit = (value: unknown) => {
+        setSettings({ ...settings, googleRpmLimitPerMinute: normalizeGoogleRpmLimit(value) });
+    };
 
     const handleProviderChange = (provider: AIProvider) => {
         const nextModel = coerceModelForProvider(provider, settings.model);
@@ -335,6 +342,52 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                     <p className="text-[10px] text-slate-500 italic leading-relaxed px-1">
                                         * KHUYÊN DÙNG: 1-2 luồng (Key FREE) hoặc 4-8 luồng (Key PRO). Tránh để quá cao dễ bị Google chặn IP (429).
                                     </p>
+                                </div>
+
+                                {/* Google RPM Guard */}
+                                <div className="space-y-3 border-t border-slate-100 dark:border-slate-800/50 pt-5">
+                                    <Toggle
+                                        enabled={googleRpmLimiterEnabled}
+                                        onChange={val => setSettings({ ...settings, googleRpmLimiterEnabled: val })}
+                                        icon={<ShieldCheck size={16} />}
+                                        label="Google/Gemini RPM Guard"
+                                        description="Giới hạn cứng số request Google mỗi phút để tránh burst 429/503. Key trả phí có thể tăng mức này."
+                                        colorClass="text-emerald-500"
+                                    />
+                                    <div className={`rounded-2xl border border-emerald-100 bg-emerald-50/40 p-3 space-y-3 transition-opacity dark:border-emerald-900/40 dark:bg-emerald-950/10 ${googleRpmLimiterEnabled ? 'opacity-100' : 'opacity-50'}`}>
+                                        <div className="grid grid-cols-4 gap-2">
+                                            {GOOGLE_RPM_PRESETS.map(limit => (
+                                                <button
+                                                    key={limit}
+                                                    type="button"
+                                                    disabled={!googleRpmLimiterEnabled}
+                                                    onClick={() => setGoogleRpmLimit(limit)}
+                                                    className={`rounded-xl border px-2 py-2 text-[10px] font-black transition-all disabled:cursor-not-allowed ${
+                                                        googleRpmLimit === limit
+                                                            ? 'border-emerald-500 bg-emerald-500 text-white shadow-sm'
+                                                            : 'border-emerald-100 bg-white text-emerald-700 hover:border-emerald-300 dark:border-emerald-900/60 dark:bg-slate-900 dark:text-emerald-300'
+                                                    }`}
+                                                >
+                                                    {limit}/phút
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div>
+                                                <p className="text-[11px] font-bold text-slate-700 dark:text-slate-200">Tuỳ chỉnh RPM</p>
+                                                <p className="text-[10px] text-slate-500 dark:text-slate-400">Mặc định 14/phút an toàn cho free-tier.</p>
+                                            </div>
+                                            <input
+                                                type="number"
+                                                min={1}
+                                                max={600}
+                                                disabled={!googleRpmLimiterEnabled}
+                                                value={googleRpmLimit}
+                                                onChange={e => setGoogleRpmLimit(e.target.value)}
+                                                className="w-24 rounded-xl border-2 border-emerald-100 bg-white px-3 py-2 text-right text-xs font-black text-emerald-700 outline-none transition-all focus:ring-2 focus:ring-emerald-500 disabled:cursor-not-allowed dark:border-emerald-900/50 dark:bg-slate-800 dark:text-emerald-300"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
 
                                 {/* Vision Pages Per Batch */}

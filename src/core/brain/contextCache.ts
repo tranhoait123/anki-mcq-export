@@ -5,6 +5,10 @@ import {
   hashFiles,
 } from './batching';
 
+interface ContextCacheOptions {
+  allowCreate?: boolean;
+}
+
 // Session-level flag: Khi 1 key fail caching (Free Tier / 429 / 403), tất cả key khác
 // trong cùng session rất có thể cũng là Free Tier -> skip luôn để tiết kiệm thời gian.
 let cachingDisabledForSession = false;
@@ -27,7 +31,8 @@ export const getOrSetContextCache = async (
   files: UploadedFile[],
   modelName: string,
   systemInstruction: string,
-  apiKey: string
+  apiKey: string,
+  options: ContextCacheOptions = {}
 ): Promise<string | null> => {
   if (!modelName.startsWith('gemini-')) {
     return null;
@@ -50,6 +55,11 @@ export const getOrSetContextCache = async (
       console.log(`🎯 Cache Hit (Key: ${keyHash}): ${existing.cacheName}`);
       cachingFailureCount = 0; // Reset failure count on success
       return existing.cacheName;
+    }
+
+    if (options.allowCreate === false) {
+      console.log('🛡️ RPM guard enabled; skipping new Context Cache creation to avoid hidden Google requests.');
+      return null;
     }
 
     // Prepare contents for caching

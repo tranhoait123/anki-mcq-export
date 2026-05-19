@@ -114,4 +114,30 @@ describe('app helpers', () => {
       realtimePreviewEnabled: false,
     }).realtimePreviewEnabled).toBe(false);
   });
+
+  it('defaults Google RPM guard on and normalizes custom limits', () => {
+    expect(normalizePersistedSettings({
+      provider: 'google',
+      model: 'gemini-3.1-flash-lite-preview',
+    })).toMatchObject({
+      googleRpmLimiterEnabled: true,
+      googleRpmLimitPerMinute: 14,
+    });
+
+    expect(normalizePersistedSettings({
+      provider: 'google',
+      model: 'gemini-3.1-flash-lite-preview',
+      googleRpmLimiterEnabled: false,
+      googleRpmLimitPerMinute: 30.4,
+    })).toMatchObject({
+      googleRpmLimiterEnabled: false,
+      googleRpmLimitPerMinute: 30,
+    });
+
+    expect(normalizePersistedSettings({
+      provider: 'google',
+      model: 'gemini-3.1-flash-lite-preview',
+      googleRpmLimitPerMinute: 9999,
+    }).googleRpmLimitPerMinute).toBe(600);
+  });
 });

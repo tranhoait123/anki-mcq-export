@@ -7,6 +7,7 @@ import { getModelConfig } from './googleProvider';
 import { isOpenAICompatibleProvider, callOpenAICompatibleProvider, toOpenAIContentFromFile } from './openAiProvider';
 import { parseJsonFromModelText } from './parsing';
 import { buildAnalyzePrompt, SYSTEM_INSTRUCTION_AUDIT } from './prompts';
+import { getGoogleRequestRateLimitOptions } from './requestRateLimiter';
 
 const filesRequireVision = (files: UploadedFile[]): boolean =>
   files.some(file => file.type === 'application/pdf' || file.type.startsWith('image/'));
@@ -91,7 +92,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
     }));
     const result = await chat.sendMessage({ message: parts });
     return normalizeAnalysisResult(parseJsonFromModelText(requireModelText(result.text, 'Phân tích tài liệu')));
-  }, undefined, getProviderFallbackModel(runtimeSettings.provider, runtimeSettings.model));
+  }, undefined, getProviderFallbackModel(runtimeSettings.provider, runtimeSettings.model), undefined, undefined, getGoogleRequestRateLimitOptions(runtimeSettings));
 };
 
 export const auditMissingQuestions = async (files: UploadedFile[], count: number, settings: AppSettings): Promise<AuditResult> => {
@@ -147,5 +148,5 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
       ]
     });
     return parseJsonFromModelText<AuditResult>(requireModelText(res.text, 'Audit câu hỏi thiếu'));
-  }, undefined, getProviderFallbackModel(runtimeSettings.provider, runtimeSettings.model));
+  }, undefined, getProviderFallbackModel(runtimeSettings.provider, runtimeSettings.model), undefined, undefined, getGoogleRequestRateLimitOptions(runtimeSettings));
 };

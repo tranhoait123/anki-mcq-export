@@ -11,6 +11,7 @@ import {
 import { DEFAULT_GEMINI_MODEL } from '../../utils/models';
 import { getRetryDelayMsFromError } from './providerErrors';
 import { db } from '../db';
+import { googleRequestRateLimiter, RequestRateLimitOptions } from './requestRateLimiter';
 
 export { userKeyRotator };
 
@@ -122,7 +123,8 @@ export async function executeWithUserRotation<T>(
   startingKey?: string,
   fallbackModel: string = DEFAULT_GEMINI_MODEL,
   retryProfile: RetryProfile = getRetryProfile('normal'),
-  controller?: ProcessingController
+  controller?: ProcessingController,
+  rateLimitOptions?: RequestRateLimitOptions
 ): Promise<T> {
   const ATTEMPTS_LIMIT = Math.max(retryProfile.minAttempts, retryProfile.minAttempts + retryProfile.attemptBuffer);
   let attempts = 0;
@@ -130,11 +132,12 @@ export async function executeWithUserRotation<T>(
   let currentKey = startingKey || userKeyRotator.selectBestKey();
   const keysTried = new Set<string>();
   const startedAt = Date.now();
+  let rpmGuardWaitMs = 0;
   let bestPartialText = '';
   let lastRetryKind: BatchErrorKind | undefined;
   let lastRetryCause: RetryDecisionCause | undefined;
 
-  const getRemainingBudgetMs = () => retryProfile.maxElapsedMs - (Date.now() - startedAt);
+  const getRemainingBudgetMs = () => retryProfile.maxElapsedMs - (Date.now() - startedAt - rpmGuardWaitMs);
   const getUntriedAvailableKey = () => userKeyRotator.selectBestKey({ excludeKeys: keysTried });
   const getRetriedAvailableKey = () => userKeyRotator.selectBestKey({ allowRetriedKeys: true });
   const getRotationLimit = () => userKeyRotator.getRecommendedRotationLimit();
@@ -225,6 +228,14 @@ export async function executeWithUserRotation<T>(
       if (!currentKey) {
         throw withDiagnostics(new Error(`RETRY_BUDGET_EXHAUSTED: Không còn API key khả dụng trong lượt thử hiện tại. Batch này sẽ được đánh dấu để quét lại sau.`), currentKey);
       }
+    }
+
+    const rateLimitResult = await googleRequestRateLimiter.waitForTurn(rateLimitOptions, controller);
+    rpmGuardWaitMs += rateLimitResult.waitedMs;
+    await controller?.waitIfPaused();
+
+    if (getRemainingBudgetMs() <= 0) {
+      throw withDiagnostics(new Error(`RETRY_BUDGET_EXHAUSTED: Dịch vụ AI vẫn bận sau ${Math.round(retryProfile.maxElapsedMs / 1000)}s. Batch này sẽ được đánh dấu để quét lại sau.`), currentKey);
     }
 
     attempts++;

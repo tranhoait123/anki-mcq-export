@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { UploadedFile, ProgressCallback, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, BatchFailureDiagnostics, SourceTrace } from "../../types";
 import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage } from '../../utils/models';
-import { analyzePdfTextLayer, convertPdfToImages, countPdfQuestionMarkers, splitPdfRangeForVisionRecovery, type PdfVisionRecoveryDirection } from '../../utils/pdfProcessor';
+import { analyzePdfTextLayer, convertPdfToImages, estimatePdfQuestionMarkers, splitPdfRangeForVisionRecovery, type PdfQuestionMarkerEstimate, type PdfVisionRecoveryDirection } from '../../utils/pdfProcessor';
 import {
   classifyBatchError,
   describeBatchError,
@@ -159,10 +159,39 @@ export interface RecoveryPolicy {
 }
 
 const OPTION_MARKER_PATTERN = /(?:^|\n)\s*(?:[A-Ha-h]|[①-⑧])[\).:\-]\s+\S/g;
+type ExpectedQuestionEvidence = {
+  confidence: 'none' | 'low' | 'medium' | 'high' | 'exact';
+  count: number;
+  numbers?: number[];
+  reliable: boolean;
+  reason: string;
+  source: 'structured-blocks' | 'pdf-text-layer-markers' | 'none';
+};
 
 export const countOptionMarkersForRecoveryEvidence = (text: string = ''): number => (
   String(text || '').match(OPTION_MARKER_PATTERN)?.length || 0
 );
+
+const isUsablePdfMarkerEstimate = (estimate?: Pick<PdfQuestionMarkerEstimate, 'confidence' | 'count'> | null): boolean =>
+  Boolean(estimate && estimate.count > 0 && (estimate.confidence === 'medium' || estimate.confidence === 'high'));
+
+const buildPdfMarkerExpectedEvidence = (estimate?: PdfQuestionMarkerEstimate | null): ExpectedQuestionEvidence => ({
+  confidence: estimate?.confidence || 'none',
+  count: estimate?.count || 0,
+  numbers: estimate?.numbers || [],
+  reliable: false,
+  reason: estimate?.reason || 'Không có text-layer marker đủ tin để ước lượng số câu.',
+  source: estimate && estimate.count > 0 ? 'pdf-text-layer-markers' : 'none',
+});
+
+const buildStructuredExpectedEvidence = (count: number, reason = 'Số câu lấy từ block structured đã tách sẵn.'): ExpectedQuestionEvidence => ({
+  confidence: count > 0 ? 'exact' : 'none',
+  count: Math.max(0, count),
+  numbers: [],
+  reliable: count > 0,
+  reason,
+  source: count > 0 ? 'structured-blocks' : 'none',
+});
 
 export const isGoogleKeyConservationActive = (
   provider: AppSettings['provider'],
@@ -185,7 +214,11 @@ export const getRecoveryPolicyForPart = (
   const isSuspect = Boolean(part?.textLayerSuspect);
   const nativeExpectedCount = isVision ? 0 : getNativeBatchExpectedCount(text);
   const expectedCount = Math.max(0, Number(expectedQuestions || part?.expectedQuestions || nativeExpectedCount || 0));
-  const questionMarkerCount = isSuspect ? 0 : countPdfQuestionMarkers(text);
+  const markerEstimate = isSuspect
+    ? null
+    : part?.expectedQuestionEvidence?.source === 'pdf-text-layer-markers'
+    ? { confidence: part.expectedQuestionEvidence.confidence, count: part.expectedQuestionEvidence.count }
+    : estimatePdfQuestionMarkers(text);
   const optionMarkerCount = isSuspect ? 0 : countOptionMarkersForRecoveryEvidence(text);
   const hasStructuredEvidence = expectedCount > 0 && (
     Boolean(part?.nativeMcqBatch) ||
@@ -219,9 +252,9 @@ export const getRecoveryPolicyForPart = (
   }
 
   if (part?.sourceMode === 'pdfVision') {
-    const hasMediumEvidence = expectedCount > 0 ||
+    const hasMediumEvidence = (expectedCount > 0 && isUsablePdfMarkerEstimate(markerEstimate)) ||
       (!isSuspect && (
-        questionMarkerCount > 0 ||
+        isUsablePdfMarkerEstimate(markerEstimate) ||
         optionMarkerCount >= 3
       ));
     if (hasMediumEvidence) {
@@ -332,6 +365,7 @@ export const generateQuestions = async (
                 sourceMode: 'pdfText',
                 sourceLabel,
                 trace: buildTrace(file, sourceLabel, 'pdfText', { pageRange: batch.pageRange, batchIndex: batchIndex + 1 }, text),
+                expectedQuestionEvidence: buildStructuredExpectedEvidence(batch.expectedQuestions, 'PDF text layer đã được tách thành block MCQ structured.'),
                 expectedQuestionsReliable: true,
                 expectedQuestions: batch.expectedQuestions,
               });
@@ -348,9 +382,10 @@ export const generateQuestions = async (
                 const rangePages = pdfTextAnalysis.pages.slice(range.start - 1, range.end);
                 const rangeText = rangePages.map((page) => page.text).join('\n\n');
                 
-                // Only count expected questions if the pages have good text layer quality!
                 const allPagesGoodText = rangePages.length > 0 && rangePages.every((page) => page.quality === 'goodText');
-                const expectedQuestions = allPagesGoodText ? countPdfQuestionMarkers(rangeText) : 0;
+                const markerEstimate = allPagesGoodText ? estimatePdfQuestionMarkers(rangeText) : null;
+                const expectedQuestions = isUsablePdfMarkerEstimate(markerEstimate) ? markerEstimate!.count : 0;
+                const expectedQuestionEvidence = buildPdfMarkerExpectedEvidence(markerEstimate);
                 
                 allParts.push({
                   inlineDataParts: images.map((imageBase64) => ({
@@ -365,8 +400,14 @@ export const generateQuestions = async (
                   pdfFileName: file.name,
                   pdfTextPages: rangePages.map((page) => ({ pageNumber: page.pageNumber, text: page.text })),
                   pdfVisionQuality: 'standard',
-                  trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range }, rangeText),
+                  trace: buildTrace(file, sourceLabel, 'pdfVision', {
+                    pageRange: range,
+                    boundaryRisk: range.boundaryRisk,
+                    expectedQuestionNumbers: expectedQuestionEvidence.numbers,
+                  }, rangeText),
                   textLayerSuspect: !allPagesGoodText,
+                  boundaryRisk: range.boundaryRisk,
+                  expectedQuestionEvidence,
                   expectedQuestionsReliable: false,
                   ...(expectedQuestions > 0 ? { expectedQuestions } : {}),
                 });
@@ -379,9 +420,10 @@ export const generateQuestions = async (
                 const rangePages = range ? pdfTextAnalysis.pages.slice(range.start - 1, range.end) : [];
                 const rangeText = rangePages.map((page) => page.text).join('\n\n');
                 
-                // Only count expected questions if the pages have good text layer quality!
                 const allPagesGoodText = rangePages.length > 0 && rangePages.every((page) => page.quality === 'goodText');
-                const expectedQuestions = allPagesGoodText ? countPdfQuestionMarkers(rangeText) : 0;
+                const markerEstimate = allPagesGoodText ? estimatePdfQuestionMarkers(rangeText) : null;
+                const expectedQuestions = isUsablePdfMarkerEstimate(markerEstimate) ? markerEstimate!.count : 0;
+                const expectedQuestionEvidence = buildPdfMarkerExpectedEvidence(markerEstimate);
 
                 allParts.push({
                   inlineData: { mimeType: 'application/pdf', data: chunkBase64 },
@@ -393,8 +435,14 @@ export const generateQuestions = async (
                   pdfFileName: file.name,
                   pdfTextPages: rangePages.map((page) => ({ pageNumber: page.pageNumber, text: page.text })),
                   pdfVisionQuality: 'standard',
-                  trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range }, rangeText),
+                  trace: buildTrace(file, sourceLabel, 'pdfVision', {
+                    pageRange: range,
+                    boundaryRisk: range.boundaryRisk,
+                    expectedQuestionNumbers: expectedQuestionEvidence.numbers,
+                  }, rangeText),
                   textLayerSuspect: !allPagesGoodText,
+                  boundaryRisk: range.boundaryRisk,
+                  expectedQuestionEvidence,
                   expectedQuestionsReliable: false,
                   ...(expectedQuestions > 0 ? { expectedQuestions } : {}),
                 });
@@ -419,8 +467,10 @@ export const generateQuestions = async (
                 rawPdfBase64: rawBase64,
                 pdfFileName: file.name,
                 pdfVisionQuality: 'standard',
+                boundaryRisk: range.boundaryRisk,
+                expectedQuestionEvidence: buildPdfMarkerExpectedEvidence(null),
                 expectedQuestionsReliable: false,
-                trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range }),
+                trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range, boundaryRisk: range.boundaryRisk }),
               });
             }
           } else {
@@ -436,8 +486,10 @@ export const generateQuestions = async (
                 rawPdfBase64: rawBase64,
                 pdfFileName: file.name,
                 pdfVisionQuality: 'standard',
+                boundaryRisk: range.boundaryRisk,
+                expectedQuestionEvidence: buildPdfMarkerExpectedEvidence(null),
                 expectedQuestionsReliable: false,
-                trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range }),
+                trace: buildTrace(file, sourceLabel, 'pdfVision', { pageRange: range, boundaryRisk: range.boundaryRisk }),
               });
             });
           }
@@ -455,13 +507,15 @@ export const generateQuestions = async (
         if (docxBatches.length > 0) {
           docxBatches.forEach((text, batchIndex) => {
             const sourceLabel = joinSourceLabel(file.name, `Nhóm ${batchIndex + 1}`);
+            const expectedQuestions = getNativeBatchExpectedCount(text);
             allParts.push({
               text: `[TÀI LIỆU DOCX ${file.nativeText?.trim() ? 'NATIVE' : 'STRUCTURED'}: "${file.name}" (Nhóm ${batchIndex + 1}/${docxBatches.length})]\n\n${text}`,
               nativeMcqBatch: true,
               sourceLabel,
               trace: buildTrace(file, sourceLabel, 'docxText', { batchIndex: batchIndex + 1 }, text),
+              expectedQuestionEvidence: buildStructuredExpectedEvidence(expectedQuestions, 'DOCX native/structured batch đã được tách thành block MCQ.'),
               expectedQuestionsReliable: true,
-              expectedQuestions: getNativeBatchExpectedCount(text),
+              expectedQuestions,
             });
           });
         }
@@ -481,13 +535,15 @@ export const generateQuestions = async (
         if (docxBatches.length > 0) {
           docxBatches.forEach((text, batchIndex) => {
             const sourceLabel = joinSourceLabel(file.name, `Nhóm ${batchIndex + 1}`);
+            const expectedQuestions = getNativeBatchExpectedCount(text);
             allParts.push({
               text: `[TÀI LIỆU DOCX ${file.nativeText?.trim() ? 'NATIVE' : 'STRUCTURED'}: "${file.name}" (Nhóm ${batchIndex + 1}/${docxBatches.length})]\n\n${text}`,
               nativeMcqBatch: true,
               sourceLabel,
               trace: buildTrace(file, sourceLabel, 'docxText', { batchIndex: batchIndex + 1 }, text),
+              expectedQuestionEvidence: buildStructuredExpectedEvidence(expectedQuestions, 'DOCX native/structured batch đã được tách thành block MCQ.'),
               expectedQuestionsReliable: true,
-              expectedQuestions: getNativeBatchExpectedCount(text),
+              expectedQuestions,
             });
           });
         } else {
@@ -878,6 +934,15 @@ export const generateQuestions = async (
       console.info(`Batch ${safeItem.label}: Queued ${safeItem.parts.length} deferred recovery part(s) after provider pressure/limit.`);
     };
 
+    const getAdvisoryPdfExpectedCount = (part: any): number => {
+      const evidence = part?.expectedQuestionEvidence;
+      if (evidence?.source === 'pdf-text-layer-markers' && isUsablePdfMarkerEstimate(evidence)) {
+        return Math.max(0, Number(evidence.count || 0));
+      }
+      const estimate = estimatePdfQuestionMarkers(part?.text || '');
+      return isUsablePdfMarkerEstimate(estimate) ? estimate.count : 0;
+    };
+
     const buildSeenQuestionFingerprints = (questions: Array<{ question?: string }>): string =>
       questions
         .map((question, idx) => `${idx + 1}. ${String(question.question || '').replace(/\s+/g, ' ').trim().slice(0, 140)}`)
@@ -920,7 +985,8 @@ export const generateQuestions = async (
       for (const range of ranges) {
         if (recoveryParts.length >= maxParts) break;
         const rangeText = getPdfVisionRangeText(part, range);
-        const expectedFromText = countPdfQuestionMarkers(rangeText);
+        const markerEstimate = estimatePdfQuestionMarkers(rangeText);
+        const expectedFromText = isUsablePdfMarkerEstimate(markerEstimate) ? markerEstimate.count : 0;
         
         // Only enforce expectedQuestions in recovery if the parent count came from structured blocks.
         const parentHasReliableCount = part.expectedQuestionsReliable === true && typeof part.expectedQuestions === 'number' && part.expectedQuestions > 0;
@@ -945,9 +1011,14 @@ export const generateQuestions = async (
             sourceLabel,
             mode: 'pdfVision',
             pageRange: range,
+            boundaryRisk: part.boundaryRisk || part.trace?.boundaryRisk,
+            expectedQuestionNumbers: part.expectedQuestionEvidence?.numbers || part.trace?.expectedQuestionNumbers,
             snippet: buildSourceSnippet(rangeText),
           },
           expectedQuestions,
+          expectedQuestionEvidence: parentHasReliableCount
+            ? buildStructuredExpectedEvidence(expectedQuestions, 'Recovery kế thừa expected đáng tin từ parent structured.')
+            : buildPdfMarkerExpectedEvidence(markerEstimate),
           expectedQuestionsReliable: parentHasReliableCount,
           partialRecovery: true,
           recoveryAttemptedFromPartial: true,
@@ -1055,8 +1126,18 @@ export const generateQuestions = async (
         const imagePrompt = part.sourceMode === 'docxImage'
           ? `${part.docxImageLabel || '[DOCX IMAGE]'}\nẢnh này được nhúng trong file Word và CÓ THỂ chứa câu hỏi trắc nghiệm. Hãy phóng to/đọc kỹ toàn bộ chữ trong ảnh. Nếu ảnh chứa MCQ, hãy trích xuất đầy đủ mọi câu hỏi, lựa chọn và đáp án nếu nhìn thấy. ${forceJsonRepair ? 'Lần trước ảnh này trả rỗng hoặc lỗi; chỉ trả {"questions":[]} nếu bạn chắc chắn ảnh hoàn toàn không có câu hỏi trắc nghiệm.' : 'Nếu ảnh chỉ là minh họa và KHÔNG chứa câu hỏi trắc nghiệm, hãy trả về chính xác {"questions":[]}.'}`
           : '';
+        const boundaryRisk = part.boundaryRisk || part.trace?.boundaryRisk;
+        const expectedQuestionNumbers = Array.isArray(part.expectedQuestionEvidence?.numbers) && part.expectedQuestionEvidence.numbers.length > 0
+          ? part.expectedQuestionEvidence.numbers
+          : (Array.isArray(part.trace?.expectedQuestionNumbers) ? part.trace.expectedQuestionNumbers : []);
+        const boundaryPrompt = boundaryRisk && (boundaryRisk.severity === 'medium' || boundaryRisk.severity === 'high')
+          ? ` CẢNH BÁO BIÊN TRANG: range này được mở rộng vì có nguy cơ câu hỏi/tình huống/options bị cắt qua trang (${boundaryRisk.reasons.join(', ')}). Hãy đọc kỹ cuối trang trước và đầu trang sau, nối đầy đủ câu bị tách trang, không bỏ câu chỉ vì stem/options nằm ở hai trang khác nhau.`
+          : '';
+        const expectedNumbersPrompt = expectedQuestionNumbers.length > 0
+          ? ` Text layer thấy các marker câu hỏi: ${expectedQuestionNumbers.join(', ')}. Đây chỉ là gợi ý, nhưng nếu ảnh thật có các câu này thì phải trích đủ và giữ nhãn nguyên bản trong trường question (VD: "Câu ${expectedQuestionNumbers[0]}: ...").`
+          : '';
         const visionPrompt = (part.sourceMode === 'pdfVision' || part.inlineData || (Array.isArray(part.inlineDataParts) && part.inlineDataParts.length > 0))
-          ? `[CHỈ THỊ QUAN TRỌNG CHO PHẦN ẢNH/VISION]: Tài liệu hiện tại đang được xử lý ở chế độ quét Vision (ảnh chụp/PDF scan). Hãy đọc cực kỳ chậm và tỉ mỉ từng dòng, từng góc của trang ảnh này. Hãy đếm thầm xem có chính xác bao nhiêu câu hỏi trắc nghiệm (MCQ) xuất hiện trên trang. Bạn phải trích xuất ĐẦY ĐỦ TRĂM PHẦN TRĂM câu hỏi, không được bỏ sót bất kỳ câu nào dù là câu ngắn, câu tình huống hay câu ở cuối trang. Đọc theo thứ tự trang từ trên xuống dưới; chú ý câu ở cuối trang, bảng, layout 2 cột và lựa chọn nằm sát mép.${part.sourceMode === 'pdfVision' && expectedQuestions > 0 ? ` Text layer gợi ý có khoảng ${expectedQuestions} câu trong phạm vi này; nếu thấy khác, hãy ưu tiên đọc ảnh thật kỹ nhưng không được bỏ sót câu đã có marker.` : ''}${part.pdfVisionQuality === 'high' ? ' Đây là lượt cứu thiếu với ảnh nét hơn và phạm vi nhỏ hơn; chỉ trả các câu còn thiếu/chưa có trong danh sách đã lưu.' : ''}${isTailFirstPdfVisionRecovery ? ' Vì đây là tail rescue sau stream bị cắt, hãy soi kỹ phần cuối trang, trang cuối trong range, cột phải và các dòng sát mép trước; sau đó trả kết quả theo thứ tự đọc tự nhiên của tài liệu.' : ''}`
+          ? `[CHỈ THỊ QUAN TRỌNG CHO PHẦN ẢNH/VISION]: Tài liệu hiện tại đang được xử lý ở chế độ quét Vision (ảnh chụp/PDF scan). Hãy đọc cực kỳ chậm và tỉ mỉ từng dòng, từng góc của trang ảnh này. Hãy đếm thầm xem có chính xác bao nhiêu câu hỏi trắc nghiệm (MCQ) xuất hiện trên trang. Bạn phải trích xuất ĐẦY ĐỦ TRĂM PHẦN TRĂM câu hỏi, không được bỏ sót bất kỳ câu nào dù là câu ngắn, câu tình huống hay câu ở cuối trang. Đọc theo thứ tự trang từ trên xuống dưới; chú ý câu ở cuối trang, bảng, layout 2 cột và lựa chọn nằm sát mép.${part.sourceMode === 'pdfVision' && expectedQuestions > 0 ? ` Text layer gợi ý có khoảng ${expectedQuestions} câu trong phạm vi này; nếu thấy khác, hãy ưu tiên đọc ảnh thật kỹ nhưng không được bỏ sót câu đã có marker.` : ''}${expectedNumbersPrompt}${boundaryPrompt}${part.pdfVisionQuality === 'high' ? ' Đây là lượt cứu thiếu với ảnh nét hơn và phạm vi nhỏ hơn; chỉ trả các câu còn thiếu/chưa có trong danh sách đã lưu.' : ''}${isTailFirstPdfVisionRecovery ? ' Vì đây là tail rescue sau stream bị cắt, hãy soi kỹ phần cuối trang, trang cuối trong range, cột phải và các dòng sát mép trước; sau đó trả kết quả theo thứ tự đọc tự nhiên của tài liệu.' : ''}`
           : '';
         const extractionCommand = part.partialRecovery
           ? `CHỈ TRÍCH XUẤT CÁC CÂU CÒN THIẾU trong phần cứu này. Không trả lại câu đã có, không mở rộng ra ngoài block/trang được cung cấp (Phần ${batchLabel}).`
@@ -1306,6 +1387,57 @@ export const generateQuestions = async (
             console.info(`Batch ${batchLabel}: Quét lại không thêm câu mới (${partialStats}); giữ batch trong danh sách quét lại vì chưa xác minh đủ.`);
           }
 
+          const advisoryExpectedNumbers = Array.isArray(part.expectedQuestionEvidence?.numbers)
+            && (part.expectedQuestionEvidence.confidence === 'medium' || part.expectedQuestionEvidence.confidence === 'high')
+            ? part.expectedQuestionEvidence.numbers.filter((value: number) => Number.isFinite(value) && value > 0)
+            : [];
+          if (
+            advisoryExpectedNumbers.length > 0 &&
+            part.sourceMode === 'pdfVision' &&
+            !part.partialRecovery &&
+            !part.deferredRecovery &&
+            !salvagedPartial &&
+            depth === 0 &&
+            part.pdfDataUrl
+          ) {
+            const recoveredNumbers = new Set(rawNewQs.map((question: MCQ) => question.trace?.questionNumber).filter((value): value is number => Number.isFinite(value)));
+            const missingAdvisoryNumbers = advisoryExpectedNumbers.filter((questionNumber: number) => !recoveredNumbers.has(questionNumber));
+            if (missingAdvisoryNumbers.length > 0) {
+              const beforeRecoveryCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
+              const recoveryParts = await buildPdfVisionRecoveryParts(part, rawNewQs, missingAdvisoryNumbers.length, Math.max(1, recoveryPolicy.maxRecoveryRequests || 1), 'tailFirst');
+              if (recoveryParts.length > 0) {
+                console.info(`Batch ${batchLabel}: PDF Vision advisory markers còn thiếu câu ${missingAdvisoryNumbers.join(', ')}; chạy targeted boundary rescue.`);
+                await runPartsWithLimit(
+                  recoveryParts.map((recoveryPart) => ({
+                    ...recoveryPart,
+                    expectedQuestionEvidence: {
+                      ...recoveryPart.expectedQuestionEvidence,
+                      numbers: missingAdvisoryNumbers,
+                      count: missingAdvisoryNumbers.length,
+                    },
+                    existingQuestionFingerprints: buildSeenQuestionFingerprints(rawNewQs),
+                  })),
+                  getSplitConcurrencyLimit(),
+                  (recoveryPart, i) => processBatch(recoveryPart, index, depth + 1, true, topLevelIndex, i, batchLabel)
+                );
+              }
+              const afterRecoveryCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
+              const recoveredCount = getRecoveredMissingQuestionCount(beforeRecoveryCount, afterRecoveryCount, missingAdvisoryNumbers.length);
+              if (recoveredCount < missingAdvisoryNumbers.length) {
+                recordBatchFailure(index, batchLabel, new Error(`PDF Vision chưa xác minh được marker câu ${missingAdvisoryNumbers.join(', ')} sau targeted rescue.`), 'partial', {
+                  missingCount: missingAdvisoryNumbers.length,
+                  recoveredCount,
+                  partialRawCount: rawNewQs.length,
+                  partialAddedCount: newQs.length,
+                  partialDuplicateCount,
+                  partialAutoSkippedCount,
+                  partialUnchangedCount,
+                  expectedQuestions: advisoryExpectedNumbers.length,
+                });
+              }
+            }
+          }
+
           return true;
         };
         handlePostprocessResultForPartial = handlePostprocessResult;
@@ -1529,7 +1661,7 @@ export const generateQuestions = async (
           recoveryPolicy.maxRecoveryRequests > 0 &&
           shouldSplitForError(errorKind)
         ) {
-          const missingCount = Math.max(1, expectedQuestions || countPdfQuestionMarkers(part.text || '') || 1);
+          const missingCount = Math.max(1, expectedQuestions || getAdvisoryPdfExpectedCount(part) || 1);
           const recoveryParts = await buildPdfVisionRecoveryParts(part, [], missingCount, recoveryPolicy.maxRecoveryRequests);
           if (recoveryParts.length > 0) {
             console.info(`Batch ${batchLabel}: Hoãn cứu PDF Vision vì provider đang bị giới hạn/quá tải; sẽ cứu tuần tự sau cooldown.`);
@@ -1560,7 +1692,7 @@ export const generateQuestions = async (
           recoveryPolicy.maxRecoveryRequests > 0 &&
           shouldSplitForError(errorKind)
         ) {
-          const missingCount = Math.max(1, expectedQuestions || countPdfQuestionMarkers(part.text || '') || 1);
+          const missingCount = Math.max(1, expectedQuestions || getAdvisoryPdfExpectedCount(part) || 1);
           const recoveryParts = await buildPdfVisionRecoveryParts(part, [], missingCount, recoveryPolicy.maxRecoveryRequests);
           if (recoveryParts.length > 0) {
             console.info(`🔎 PDF Vision batch ${batchLabel} returned ${errorKind}. Retrying with high-quality overlapping page ranges...`);

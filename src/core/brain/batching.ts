@@ -80,9 +80,13 @@ export const applyTrustedSourceMetadata = <T extends { source?: string; trace?: 
     if (!question || typeof question !== 'object') return;
     question.source = sourceLabel;
     if (part.trace) {
+      const candidateQuestionNumber = Number((question as any).__questionNumber ?? (question as any).questionNumber);
       question.trace = {
         ...part.trace,
         sourceLabel,
+        ...(Number.isFinite(candidateQuestionNumber) && candidateQuestionNumber > 0
+          ? { questionNumber: Math.floor(candidateQuestionNumber) }
+          : {}),
         snippet: part.trace.snippet || buildSourceSnippet('', question.question || ''),
       };
     }

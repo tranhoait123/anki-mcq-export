@@ -15,6 +15,18 @@ export interface SourceTrace {
     end: number;
   };
   batchIndex?: number;
+  questionNumber?: number;
+  expectedQuestionNumbers?: number[];
+  boundaryRisk?: {
+    severity: 'none' | 'low' | 'medium' | 'high';
+    reasons: string[];
+    pageNumbers: number[];
+    suggestedRange?: {
+      start: number;
+      end: number;
+    };
+    message?: string;
+  };
   snippet?: string;
   mode: 'pdfText' | 'pdfVision' | 'docxText' | 'docxImage' | 'image' | 'text' | 'unknown';
 }

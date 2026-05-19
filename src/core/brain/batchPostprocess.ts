@@ -107,9 +107,14 @@ export const createBatchPostprocessState = (
   return state;
 };
 
-const buildCoverageKey = (question: Partial<MCQ>): string => (
-  `fp:${buildMCQFingerprint(question)}`
-);
+const buildCoverageKey = (question: Partial<MCQ>): string => {
+  const questionNumber = question.trace?.questionNumber;
+  const fileName = question.trace?.fileName || '';
+  if (Number.isFinite(questionNumber) && questionNumber! > 0 && fileName) {
+    return `qnum:${fileName.toLowerCase()}:${questionNumber}`;
+  }
+  return `fp:${buildMCQFingerprint(question)}`;
+};
 
 const countSharedCaseMarkers = (value: string = ''): number =>
   (String(value || '').match(/\[\s*(?:tình\s*huống|tinh\s*huong|câu\s*hỏi|cau\s*hoi)\s*\]/gi) || []).length;

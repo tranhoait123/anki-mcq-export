@@ -17,6 +17,24 @@ let pdfWorkerFallbackLoggedForSession = false;
 
 export type PdfPageQuality = 'goodText' | 'suspect' | 'scanOrEmpty';
 export type PdfRasterQuality = 'standard' | 'high';
+export type PdfBoundaryRiskSeverity = 'none' | 'low' | 'medium' | 'high';
+export type PdfBoundaryRiskReason =
+    | 'trailing_question_without_options'
+    | 'next_page_starts_with_options'
+    | 'split_options'
+    | 'answer_key_on_next_page'
+    | 'shared_case_crosses_boundary'
+    | 'continuation_without_marker'
+    | 'table_or_column_split'
+    | 'noisy_duplicate_markers';
+
+export interface PdfBoundaryRisk {
+    severity: PdfBoundaryRiskSeverity;
+    reasons: PdfBoundaryRiskReason[];
+    pageNumbers: number[];
+    suggestedRange: PdfPageRange;
+    message: string;
+}
 
 export interface PdfTextPage {
     pageNumber: number;
@@ -36,6 +54,7 @@ export interface PdfTextPage {
 export interface PdfPageRange {
     start: number;
     end: number;
+    boundaryRisk?: PdfBoundaryRisk;
 }
 
 export type PdfVisionRecoveryDirection = 'forward' | 'tailFirst';
@@ -55,6 +74,18 @@ export interface PdfTextAnalysis {
     mode: 'vision' | 'safeHybrid' | 'textOnlyCandidate';
 }
 
+export type PdfQuestionMarkerConfidence = 'none' | 'low' | 'medium' | 'high';
+
+export interface PdfQuestionMarkerEstimate {
+    confidence: PdfQuestionMarkerConfidence;
+    count: number;
+    duplicateCount: number;
+    markerCount: number;
+    numbers: number[];
+    reason: string;
+    sequentialRun: number;
+}
+
 export interface PdfRasterConfig {
     scale: number;
     jpegQuality: number;
@@ -65,7 +96,9 @@ export interface PdfRasterOptions {
 }
 
 const QUESTION_MARKER_PATTERN = /(?:^|\n)\s*(?:câu|cau|question|q)\s*\d+\s*[:.)-]/gi;
+const QUESTION_MARKER_NUMBER_PATTERN = /(?:^|\n)\s*(?:câu|cau|question|q)\s*(\d{1,4})\s*[:.)-]/gi;
 const BARE_QUESTION_MARKER_PATTERN = /(?:^|\n)\s*(?:\d{1,3}|[IVX]{1,8})\s*[\.)-]\s+[A-ZÀ-Ỹ\p{Lu}]/gu;
+const BARE_QUESTION_MARKER_NUMBER_PATTERN = /(?:^|\n)\s*(\d{1,3})\s*[\.)-]\s+[A-ZÀ-Ỹ\p{Lu}]/gu;
 const OPTION_MARKER_PATTERN = /(?:^|\n)\s*(?:\(?[A-E]\)?\s*[\.:)-])/gi;
 const QUESTION_LINE_PATTERN = /^(?:câu|cau|question|q)\s*\d+\s*[:.)-]/i;
 const BARE_NUMBERED_QUESTION_LINE_PATTERN = /^(?:\d{1,3}|[IVX]{1,8})\s*[\.)-]\s+\S/i;
@@ -116,6 +149,105 @@ const countMcqMarkers = (text: string): number => {
 
 export const countPdfQuestionMarkers = (text: string): number =>
     countMcqMarkers(normalizePdfText(text));
+
+const extractQuestionMarkerNumbers = (text: string): { markerCount: number; numbers: number[] } => {
+    const keywordNumbers = [...text.matchAll(QUESTION_MARKER_NUMBER_PATTERN)]
+        .map(match => Number(match[1]))
+        .filter(Number.isFinite);
+    if (keywordNumbers.length > 0) {
+        return { markerCount: keywordNumbers.length, numbers: keywordNumbers };
+    }
+
+    const bareNumbers = [...text.matchAll(BARE_QUESTION_MARKER_NUMBER_PATTERN)]
+        .map(match => Number(match[1]))
+        .filter(Number.isFinite);
+    return { markerCount: bareNumbers.length, numbers: bareNumbers };
+};
+
+const getLongestSequentialRun = (numbers: number[]): number => {
+    if (numbers.length === 0) return 0;
+    let longest = 1;
+    let current = 1;
+    for (let index = 1; index < numbers.length; index++) {
+        if (numbers[index] === numbers[index - 1] + 1) {
+            current++;
+        } else {
+            current = 1;
+        }
+        longest = Math.max(longest, current);
+    }
+    return longest;
+};
+
+export const estimatePdfQuestionMarkers = (text: string): PdfQuestionMarkerEstimate => {
+    const cleanText = normalizePdfText(text);
+    const { markerCount, numbers } = extractQuestionMarkerNumbers(cleanText);
+    const optionMarkerCount = countMatches(cleanText, OPTION_MARKER_PATTERN);
+    if (markerCount === 0) {
+        return {
+            confidence: 'none',
+            count: 0,
+            duplicateCount: 0,
+            markerCount: 0,
+            numbers: [],
+            reason: 'Không thấy marker câu hỏi rõ ràng.',
+            sequentialRun: 0,
+        };
+    }
+
+    const uniqueNumbers = Array.from(new Set(numbers));
+    const duplicateCount = Math.max(0, numbers.length - uniqueNumbers.length);
+    const sequentialRun = getLongestSequentialRun(uniqueNumbers);
+    const count = uniqueNumbers.length > 0 ? uniqueNumbers.length : markerCount;
+    const mostlySequential = count <= 1 || sequentialRun >= Math.max(2, Math.ceil(count * 0.75));
+    const hasOptionEvidence = optionMarkerCount >= Math.min(4, Math.max(2, count * 2));
+
+    if (duplicateCount > Math.max(1, Math.floor(count * 0.25))) {
+        return {
+            confidence: 'low',
+            count,
+            duplicateCount,
+            markerCount,
+            numbers: uniqueNumbers,
+            reason: 'Marker câu hỏi bị lặp nhiều, có thể là header/footer hoặc overlap.',
+            sequentialRun,
+        };
+    }
+
+    if (mostlySequential && hasOptionEvidence) {
+        return {
+            confidence: count >= 2 ? 'high' : 'medium',
+            count,
+            duplicateCount,
+            markerCount,
+            numbers: uniqueNumbers,
+            reason: 'Marker câu hỏi tăng đều và có option evidence đi kèm.',
+            sequentialRun,
+        };
+    }
+
+    if (mostlySequential || hasOptionEvidence) {
+        return {
+            confidence: 'medium',
+            count,
+            duplicateCount,
+            markerCount,
+            numbers: uniqueNumbers,
+            reason: mostlySequential ? 'Marker câu hỏi khá liền mạch.' : 'Có option evidence hỗ trợ marker câu hỏi.',
+            sequentialRun,
+        };
+    }
+
+    return {
+        confidence: 'low',
+        count,
+        duplicateCount,
+        markerCount,
+        numbers: uniqueNumbers,
+        reason: 'Marker câu hỏi rời rạc/nhảy số, chỉ dùng làm tín hiệu yếu.',
+        sequentialRun,
+    };
+};
 
 export const getPdfRasterConfig = (quality: PdfRasterQuality = 'standard'): PdfRasterConfig => (
     quality === 'high'
@@ -445,6 +577,176 @@ const mergeRangesWithCaseGroups = (ranges: PdfPageRange[], caseGroups: ClinicalC
     return currentRanges;
 };
 
+const getPageLines = (page?: PdfTextPage): string[] =>
+    page?.text.split(/\n+/).map((line) => line.trim()).filter(Boolean) || [];
+
+const isQuestionLine = (line: string): boolean =>
+    QUESTION_LINE_PATTERN.test(line) || BARE_NUMBERED_QUESTION_LINE_PATTERN.test(line);
+
+const isAnswerKeyLine = (line: string): boolean => ANSWER_KEY_LINE_PATTERN.test(line);
+
+const countOptionLinesAfter = (lines: string[], startIndex: number): number =>
+    lines.slice(startIndex + 1).filter((line) => OPTION_LINE_PATTERN.test(line)).length;
+
+const countOptionLinesBeforeNextQuestion = (lines: string[]): number => {
+    let count = 0;
+    for (const line of lines) {
+        if (isQuestionLine(line)) break;
+        if (OPTION_LINE_PATTERN.test(line)) count++;
+    }
+    return count;
+};
+
+const findFirstQuestionIndex = (lines: string[]): number => lines.findIndex(isQuestionLine);
+
+const findFirstOptionIndex = (lines: string[]): number => lines.findIndex((line) => OPTION_LINE_PATTERN.test(line));
+
+const findLastQuestionIndex = (lines: string[]): number => {
+    for (let index = lines.length - 1; index >= 0; index--) {
+        if (isQuestionLine(lines[index])) return index;
+    }
+    return -1;
+};
+
+const SHARED_CASE_BOUNDARY_PATTERN = /(?:tình\s*huống|tinh\s*huong|dữ\s*kiện|du\s*kien|bệnh\s*cảnh|benh\s*canh|ca\s*bệnh|case|clinical\s*case|vignette|dùng\s*cho\s*câu|dung\s*cho\s*cau)/i;
+
+const hasSharedCaseHint = (lines: string[]): boolean =>
+    SHARED_CASE_BOUNDARY_PATTERN.test(lines.join(' '));
+
+const mergeBoundaryRisks = (
+    risks: Array<PdfBoundaryRisk | undefined>,
+    fallbackRange: PdfPageRange
+): PdfBoundaryRisk | undefined => {
+    const present = risks.filter(Boolean) as PdfBoundaryRisk[];
+    if (present.length === 0) return undefined;
+    const severityRank: Record<PdfBoundaryRiskSeverity, number> = { none: 0, low: 1, medium: 2, high: 3 };
+    const highest = present.reduce((best, item) => severityRank[item.severity] > severityRank[best.severity] ? item : best, present[0]);
+    const reasons = Array.from(new Set(present.flatMap((risk) => risk.reasons)));
+    const pageNumbers = Array.from(new Set(present.flatMap((risk) => risk.pageNumbers))).sort((a, b) => a - b);
+    const suggestedRange = present.reduce((range, risk) => ({
+        start: Math.min(range.start, risk.suggestedRange.start),
+        end: Math.max(range.end, risk.suggestedRange.end),
+    }), { start: fallbackRange.start, end: fallbackRange.end });
+    return {
+        severity: highest.severity,
+        reasons,
+        pageNumbers,
+        suggestedRange,
+        message: reasons.join(', '),
+    };
+};
+
+export const analyzePdfBoundaryRisk = (
+    currentPage: PdfTextPage,
+    nextPage?: PdfTextPage,
+    previousPage?: PdfTextPage
+): PdfBoundaryRisk => {
+    const currentLines = getPageLines(currentPage);
+    const nextLines = getPageLines(nextPage);
+    const previousLines = getPageLines(previousPage);
+    const reasons: PdfBoundaryRiskReason[] = [];
+    const lastQuestionIndex = findLastQuestionIndex(currentLines);
+    const firstQuestionIndexNext = findFirstQuestionIndex(nextLines);
+    const firstOptionIndexNext = findFirstOptionIndex(nextLines);
+    const optionLinesBeforeNextQuestion = countOptionLinesBeforeNextQuestion(nextLines);
+    const startsWithOptions = firstOptionIndexNext >= 0 && (firstQuestionIndexNext < 0 || firstOptionIndexNext < firstQuestionIndexNext);
+    const answerKeyOnNextPage = nextLines.slice(0, 5).some(isAnswerKeyLine);
+    const currentOptionsAfterQuestion = lastQuestionIndex >= 0 ? countOptionLinesAfter(currentLines, lastQuestionIndex) : 0;
+    const trailingQuestion = lastQuestionIndex >= 0 && lastQuestionIndex >= Math.floor(currentLines.length * 0.55);
+    const trailingQuestionWithoutOptions = trailingQuestion && currentOptionsAfterQuestion < 2;
+    const currentTail = currentLines.slice(Math.max(0, currentLines.length - 8));
+    const previousTail = previousLines.slice(Math.max(0, previousLines.length - 8));
+    const sharedCaseBoundary = hasSharedCaseHint(currentTail) || (hasSharedCaseHint(previousTail) && (firstQuestionIndexNext >= 0 || startsWithOptions));
+    const nextStartsContinuation = nextLines.length > 0 && firstQuestionIndexNext !== 0 && !startsWithOptions;
+    const currentMarkerEstimate = estimatePdfQuestionMarkers(currentPage.text);
+    const nextMarkerEstimate = nextPage ? estimatePdfQuestionMarkers(nextPage.text) : null;
+
+    if (trailingQuestionWithoutOptions) reasons.push('trailing_question_without_options');
+    if (startsWithOptions) reasons.push('next_page_starts_with_options');
+    if (currentOptionsAfterQuestion > 0 && currentOptionsAfterQuestion < 4 && optionLinesBeforeNextQuestion > 0) reasons.push('split_options');
+    if (answerKeyOnNextPage && (trailingQuestion || currentOptionsAfterQuestion > 0)) reasons.push('answer_key_on_next_page');
+    if (sharedCaseBoundary) reasons.push('shared_case_crosses_boundary');
+    if (trailingQuestionWithoutOptions && nextStartsContinuation) reasons.push('continuation_without_marker');
+    if ((currentPage.tableRisk || currentPage.multiColumnRisk || nextPage?.tableRisk || nextPage?.multiColumnRisk) && (trailingQuestion || startsWithOptions || optionLinesBeforeNextQuestion > 0)) {
+        reasons.push('table_or_column_split');
+    }
+    if (currentMarkerEstimate.confidence === 'low' || nextMarkerEstimate?.confidence === 'low') reasons.push('noisy_duplicate_markers');
+
+    const hasHighBoundarySignal = reasons.some((reason) => (
+        reason === 'trailing_question_without_options' ||
+        reason === 'next_page_starts_with_options' ||
+        reason === 'split_options' ||
+        reason === 'answer_key_on_next_page' ||
+        reason === 'shared_case_crosses_boundary'
+    ));
+    const severity: PdfBoundaryRiskSeverity = hasHighBoundarySignal
+        ? 'high'
+        : reasons.length > 0
+        ? 'medium'
+        : 'none';
+    const needsPrevious = sharedCaseBoundary && previousPage && (firstQuestionIndexNext >= 0 || startsWithOptions || nextStartsContinuation);
+    const suggestedRange = {
+        start: needsPrevious ? previousPage!.pageNumber : currentPage.pageNumber,
+        end: nextPage ? nextPage.pageNumber : currentPage.pageNumber,
+    };
+
+    return {
+        severity,
+        reasons,
+        pageNumbers: [
+            ...(needsPrevious ? [previousPage!.pageNumber] : []),
+            currentPage.pageNumber,
+            ...(nextPage ? [nextPage.pageNumber] : []),
+        ],
+        suggestedRange,
+        message: reasons.length > 0 ? reasons.join(', ') : 'Không thấy rủi ro cắt ngữ cảnh qua biên trang.',
+    };
+};
+
+const expandRangesForBoundaryRisk = (
+    ranges: PdfPageRange[],
+    pages: PdfTextPage[],
+    pagesPerChunk: number
+): PdfPageRange[] => {
+    if (pagesPerChunk > 1 || ranges.length === 0) return ranges;
+
+    const expanded = ranges.map((range) => {
+        if (range.start !== range.end) return range;
+        const currentPage = pages[range.start - 1];
+        if (!currentPage) return range;
+        const nextRisk = range.start < pages.length
+            ? analyzePdfBoundaryRisk(currentPage, pages[range.start], pages[range.start - 2])
+            : undefined;
+        const previousRisk = range.start > 1
+            ? analyzePdfBoundaryRisk(pages[range.start - 2], currentPage, pages[range.start - 3])
+            : undefined;
+        const boundaryRisk = mergeBoundaryRisks([nextRisk, previousRisk], range);
+        if (!boundaryRisk || (boundaryRisk.severity !== 'medium' && boundaryRisk.severity !== 'high')) return range;
+        let clampedStart = Math.max(1, boundaryRisk.suggestedRange.start);
+        let end = Math.min(pages.length, boundaryRisk.suggestedRange.end);
+        if (end - clampedStart + 1 > 3) {
+            clampedStart = Math.max(1, range.start - 1);
+            end = Math.min(pages.length, clampedStart + 2);
+        }
+        return {
+            start: clampedStart,
+            end,
+            boundaryRisk: {
+                ...boundaryRisk,
+                suggestedRange: { start: clampedStart, end },
+            },
+        };
+    });
+
+    const seen = new Set<string>();
+    return expanded.filter((range) => {
+        const key = `${range.start}-${range.end}-${range.boundaryRisk?.reasons.join('|') || ''}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+};
+
 export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChunk = 3, overlap = 1, structuredBatchSize = 10, autoGroupClinicalCases = true): PdfTextAnalysis => {
     const pageCount = pages.length;
     let ranges = buildPageRanges(pageCount, pagesPerChunk, overlap);
@@ -453,6 +755,7 @@ export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChun
         const caseGroups = detectClinicalCaseGroups(pages);
         ranges = mergeRangesWithCaseGroups(ranges, caseGroups);
     }
+    ranges = expandRangesForBoundaryRisk(ranges, pages, pagesPerChunk);
 
     const textBatches: PdfTextBatch[] = [];
     const visionPageRanges: PdfPageRange[] = [];
@@ -517,10 +820,11 @@ export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChun
             if (start + pagesPerChunk - 1 >= merged.end) break;
         }
     }
+    const boundarySafeVisionRanges = expandRangesForBoundaryRisk(finalVisionRanges, pages, pagesPerChunk);
 
     const detectedMcqCount = textBatches.reduce((total, batch) => total + batch.expectedQuestions, 0);
-    const mode = textBatches.length === 0 ? 'vision' : (finalVisionRanges.length === 0 ? 'textOnlyCandidate' : 'safeHybrid');
-    return { pageCount, pages, textBatches, visionPageRanges: finalVisionRanges, detectedMcqCount, mode };
+    const mode = textBatches.length === 0 ? 'vision' : (boundarySafeVisionRanges.length === 0 ? 'textOnlyCandidate' : 'safeHybrid');
+    return { pageCount, pages, textBatches, visionPageRanges: boundarySafeVisionRanges, detectedMcqCount, mode };
 };
 
 const loadPdfJs = async () => {

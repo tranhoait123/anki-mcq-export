@@ -314,11 +314,24 @@ export const cleanQuestionText = (text: string): string => {
   return stripped.trim() || cleaned;
 };
 
+export const extractQuestionNumberFromText = (text: string = ''): number | null => {
+  if (!text || typeof text !== 'string') return null;
+  const match = text.match(/^\s*(?:[\s*_*\[\(<]*)(?:(?:c[âa]u(?:\s*(?:h[ỏo]i|s[ốo]|th[ứu]))?|question(?:\s*no\.?)?|q)\s*)?(\d{1,4})(?:\.\d{1,3})?[a-zA-Z]?\s*[:.)-]/i);
+  return match ? Number(match[1]) : null;
+};
+
 const fillMissingQuestionFields = (q: any): any => {
   if (!q || typeof q !== 'object') return q;
   const questionValue = getAliasValue(q, ['question', 'stem', 'prompt', 'questionText', 'text']);
   if (typeof questionValue !== 'string') q.question = String(questionValue ?? '').trim();
   else q.question = questionValue.trim();
+  const explicitQuestionNumber = Number(getAliasValue(q, ['questionNumber', 'questionNo', 'number', 'no', 'index']));
+  const parsedQuestionNumber = Number.isFinite(explicitQuestionNumber)
+    ? explicitQuestionNumber
+    : extractQuestionNumberFromText(q.question);
+  if (typeof parsedQuestionNumber === 'number' && Number.isFinite(parsedQuestionNumber) && parsedQuestionNumber > 0) {
+    q.__questionNumber = Math.floor(parsedQuestionNumber);
+  }
   
   // Tự động xoá tiền tố thừa (Câu 1:, v.v)
   q.question = cleanQuestionText(q.question);

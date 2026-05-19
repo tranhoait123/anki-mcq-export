@@ -215,6 +215,12 @@ const extractQuestionNumber = (text: string): number | null => {
   return null;
 };
 
+const getQuestionNumber = (mcq: MCQLike): number | null => (
+  typeof mcq.trace?.questionNumber === 'number' && Number.isFinite(mcq.trace.questionNumber)
+    ? mcq.trace.questionNumber
+    : extractQuestionNumber(mcq.question || '')
+);
+
 const getOptions = (mcq: MCQLike): string[] => {
   const options = Array.isArray(mcq.options) ? mcq.options.slice(0, 5) : [];
   while (options.length < 5) options.push('');
@@ -618,8 +624,8 @@ const buildDedupeEvidence = (
   exactFingerprint = false
 ): DedupeEvidence => {
   const optionsScore = Math.max(scores.optionsBySlot, scores.optionsAsSet);
-  const numCandidate = extractQuestionNumber(candidate.question || '');
-  const numExisting = extractQuestionNumber(existing.question || '');
+  const numCandidate = getQuestionNumber(candidate);
+  const numExisting = getQuestionNumber(existing);
   const sameQuestionNumber = numCandidate !== null && numExisting !== null && numCandidate === numExisting;
   const optionSignatureMatch = buildOptionsFingerprint(candidate) === buildOptionsFingerprint(existing);
   const clinicalStem = analyzeSharedClinicalStem(candidate.question || '', existing.question || '');
@@ -800,8 +806,8 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
         fieldScores.question >= 0.72 ||
         (fieldScores.questionPartial >= 0.58 && fieldScores.questionTokenSort >= 0.32)
       );
-    const numCandidate = extractQuestionNumber(candidate.question || '');
-    const numExisting = extractQuestionNumber(existing.question || '');
+    const numCandidate = getQuestionNumber(candidate);
+    const numExisting = getQuestionNumber(existing);
     const sameNumber = numCandidate !== null && numExisting !== null && numCandidate === numExisting;
     const isQuestionHighlySimilar = fieldScores.question >= 0.88 || (sameNumber && fieldScores.question >= 0.70);
     const overlappingPageDuplicate = !fieldScores.intentMismatch && isQuestionHighlySimilar;

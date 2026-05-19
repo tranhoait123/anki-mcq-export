@@ -1628,6 +1628,81 @@ Câu 12: Xử trí tiếp theo là gì?
     vi.unstubAllGlobals();
   });
 
+  it('runs targeted PDF Vision rescue when advisory marker numbers reveal a missing boundary question', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const pdfProcessor = await import('../utils/pdfProcessor');
+    const markerText = `
+Câu 64: Chẩn đoán phù hợp nhất là gì?
+A. Một
+B. Hai
+C. Ba
+D. Bốn
+Câu 65: Xử trí tiếp theo thích hợp nhất là gì?
+A. Một
+B. Hai
+C. Ba
+D. Bốn
+Câu 66: Chẩn đoán tiếp theo là gì?
+A. Một
+B. Hai
+C. Ba
+D. Bốn
+`;
+    vi.spyOn(pdfProcessor, 'analyzePdfTextLayer').mockResolvedValue({
+      pageCount: 2,
+      pages: [{
+        ...pdfProcessor.scorePdfTextPage(markerText, 1),
+        quality: 'goodText',
+      }],
+      textBatches: [],
+      visionPageRanges: [{ start: 1, end: 2 }],
+      detectedMcqCount: 0,
+      mode: 'vision',
+    });
+    vi.spyOn(pdfProcessor, 'convertPdfToImages').mockResolvedValue(['image1', 'image2']);
+
+    const makeQuestionPayload = (question: string) => ({
+      question,
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: { core: 'A đúng.', evidence: '', analysis: '', warning: '' },
+      source: 'model-source',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    });
+    const providerResponse = (questions: any[]) => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ questions }) } }],
+    }), { status: 200 });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(providerResponse([
+        makeQuestionPayload('Câu 64: Chẩn đoán phù hợp nhất là gì?'),
+        makeQuestionPayload('Câu 66: Chẩn đoán tiếp theo là gì?'),
+      ]))
+      .mockResolvedValueOnce(providerResponse([
+        makeQuestionPayload('Câu 65: Xử trí tiếp theo thích hợp nhất là gì?'),
+      ]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-pdf-vision-advisory-rescue',
+        name: 'boundary.pdf',
+        type: 'application/pdf',
+        content: 'data:application/pdf;base64,JVBERi0xLjQK...',
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0
+    );
+
+    expect(result.questions.map(q => q.trace?.questionNumber).sort()).toEqual([64, 65, 66]);
+    expect(result.failedBatches).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    vi.unstubAllGlobals();
+  });
+
   it('keeps provider-pressure PDF Vision batches retryable when recovered count is not reliable', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const pdfProcessor = await import('../utils/pdfProcessor');

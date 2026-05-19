@@ -346,4 +346,35 @@ describe('processBatchPostprocess', () => {
     expect(result.salvagedPartial).toBe(true);
     expect(result.missingCount).toBe(2);
   });
+
+  it('preserves original question numbers in trace and coverage keys after cleaning prefixes', async () => {
+    const state = createBatchPostprocessState();
+    const result = await processBatchPostprocess({
+      allowEmpty: false,
+      batchIndex: 0,
+      expectedQuestions: 0,
+      fullText: JSON.stringify({
+        questions: [{
+          ...makeQuestion(65),
+          question: 'Câu 65: Bé gái 13 tuổi, nhập viện vì phù.',
+          source: 'model-source',
+        }],
+      }),
+      partMeta: {
+        sourceLabel: 'scan.pdf | Trang 12-13',
+        sourceMode: 'pdfVision',
+        trace: {
+          fileName: 'scan.pdf',
+          sourceLabel: 'scan.pdf | Trang 12-13',
+          mode: 'pdfVision',
+          pageRange: { start: 12, end: 13 },
+        },
+      },
+      topLevelBatchNumber: 1,
+    }, state);
+
+    expect(result.newQuestions[0].question).toBe('Bé gái 13 tuổi, nhập viện vì phù.');
+    expect(result.newQuestions[0].trace?.questionNumber).toBe(65);
+    expect(result.coverageKeys).toEqual(['qnum:scan.pdf:65']);
+  });
 });

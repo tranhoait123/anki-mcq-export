@@ -181,6 +181,11 @@ const getLongestSequentialRun = (numbers: number[]): number => {
 
 export const estimatePdfQuestionMarkers = (text: string): PdfQuestionMarkerEstimate => {
     const cleanText = normalizePdfText(text);
+    const keywordNumbers = [...cleanText.matchAll(QUESTION_MARKER_NUMBER_PATTERN)]
+        .map(match => Number(match[1]))
+        .filter(Number.isFinite);
+    const hasKeywords = keywordNumbers.length > 0;
+
     const { markerCount, numbers } = extractQuestionMarkerNumbers(cleanText);
     const optionMarkerCount = countMatches(cleanText, OPTION_MARKER_PATTERN);
     if (markerCount === 0) {
@@ -199,6 +204,26 @@ export const estimatePdfQuestionMarkers = (text: string): PdfQuestionMarkerEstim
     const duplicateCount = Math.max(0, numbers.length - uniqueNumbers.length);
     const sequentialRun = getLongestSequentialRun(uniqueNumbers);
     const count = uniqueNumbers.length > 0 ? uniqueNumbers.length : markerCount;
+
+    // Phân tầng điều kiện để tránh nhầm lẫn danh sách thường là câu hỏi trắc nghiệm
+    const optionDensity = count > 0 ? optionMarkerCount / count : 0;
+    const isBareNumberList = !hasKeywords && (
+        (count >= 3 && (optionMarkerCount < 3 || optionDensity < 1.5)) ||
+        (count < 3 && optionMarkerCount === 0)
+    );
+
+    if (isBareNumberList) {
+        return {
+            confidence: 'low',
+            count: 0,
+            duplicateCount,
+            markerCount,
+            numbers: uniqueNumbers,
+            reason: 'Phát hiện danh sách liệt kê hoặc văn bản thường (Bare numbers không có bằng chứng trắc nghiệm rõ ràng).',
+            sequentialRun,
+        };
+    }
+
     const mostlySequential = count <= 1 || sequentialRun >= Math.max(2, Math.ceil(count * 0.75));
     const hasOptionEvidence = optionMarkerCount >= Math.min(4, Math.max(2, count * 2));
 

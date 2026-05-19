@@ -5,7 +5,7 @@ export interface SharedCaseContext {
   confidence: 'explicit';
 }
 
-const QUESTION_MARKER = /(?:^|\s)(?:(?:câu|cau|question|q)\s*(?:số\s*)?)?(\d+)\s*[:.)-]/gi;
+const QUESTION_MARKER = /(?:^|\s)(?:(?:câu|cau|question|q)\s*(?:số\s*)?)?(\d+)\s*[:.)-](?!\d)/gi;
 const RANGE_JOINER = String.raw`(?:[-–—,;]|và|va|and|&|đến|den|tới|toi|to|through)`;
 const SHARED_CASE_MARKER = new RegExp(
   String.raw`(?:tình\s*huống(?:\s*lâm\s*sàng)?|tinh\s*huong(?:\s*lam\s*sang)?|dữ\s*kiện|du\s*kien|bệnh\s*cảnh|benh\s*canh|(?:clinical\s+)?vignette|case|item\s*set)[\s\S]{0,180}?` +
@@ -14,6 +14,36 @@ const SHARED_CASE_MARKER = new RegExp(
   String.raw`(\d+(?:(?:\s*${RANGE_JOINER}\s*)+\d+)+)`,
   'gi'
 );
+
+const KEYWORD_PATTERN = /^(?:tình\s*huống(?:\s*lâm\s*sàng)?|tinh\s*huong(?:\s*lam\s*sang)?|dữ\s*kiện|du\s*kien|bệnh\s*cảnh|benh\s*canh|(?:clinical\s+)?vignette|case|item\s*set)/i;
+
+const isValidSharedCaseHeader = (middleText: string): boolean => {
+  const normalizedMiddle = middleText.trim().toLowerCase();
+  const questionMarkerPattern = /(?:^|\s)(?:(?:câu|cau|question|q)\s*(?:số\s*)?)?(\d+)\s*[:.)-](?!\d)/i;
+
+  // 1. If middleText is very short (e.g. <= 15 chars), it's a direct form like "Tình huống 35-36"
+  if (normalizedMiddle.length <= 15) {
+    if (questionMarkerPattern.test(middleText)) {
+      return false;
+    }
+    return true;
+  }
+
+  // 2. If it's longer, it MUST contain at least one transition word or question keyword
+  const hasTransition = /\b(dùng|dung|sử\s*dụng|su\s*dung|áp\s*dụng|ap\s*dung|cho|for|covers?|applies?\s+to)\b/i.test(normalizedMiddle);
+  const hasQuestionWord = /\b(các|the)?\s*(câu|cau|questions?|items?|q)\b/i.test(normalizedMiddle);
+  if (!hasTransition && !hasQuestionWord) {
+    return false;
+  }
+
+  // 3. It must NOT contain another question marker inside the header middle text
+  if (questionMarkerPattern.test(middleText)) {
+    return false;
+  }
+
+  return true;
+};
+
 const SHARED_CASE_PREFIX = '[TÌNH HUỐNG]';
 const SHARED_CASE_QUESTION_PREFIX = '[CÂU HỎI]';
 const SHARED_CASE_SECTION_MARKER = /\[\s*(tình\s*huống|tinh\s*huong|câu\s*hỏi|cau\s*hoi)\s*\]/gi;
@@ -187,7 +217,17 @@ export const extractSharedCaseContexts = (text: string): SharedCaseContext[] => 
 
   let match: RegExpExecArray | null;
   while ((match = SHARED_CASE_MARKER.exec(source)) !== null) {
-    const range = getDeclaredQuestionRange(match[1]);
+    const matchedText = match[0];
+    const rangeStr = match[1];
+    const headerPrefix = matchedText.slice(0, matchedText.length - rangeStr.length);
+    const keywordMatch = KEYWORD_PATTERN.exec(headerPrefix);
+    if (!keywordMatch) continue;
+    const keyword = keywordMatch[0];
+    const middleText = headerPrefix.slice(keyword.length);
+    
+    if (!isValidSharedCaseHeader(middleText)) continue;
+
+    const range = getDeclaredQuestionRange(rangeStr);
     if (!range) continue;
     const { startQuestion, endQuestion } = range;
 
@@ -205,6 +245,7 @@ export const extractSharedCaseContexts = (text: string): SharedCaseContext[] => 
 
   return contexts;
 };
+
 
 export const getSharedCaseContextForQuestion = (question: string, contexts: SharedCaseContext[]): SharedCaseContext | null => {
   const questionNumber = extractQuestionNumber(question);

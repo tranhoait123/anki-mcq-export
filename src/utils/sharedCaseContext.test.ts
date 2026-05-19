@@ -183,4 +183,30 @@ Cau 25. Mot can lam sang nao can lam ngay de chan doan?
     expect(result.match(/\[TÌNH HUỐNG\]/g)).toHaveLength(1);
     expect(result).not.toContain('sir dung');
   });
+
+  it('does NOT match a scrambled text layer where keyword is far from range without transitions', () => {
+    const scrambledSource = `
+35. Xử trí nào sau đây phù hợp nhất trong tình huống này?
+A. Truyền tĩnh mạch NatriBicarbonate 1,4%
+B. Truyền tĩnh mạch Natri Chlorua 0,9%
+C. Truyền tĩnh mạch Furosemide
+D. Truyền tĩnh mạch Dopamin
+36. Sau giai đoạn xử trí ban đầu kể trên, cần đánh giá triệu chứng nào sau đây để biết được bệnh nhân có đáp ứng điều trị hay không?
+A. Lượng nước tiểu theo giờ
+B. Động mạch cổ
+C. Âm thổi ở tim
+D. Nhiệt độ cơ thể
+Tình huống sau sử dụng cho câu 39-40
+Một bệnh nhân có kết quả điện giải đồ máu như sau: Na+ 188 mEq/l, K+ 3.3 mEq/l
+39. Bệnh nhân này bị rối loạn điện giải gì?
+`;
+    const contexts = extractSharedCaseContexts(scrambledSource);
+    
+    expect(contexts).toHaveLength(1);
+    expect(contexts[0].startQuestion).toBe(39);
+    expect(contexts[0].endQuestion).toBe(40);
+    expect(contexts[0].stem).not.toContain('tình huống này?');
+    expect(contexts[0].stem).toContain('Một bệnh nhân có kết quả');
+  });
 });
+

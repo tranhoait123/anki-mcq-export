@@ -14,6 +14,12 @@ import { db } from '../db';
 
 export { userKeyRotator };
 
+const SERVER_BUSY_FRESH_KEY_BACKOFF_MS: [number, number] = [5000, 12000];
+
+const getServerBusyFreshKeyBackoffMs = (random: () => number = Math.random): number => {
+  const [min, max] = SERVER_BUSY_FRESH_KEY_BACKOFF_MS;
+  return min + random() * Math.max(0, max - min);
+};
 
 export interface RetryAttemptContext {
   attempt: number;
@@ -382,8 +388,9 @@ export async function executeWithUserRotation<T>(
             const nextKey = getUntriedAvailableKey();
             if (nextKey) {
               currentKey = nextKey;
-              // Khi có key mới, dùng backoff ngắn (jitter) để thử nhanh
-              backoffMs = Math.max(250, getBackoffDelayMs(retryProfile, 1, 0, false, false, false, true));
+              // 503/timeout thường là áp lực provider/project/IP, không chỉ một key.
+              // Chờ lâu hơn một nhịp để tránh tạo request burst khi batch liên tục bị cắt stream.
+              backoffMs = Math.max(250, Math.min(getServerBusyFreshKeyBackoffMs(), retryProfile.backoffCapMs));
               console.log(`🔄 Server Busy: Thử xoay sang API Key dự phòng: #${userKeyRotator.getKeyNumber(currentKey)}`);
             } else {
               // Hết key sạch thì đứng yên tại key cũ và chờ backoff dài

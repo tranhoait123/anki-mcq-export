@@ -168,7 +168,7 @@ export const shouldHoldDeferredRecoveryForPressure = (
   provider: AppSettings['provider'],
   hasRecentProviderPressure: boolean,
   deferredRecoveryCount: number
-): boolean => provider === 'google' && hasRecentProviderPressure && deferredRecoveryCount > 1;
+): boolean => provider === 'google' && hasRecentProviderPressure && deferredRecoveryCount > 0;
 
 export const getRecoveryPolicyForPart = (
   part: any,
@@ -1571,7 +1571,7 @@ export const generateQuestions = async (
         const isServerBusyError = batchDecision.cause === 'softRateLimit' || batchDecision.cause === 'serverBusy';
         if (isServerBusyError && !part.deferredRecovery) {
           console.warn(`⚠️ Batch ${batchLabel} tạm lỗi (${errorKind}); đưa vào danh sách cứu hộ trì hoãn.`);
-          // depth: 0 để deferred recovery chạy như batch chính (đủ quyền retry, rotate key)
+          // Deferred recovery must not re-enqueue itself while provider pressure is active.
           // missingCount fallback to 1 to NEVER silently discard rate-limited batches
           const safeMissingCount = Math.max(1, expectedQuestions || 1);
           enqueueDeferredRecovery({
@@ -1579,7 +1579,7 @@ export const generateQuestions = async (
             topLevelIndex,
             label: batchLabel,
             stage: 'partial',
-            parts: [{ ...part, deferredRecovery: false }],
+            parts: [{ ...part, deferredRecovery: true }],
             missingCount: safeMissingCount,
             expectedQuestions,
             beforeCoverageCount: getBatchCoveredQuestionCount(topLevelIndex + 1),
@@ -1705,7 +1705,7 @@ export const generateQuestions = async (
             await runPartsWithLimit(
               item.parts.map((recoveryPart) => ({
                 ...recoveryPart,
-                deferredRecovery: deferredAttempt >= DEFERRED_RECOVERY_MAX_RETRIES,
+                deferredRecovery: true,
                 recoveryBudgetKey: attemptBudgetKey,
               })),
               1,
@@ -1752,7 +1752,7 @@ export const generateQuestions = async (
             await runPartsWithLimit(
               item.parts.map((recoveryPart) => ({
                 ...recoveryPart,
-                deferredRecovery: deferredAttempt >= DEFERRED_RECOVERY_MAX_RETRIES,
+                deferredRecovery: true,
                 // No recoveryBudgetKey means unlimited budget!
               })),
               1,

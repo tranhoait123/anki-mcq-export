@@ -798,9 +798,9 @@ describe('Core Logic', () => {
     expect(isGoogleKeyConservationActive('google', false)).toBe(false);
   });
 
-  it('holds multi-item deferred recovery only for Google provider pressure', () => {
+  it('holds deferred recovery whenever Google provider pressure is recent', () => {
     expect(shouldHoldDeferredRecoveryForPressure('google', true, 2)).toBe(true);
-    expect(shouldHoldDeferredRecoveryForPressure('google', true, 1)).toBe(false);
+    expect(shouldHoldDeferredRecoveryForPressure('google', true, 1)).toBe(true);
     expect(shouldHoldDeferredRecoveryForPressure('google', false, 3)).toBe(false);
     expect(shouldHoldDeferredRecoveryForPressure('openrouter', true, 3)).toBe(false);
   });

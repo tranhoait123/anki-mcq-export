@@ -528,6 +528,7 @@ export const createStreamingQuestionBuffer = (): StreamingQuestionBuffer => {
 
 interface ParseQuestionsOptions {
   allowEmpty?: boolean;
+  sourceMode?: string;
 }
 
 export const parseQuestionsFromModelText = (
@@ -556,8 +557,11 @@ export const parseQuestionsFromModelText = (
       return questions;
     }
     if (expectedQuestions > 0 && questions.length < expectedQuestions) {
-      (questions as any).__salvagedPartial = true;
-      (questions as any).__missingCount = expectedQuestions - questions.length;
+      const isVision = options.sourceMode === 'pdfVision';
+      if (!isVision) {
+        (questions as any).__salvagedPartial = true;
+        (questions as any).__missingCount = expectedQuestions - questions.length;
+      }
     }
     return questions;
   } catch (error) {

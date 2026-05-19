@@ -15,6 +15,7 @@ export interface BatchPostprocessPartMeta {
   sourceLabel?: string;
   text?: string;
   trace?: SourceTrace;
+  sourceMode?: string;
 }
 
 export interface BatchPostprocessInput {
@@ -222,7 +223,10 @@ export const processBatchPostprocess = async (
     input.fullText,
     input.batchIndex,
     input.expectedQuestions,
-    { allowEmpty: input.allowEmpty }
+    {
+      allowEmpty: input.allowEmpty,
+      sourceMode: input.partMeta?.sourceMode,
+    }
   ) as MCQ[];
   const salvagedPartial = Boolean((rawQuestions as any).__salvagedPartial);
   const missingCount = Number((rawQuestions as any).__missingCount || 0);

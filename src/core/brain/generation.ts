@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { UploadedFile, ProgressCallback, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, BatchFailureDiagnostics, SourceTrace } from "../../types";
 import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage } from '../../utils/models';
-import { analyzePdfTextLayer, convertPdfToImages, countPdfQuestionMarkers, splitPdfRangeForVisionRecovery } from '../../utils/pdfProcessor';
+import { analyzePdfTextLayer, convertPdfToImages, countPdfQuestionMarkers, splitPdfRangeForVisionRecovery, type PdfVisionRecoveryDirection } from '../../utils/pdfProcessor';
 import {
   classifyBatchError,
   describeBatchError,
@@ -881,17 +881,25 @@ export const generateQuestions = async (
       return rangeText || part.text || '';
     };
 
+    const getPdfVisionRangePageCount = (range: any): number => {
+      if (!range) return 0;
+      const start = Math.max(1, Math.floor(Number(range.start) || 0));
+      const end = Math.max(start, Math.floor(Number(range.end) || 0));
+      return Math.max(0, end - start + 1);
+    };
+
     const buildPdfVisionRecoveryParts = async (
       part: any,
       salvagedQuestions: Array<{ question?: string }>,
       missingCount: number,
-      maxParts: number = Number.POSITIVE_INFINITY
+      maxParts: number = Number.POSITIVE_INFINITY,
+      direction: PdfVisionRecoveryDirection = 'forward'
     ): Promise<any[]> => {
       const sourceRange = part.trace?.pageRange;
       if (part.sourceMode !== 'pdfVision' || !part.pdfDataUrl || !sourceRange) return [];
       if (maxParts <= 0) return [];
 
-      const ranges = splitPdfRangeForVisionRecovery(sourceRange);
+      const ranges = splitPdfRangeForVisionRecovery(sourceRange, direction);
       const existingQuestionFingerprints = buildSeenQuestionFingerprints(salvagedQuestions);
       const fileName = part.pdfFileName || part.trace?.fileName || getTrustedSourceLabel(part).split('|')[0] || 'PDF';
       const recoveryParts: any[] = [];
@@ -932,6 +940,7 @@ export const generateQuestions = async (
           forceMissingOnly: true,
           existingQuestionFingerprints,
           pdfVisionQuality: 'high',
+          pdfVisionRecoveryDirection: direction,
         });
       }
 
@@ -1019,8 +1028,9 @@ export const generateQuestions = async (
         const repairInstruction = forceJsonRepair
           ? 'LƯU Ý SỬA JSON: Lần trước batch này bị lỗi định dạng hoặc thiếu câu. Hãy trả về JSON hợp lệ tuyệt đối, đóng đủ mọi ngoặc, không markdown, không giải thích ngoài JSON.'
           : '';
+        const isTailFirstPdfVisionRecovery = part.sourceMode === 'pdfVision' && part.pdfVisionRecoveryDirection === 'tailFirst';
         const partialRecoveryInstruction = part.partialRecovery
-          ? `LƯU Ý CỨU PHẦN THIẾU: Đây là lượt quét lại có chọn lọc. Chỉ trả về những câu còn thiếu/chưa có trong danh sách đã lưu. Nếu nội dung dưới đây trùng với câu đã lưu, bỏ qua và không tạo bản sao.${part.existingQuestionFingerprints ? `\nCác câu đã lưu để tránh lặp:\n${part.existingQuestionFingerprints}` : ''}`
+          ? `LƯU Ý CỨU PHẦN THIẾU: Đây là lượt quét lại có chọn lọc. Chỉ trả về những câu còn thiếu/chưa có trong danh sách đã lưu. Nếu nội dung dưới đây trùng với câu đã lưu, bỏ qua và không tạo bản sao.${isTailFirstPdfVisionRecovery ? '\nPDF Vision tail rescue: ưu tiên đọc từ cuối phạm vi/trang cuối/cột phải lên để tìm câu bị mất do stream bị cắt, nhưng khi trả JSON vẫn sắp xếp câu theo thứ tự gốc trong tài liệu.' : ''}${part.existingQuestionFingerprints ? `\nCác câu đã lưu để tránh lặp:\n${part.existingQuestionFingerprints}` : ''}`
           : '';
         const nativePrompt = hasStructuredExpectedBlocks
           ? `NỘI DUNG ${structuredSourceLabel} ĐÃ ĐƯỢC TÁCH SẴN THÀNH ${expectedQuestions} BLOCK CÂU. Mỗi block <<<MCQ n>>> là đúng 1 câu hoặc 1 mục câu hỏi trong tài liệu. Option có ký hiệu ✅ là đáp án đúng lấy từ marker trong tài liệu; TUYỆT ĐỐI không đổi đáp án này. Nếu block có A/B/C/D thì trích đúng các lựa chọn đó. Nếu block chỉ có Question và Answer/Notes, hãy giữ nguyên câu hỏi, dùng Answer/Notes làm đáp án/giải thích, và chỉ tạo lựa chọn nhiễu khi tài liệu không cung cấp đủ options. Hãy trả về ĐÚNG ${expectedQuestions} câu theo cùng thứ tự, không bỏ câu nào.`
@@ -1029,7 +1039,7 @@ export const generateQuestions = async (
           ? `${part.docxImageLabel || '[DOCX IMAGE]'}\nẢnh này được nhúng trong file Word và CÓ THỂ chứa câu hỏi trắc nghiệm. Hãy phóng to/đọc kỹ toàn bộ chữ trong ảnh. Nếu ảnh chứa MCQ, hãy trích xuất đầy đủ mọi câu hỏi, lựa chọn và đáp án nếu nhìn thấy. ${forceJsonRepair ? 'Lần trước ảnh này trả rỗng hoặc lỗi; chỉ trả {"questions":[]} nếu bạn chắc chắn ảnh hoàn toàn không có câu hỏi trắc nghiệm.' : 'Nếu ảnh chỉ là minh họa và KHÔNG chứa câu hỏi trắc nghiệm, hãy trả về chính xác {"questions":[]}.'}`
           : '';
         const visionPrompt = (part.sourceMode === 'pdfVision' || part.inlineData || (Array.isArray(part.inlineDataParts) && part.inlineDataParts.length > 0))
-          ? `[CHỈ THỊ QUAN TRỌNG CHO PHẦN ẢNH/VISION]: Tài liệu hiện tại đang được xử lý ở chế độ quét Vision (ảnh chụp/PDF scan). Hãy đọc cực kỳ chậm và tỉ mỉ từng dòng, từng góc của trang ảnh này. Hãy đếm thầm xem có chính xác bao nhiêu câu hỏi trắc nghiệm (MCQ) xuất hiện trên trang. Bạn phải trích xuất ĐẦY ĐỦ TRĂM PHẦN TRĂM câu hỏi, không được bỏ sót bất kỳ câu nào dù là câu ngắn, câu tình huống hay câu ở cuối trang. Đọc theo thứ tự trang từ trên xuống dưới; chú ý câu ở cuối trang, bảng, layout 2 cột và lựa chọn nằm sát mép.${part.sourceMode === 'pdfVision' && expectedQuestions > 0 ? ` Text layer gợi ý có khoảng ${expectedQuestions} câu trong phạm vi này; nếu thấy khác, hãy ưu tiên đọc ảnh thật kỹ nhưng không được bỏ sót câu đã có marker.` : ''}${part.pdfVisionQuality === 'high' ? ' Đây là lượt cứu thiếu với ảnh nét hơn và phạm vi nhỏ hơn; chỉ trả các câu còn thiếu/chưa có trong danh sách đã lưu.' : ''}`
+          ? `[CHỈ THỊ QUAN TRỌNG CHO PHẦN ẢNH/VISION]: Tài liệu hiện tại đang được xử lý ở chế độ quét Vision (ảnh chụp/PDF scan). Hãy đọc cực kỳ chậm và tỉ mỉ từng dòng, từng góc của trang ảnh này. Hãy đếm thầm xem có chính xác bao nhiêu câu hỏi trắc nghiệm (MCQ) xuất hiện trên trang. Bạn phải trích xuất ĐẦY ĐỦ TRĂM PHẦN TRĂM câu hỏi, không được bỏ sót bất kỳ câu nào dù là câu ngắn, câu tình huống hay câu ở cuối trang. Đọc theo thứ tự trang từ trên xuống dưới; chú ý câu ở cuối trang, bảng, layout 2 cột và lựa chọn nằm sát mép.${part.sourceMode === 'pdfVision' && expectedQuestions > 0 ? ` Text layer gợi ý có khoảng ${expectedQuestions} câu trong phạm vi này; nếu thấy khác, hãy ưu tiên đọc ảnh thật kỹ nhưng không được bỏ sót câu đã có marker.` : ''}${part.pdfVisionQuality === 'high' ? ' Đây là lượt cứu thiếu với ảnh nét hơn và phạm vi nhỏ hơn; chỉ trả các câu còn thiếu/chưa có trong danh sách đã lưu.' : ''}${isTailFirstPdfVisionRecovery ? ' Vì đây là tail rescue sau stream bị cắt, hãy soi kỹ phần cuối trang, trang cuối trong range, cột phải và các dòng sát mép trước; sau đó trả kết quả theo thứ tự đọc tự nhiên của tài liệu.' : ''}`
           : '';
         const extractionCommand = part.partialRecovery
           ? `CHỈ TRÍCH XUẤT CÁC CÂU CÒN THIẾU trong phần cứu này. Không trả lại câu đã có, không mở rộng ra ngoài block/trang được cung cấp (Phần ${batchLabel}).`
@@ -1124,7 +1134,7 @@ export const generateQuestions = async (
               const topLevelBatchNumber = topLevelIndex + 1;
               const beforeRecoveryCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
               const recoveryParts = canRecoverPdfVision
-                ? await buildPdfVisionRecoveryParts(part, rawNewQs, missingCount, recoveryPolicy.maxRecoveryRequests)
+                ? await buildPdfVisionRecoveryParts(part, rawNewQs, missingCount, recoveryPolicy.maxRecoveryRequests, 'tailFirst')
                 : part.nativeMcqBatch
                 ? buildPartialSalvageRecoveryParts(part, rawNewQs, missingCount <= 2 ? 1 : 2)
                 : [{
@@ -1206,6 +1216,50 @@ export const generateQuestions = async (
                 partialUnchangedCount,
                 expectedQuestions,
               });
+            }
+          }
+
+          if (
+            salvagedPartial &&
+            expectedQuestions <= 0 &&
+            rawNewQs.length > 0 &&
+            part.sourceMode === 'pdfVision' &&
+            !part.partialRecovery &&
+            !part.deferredRecovery &&
+            depth === 0 &&
+            part.pdfDataUrl &&
+            getPdfVisionRangePageCount(part.trace?.pageRange) > 1
+          ) {
+            const recoveryParts = await buildPdfVisionRecoveryParts(part, rawNewQs, 1, 1, 'tailFirst');
+            if (recoveryParts.length > 0) {
+              console.info(`Batch ${batchLabel}: PDF Vision partial không có expected count; thử tail rescue 1 range cuối để tìm câu bị cắt mà không ép đủ số lượng.`);
+              const unknownTailPolicy: RecoveryPolicy = { ...recoveryPolicy, maxRecoveryRequests: 1 };
+              const recoveryPartLimit = getImmediateRecoveryPartLimit(unknownTailPolicy);
+              const { immediateParts, deferredParts } = splitRecoveryPartsForImmediateRun(recoveryParts, recoveryPartLimit);
+
+              if (immediateParts.length > 0) {
+                await runPartsWithLimit(
+                  immediateParts,
+                  getSplitConcurrencyLimit(),
+                  (recoveryPart, i) => processBatch(recoveryPart, index, depth + 1, true, topLevelIndex, i, batchLabel)
+                );
+              }
+
+              if (deferredParts.length > 0) {
+                enqueueDeferredRecovery({
+                  index,
+                  topLevelIndex,
+                  label: batchLabel,
+                  stage: 'partial',
+                  parts: deferredParts,
+                  missingCount: 1,
+                  expectedQuestions: 0,
+                  beforeCoverageCount: getBatchCoveredQuestionCount(topLevelIndex + 1),
+                  reasonError: isKeyConservationActive() ? createProviderPressureDeferredError() : undefined,
+                  forceJsonRepair: true,
+                  depth: depth + 1,
+                });
+              }
             }
           }
 

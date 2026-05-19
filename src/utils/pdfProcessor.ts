@@ -38,6 +38,8 @@ export interface PdfPageRange {
     end: number;
 }
 
+export type PdfVisionRecoveryDirection = 'forward' | 'tailFirst';
+
 export interface PdfTextBatch {
     text: string;
     expectedQuestions: number;
@@ -121,7 +123,10 @@ export const getPdfRasterConfig = (quality: PdfRasterQuality = 'standard'): PdfR
         : { scale: 2.0, jpegQuality: 0.85 }
 );
 
-export const splitPdfRangeForVisionRecovery = (range: PdfPageRange): PdfPageRange[] => {
+export const splitPdfRangeForVisionRecovery = (
+    range: PdfPageRange,
+    direction: PdfVisionRecoveryDirection = 'forward'
+): PdfPageRange[] => {
     const start = Math.max(1, Math.floor(range.start));
     const end = Math.max(start, Math.floor(range.end));
     if (end - start + 1 <= 2) return [{ start, end }];
@@ -130,7 +135,7 @@ export const splitPdfRangeForVisionRecovery = (range: PdfPageRange): PdfPageRang
     for (let page = start; page < end; page++) {
         ranges.push({ start: page, end: Math.min(end, page + 1) });
     }
-    return ranges;
+    return direction === 'tailFirst' ? ranges.reverse() : ranges;
 };
 
 export const scorePdfTextPage = (text: string, pageNumber = 1): PdfTextPage => {

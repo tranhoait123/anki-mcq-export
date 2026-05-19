@@ -39,6 +39,11 @@ describe('PDF safe hybrid text analysis', () => {
       { start: 6, end: 7 },
       { start: 7, end: 8 },
     ]);
+    expect(splitPdfRangeForVisionRecovery({ start: 5, end: 8 }, 'tailFirst')).toEqual([
+      { start: 7, end: 8 },
+      { start: 6, end: 7 },
+      { start: 5, end: 6 },
+    ]);
   });
 
   it('scores clean MCQ text pages as goodText', () => {

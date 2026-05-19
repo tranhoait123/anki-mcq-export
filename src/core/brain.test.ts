@@ -1765,6 +1765,174 @@ Câu 12: Xử trí tiếp theo là gì?
     vi.unstubAllGlobals();
   });
 
+  it('prioritizes tail page ranges when PDF Vision partial salvage has a reliable expected count', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const pdfProcessor = await import('../utils/pdfProcessor');
+    const makePageText = (start: number, count: number) => Array.from({ length: count }, (_, index) => `
+Câu ${start + index}: Nội dung câu ${start + index}
+A. Một
+B. Hai
+C. Ba
+D. Bốn
+`).join('\n');
+    const pages = [
+      { ...pdfProcessor.scorePdfTextPage(makePageText(1, 3), 1), quality: 'goodText' as const },
+      { ...pdfProcessor.scorePdfTextPage(makePageText(4, 3), 2), quality: 'goodText' as const },
+      { ...pdfProcessor.scorePdfTextPage(makePageText(7, 2), 3), quality: 'goodText' as const },
+      { ...pdfProcessor.scorePdfTextPage(makePageText(9, 2), 4), quality: 'goodText' as const },
+    ];
+    vi.spyOn(pdfProcessor, 'analyzePdfTextLayer').mockResolvedValue({
+      pageCount: 4,
+      pages,
+      textBatches: [],
+      visionPageRanges: [{ start: 1, end: 4 }],
+      detectedMcqCount: 10,
+      mode: 'vision',
+    });
+    const convertSpy = vi.spyOn(pdfProcessor, 'convertPdfToImages').mockResolvedValue(['image1']);
+
+    const makeQuestionPayload = (question: string) => ({
+      question,
+      options: [
+        `A. Phương án A riêng cho ${question}`,
+        `B. Phương án B riêng cho ${question}`,
+        `C. Phương án C riêng cho ${question}`,
+        `D. Phương án D riêng cho ${question}`,
+      ],
+      correctAnswer: 'A',
+      explanation: { core: `A đúng cho ${question}.`, evidence: '', analysis: '', warning: '' },
+      source: 'model-source',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    });
+    const partialText = `{"questions":[${Array.from({ length: 8 }, (_, index) => (
+      JSON.stringify(makeQuestionPayload(`${index + 1}. Stem ${index + 1}?`))
+    )).join(',')},{"question":"9. Truncated`;
+    const truncatedProviderResponse = () => new Response(JSON.stringify({
+      choices: [{
+        finish_reason: 'length',
+        message: { content: partialText },
+      }],
+    }), { status: 200 });
+    const providerResponse = (questions: any[]) => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ questions }) } }],
+    }), { status: 200 });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(truncatedProviderResponse())
+      .mockResolvedValueOnce(truncatedProviderResponse())
+      .mockResolvedValueOnce(providerResponse([
+        makeQuestionPayload('9. Stem 9?'),
+        makeQuestionPayload('10. Stem 10?'),
+      ]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-pdf-vision-tail-reliable',
+        name: 'tail-reliable.pdf',
+        type: 'application/pdf',
+        content: 'data:application/pdf;base64,JVBERi0xLjQK...',
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(convertSpy.mock.calls.map(call => call[1])).toEqual([
+      { start: 1, end: 4 },
+      { start: 3, end: 4 },
+    ]);
+    expect(result.questions.length).toBeGreaterThan(0);
+
+    vi.unstubAllGlobals();
+  });
+
+  it('tries only one tail range for PDF Vision partial salvage without a reliable expected count', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const pdfProcessor = await import('../utils/pdfProcessor');
+    vi.spyOn(pdfProcessor, 'analyzePdfTextLayer').mockResolvedValue({
+      pageCount: 3,
+      pages: [1, 2, 3].map(pageNumber => ({
+        ...pdfProcessor.scorePdfTextPage('', pageNumber),
+        quality: 'scanOrEmpty' as const,
+      })),
+      textBatches: [],
+      visionPageRanges: [{ start: 1, end: 3 }],
+      detectedMcqCount: 0,
+      mode: 'vision',
+    });
+    const convertSpy = vi.spyOn(pdfProcessor, 'convertPdfToImages').mockResolvedValue(['image1']);
+
+    const makeQuestionPayload = (question: string) => ({
+      question,
+      options: [
+        `A. Phương án A riêng cho ${question}`,
+        `B. Phương án B riêng cho ${question}`,
+        `C. Phương án C riêng cho ${question}`,
+        `D. Phương án D riêng cho ${question}`,
+      ],
+      correctAnswer: 'A',
+      explanation: { core: `A đúng cho ${question}.`, evidence: '', analysis: '', warning: '' },
+      source: 'model-source',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    });
+    const partialText = `{"questions":[${[
+      makeQuestionPayload('1. Alpha stem?'),
+      makeQuestionPayload('2. Beta stem?'),
+    ].map(question => JSON.stringify(question)).join(',')},{"question":"3. Gamma`;
+    const truncatedProviderResponse = () => new Response(JSON.stringify({
+      choices: [{
+        finish_reason: 'length',
+        message: { content: partialText },
+      }],
+    }), { status: 200 });
+    const providerResponse = (questions: any[]) => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ questions }) } }],
+    }), { status: 200 });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(truncatedProviderResponse())
+      .mockResolvedValueOnce(truncatedProviderResponse())
+      .mockResolvedValueOnce(providerResponse([
+        makeQuestionPayload('3. Gamma stem?'),
+      ]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-pdf-vision-tail-unknown',
+        name: 'tail-unknown.pdf',
+        type: 'application/pdf',
+        content: 'data:application/pdf;base64,JVBERi0xLjQK...',
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(convertSpy.mock.calls.map(call => call[1])).toEqual([
+      { start: 1, end: 3 },
+      { start: 2, end: 3 },
+    ]);
+    expect(result.questions.map(question => question.question).sort()).toEqual([
+      'Alpha stem?',
+      'Beta stem?',
+      'Gamma stem?',
+    ]);
+    expect(result.failedBatches).toEqual([1]);
+    expect(result.failedBatchDetails[0]).toMatchObject({
+      index: 1,
+      stage: 'partial',
+      expectedQuestions: 0,
+    });
+
+    vi.unstubAllGlobals();
+  });
+
   it('keeps duplicate-only interrupted salvage retryable without counting it as added', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const pdfProcessor = await import('../utils/pdfProcessor');

@@ -116,9 +116,9 @@ const COMMON_CLINICAL_ALNUM_TOKENS = new Set(['spo2', 'hba1c', 'co2', 'o2', 't1'
 
 const countOcrArtifactSignals = (value: string = ''): number => {
   const text = String(value || '');
-  const explicitMatches = text.match(/\b(?:sir|gid|ngot|d6ng|kh6|g8y|teorong|ying|mats|mat\s+batch|ph[ée]di)\b/gi) || [];
+  const explicitMatches: string[] = text.match(/\b(?:sir|gid|ngot|d6ng|kh6|g8y|teorong|ying|mats|mat\s+batch|ph[ée]di)\b/gi) || [];
   const explicitTokens = new Set(explicitMatches.map(match => match.toLowerCase()));
-  const mixedAlphaNumericTokens = text.match(/\b[\p{L}\p{N}]{3,}\b/gu) || [];
+  const mixedAlphaNumericTokens: string[] = text.match(/\b[\p{L}\p{N}]{3,}\b/gu) || [];
   const mixedArtifactCount = mixedAlphaNumericTokens.filter((token) => {
     const normalized = token.toLowerCase();
     return (

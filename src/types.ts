@@ -112,6 +112,11 @@ export interface BatchFailureInfo {
   partialAutoSkippedCount?: number;
   partialUnchangedCount?: number;
   expectedQuestions?: number;
+  coverageStatus?: 'complete' | 'missing' | 'unverified' | 'notApplicable';
+  coverageConfidence?: 'none' | 'low' | 'medium' | 'high' | 'exact';
+  verifiedExpectedCount?: number;
+  validCoveredCount?: number;
+  tailComplete?: boolean;
   diagnostics?: BatchFailureDiagnostics;
 }
 

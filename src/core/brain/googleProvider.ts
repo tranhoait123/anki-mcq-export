@@ -63,6 +63,22 @@ export const getQuestionSchema = () => ({
   }
 });
 
+export const getPdfVisionCoverageSchema = () => ({
+  type: Type.OBJECT,
+  properties: {
+    expectedCount: { type: Type.NUMBER },
+    questionNumbers: {
+      type: Type.ARRAY,
+      items: { type: Type.NUMBER },
+    },
+    tailComplete: { type: Type.BOOLEAN },
+    confidence: { type: Type.STRING },
+    missingLikely: { type: Type.BOOLEAN },
+    reason: { type: Type.STRING },
+  },
+  required: ['expectedCount', 'questionNumbers', 'tailComplete', 'confidence', 'missingLikely', 'reason'],
+});
+
 const toGoogleContentPart = (part: any): any => {
   if (part.inlineData) return { inlineData: part.inlineData };
   return { text: part.text || '' };

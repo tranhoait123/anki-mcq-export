@@ -23,9 +23,12 @@ import {
 import { executeWithUserRotation, userKeyRotator } from './brain/retryExecutor';
 import {
   buildCompletedBatchSnapshot,
+  evaluatePdfVisionCoverage,
   getRecoveredMissingQuestionCount,
   getRecoveryPolicyForPart,
+  isDuplicateHeavyRescue,
   isGoogleKeyConservationActive,
+  shouldPreferTailFirstPdfVisionRetry,
   shouldHoldDeferredRecoveryForPressure,
   splitRecoveryPartsForImmediateRun,
 } from './brain/generation';
@@ -102,6 +105,267 @@ describe('Core Logic', () => {
 
     expect(buildGoogleBatchMessage(part, prompt, 'cachedContents/abc')).toEqual([{ text: prompt }]);
     expect(buildGoogleBatchMessage(part, prompt)).toEqual([{ text: 'very long document part' }, { text: prompt }]);
+  });
+
+  it('marks PDF Vision coverage complete when valid saved question numbers cover advisory evidence', () => {
+    const part = {
+      sourceMode: 'pdfVision',
+      sourceLabel: 'scan.pdf | Trang 1',
+      expectedQuestionEvidence: {
+        confidence: 'high',
+        count: 2,
+        numbers: [1, 2],
+        source: 'pdf-text-layer-markers',
+      },
+    };
+    const questions = [1, 2].map((questionNumber) => ({
+      id: `q-${questionNumber}`,
+      question: `Stem ${questionNumber} body?`,
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: { core: '', evidence: '', analysis: '', warning: '' },
+      source: 'scan.pdf | Trang 1',
+      trace: {
+        fileName: 'scan.pdf',
+        sourceLabel: 'scan.pdf | Trang 1',
+        questionNumber,
+        mode: 'pdfVision' as const,
+      },
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    }));
+
+    const assessment = evaluatePdfVisionCoverage(part, questions);
+
+    expect(assessment).toMatchObject({
+      status: 'complete',
+      confidence: 'high',
+      expectedCount: 2,
+      validCoveredCount: 2,
+    });
+  });
+
+  it('does not count invalid, duplicate, or wrong-source questions as PDF Vision coverage', () => {
+    const part = {
+      sourceMode: 'pdfVision',
+      sourceLabel: 'scan.pdf | Trang 1',
+      expectedQuestionEvidence: {
+        confidence: 'high',
+        count: 3,
+        numbers: [1, 2, 3],
+        source: 'pdf-text-layer-markers',
+      },
+    };
+    const validQuestion = {
+      id: 'q-1',
+      question: 'Stem 1 body?',
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: { core: '', evidence: '', analysis: '', warning: '' },
+      source: 'scan.pdf | Trang 1',
+      trace: {
+        fileName: 'scan.pdf',
+        sourceLabel: 'scan.pdf | Trang 1',
+        questionNumber: 1,
+        mode: 'pdfVision' as const,
+      },
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    };
+    const questions = [
+      validQuestion,
+      { ...validQuestion, id: 'q-1-dup' },
+      { ...validQuestion, id: 'q-2-bad', question: 'Stem 2 body?', options: [], trace: { ...validQuestion.trace, questionNumber: 2 } },
+      { ...validQuestion, id: 'q-3-wrong-source', question: 'Stem 3 body?', source: 'scan.pdf | Trang 2', trace: { ...validQuestion.trace, sourceLabel: 'scan.pdf | Trang 2', questionNumber: 3 } },
+    ];
+
+    const assessment = evaluatePdfVisionCoverage(part, questions);
+
+    expect(assessment).toMatchObject({
+      status: 'missing',
+      expectedCount: 3,
+      validCoveredCount: 1,
+    });
+  });
+
+  it('counts narrower tail-range PDF Vision questions toward their parent batch coverage', () => {
+    const part = {
+      sourceMode: 'pdfVision',
+      sourceLabel: 'scan.pdf | Trang 1-3',
+      trace: {
+        fileName: 'scan.pdf',
+        sourceLabel: 'scan.pdf | Trang 1-3',
+        pageRange: { start: 1, end: 3 },
+        mode: 'pdfVision' as const,
+      },
+    };
+    const questions = [{
+      id: 'tail-q',
+      question: 'Tail stem body?',
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: { core: '', evidence: '', analysis: '', warning: '' },
+      source: 'scan.pdf | Trang 2-3',
+      trace: {
+        fileName: 'scan.pdf',
+        sourceLabel: 'scan.pdf | Trang 2-3',
+        questionNumber: 3,
+        pageRange: { start: 2, end: 3 },
+        mode: 'pdfVision' as const,
+      },
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    }];
+
+    const assessment = evaluatePdfVisionCoverage(part, questions, {
+      expectedCount: 1,
+      questionNumbers: [3],
+      tailComplete: true,
+      confidence: 'high',
+      missingLikely: false,
+    });
+
+    expect(assessment).toMatchObject({
+      status: 'complete',
+      validCoveredCount: 1,
+      coveredQuestionNumbers: [3],
+    });
+  });
+
+  it('keeps parent-batch coverage scoped away from overlapping ranges in other files', () => {
+    const part = {
+      sourceMode: 'pdfVision',
+      sourceLabel: 'scan.pdf | Trang 1-3',
+      trace: {
+        fileName: 'scan.pdf',
+        sourceLabel: 'scan.pdf | Trang 1-3',
+        pageRange: { start: 1, end: 3 },
+        mode: 'pdfVision' as const,
+      },
+    };
+    const questions = [{
+      id: 'other-file-tail-q',
+      question: 'Other file tail stem body?',
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: { core: '', evidence: '', analysis: '', warning: '' },
+      source: 'other.pdf | Trang 2-3',
+      trace: {
+        fileName: 'other.pdf',
+        sourceLabel: 'other.pdf | Trang 2-3',
+        questionNumber: 3,
+        pageRange: { start: 2, end: 3 },
+        mode: 'pdfVision' as const,
+      },
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    }];
+
+    const assessment = evaluatePdfVisionCoverage(part, questions, {
+      expectedCount: 1,
+      questionNumbers: [3],
+      tailComplete: true,
+      confidence: 'high',
+      missingLikely: false,
+    });
+
+    expect(assessment).toMatchObject({
+      status: 'missing',
+      validCoveredCount: 0,
+      coveredQuestionNumbers: [],
+    });
+  });
+
+  it('does not count same-named PDF Vision questions from a different file id', () => {
+    const part = {
+      sourceMode: 'pdfVision',
+      sourceLabel: 'scan.pdf | Trang 1-3',
+      trace: {
+        fileId: 'file-a',
+        fileName: 'scan.pdf',
+        sourceLabel: 'scan.pdf | Trang 1-3',
+        pageRange: { start: 1, end: 3 },
+        mode: 'pdfVision' as const,
+      },
+    };
+    const questions = [{
+      id: 'same-name-other-file',
+      question: 'Same name stem body?',
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: { core: '', evidence: '', analysis: '', warning: '' },
+      source: 'scan.pdf | Trang 1-3',
+      trace: {
+        fileId: 'file-b',
+        fileName: 'scan.pdf',
+        sourceLabel: 'scan.pdf | Trang 1-3',
+        questionNumber: 1,
+        pageRange: { start: 1, end: 3 },
+        mode: 'pdfVision' as const,
+      },
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    }];
+
+    const assessment = evaluatePdfVisionCoverage(part, questions, {
+      expectedCount: 1,
+      questionNumbers: [1],
+      tailComplete: true,
+      confidence: 'high',
+      missingLikely: false,
+    });
+
+    expect(assessment).toMatchObject({
+      status: 'missing',
+      validCoveredCount: 0,
+      coveredQuestionNumbers: [],
+    });
+  });
+
+  it('detects duplicate-heavy rescue only when retry adds no new coverage', () => {
+    expect(isDuplicateHeavyRescue({
+      rawCount: 10,
+      addedCount: 0,
+      duplicateCount: 8,
+      autoSkippedCount: 1,
+      unchangedCount: 1,
+    })).toBe(true);
+
+    expect(isDuplicateHeavyRescue({
+      rawCount: 10,
+      addedCount: 1,
+      duplicateCount: 8,
+      autoSkippedCount: 1,
+      unchangedCount: 0,
+    })).toBe(false);
+
+    expect(isDuplicateHeavyRescue({
+      rawCount: 10,
+      addedCount: 0,
+      duplicateCount: 7,
+      autoSkippedCount: 1,
+      unchangedCount: 0,
+    })).toBe(false);
+  });
+
+  it('prefers tail-first PDF Vision retry only when existing coverage can anchor an unreliable batch', () => {
+    const part = {
+      sourceMode: 'pdfVision',
+      pdfDataUrl: 'data:application/pdf;base64,abc',
+      trace: { fileName: 'scan.pdf', sourceLabel: 'scan.pdf | Trang 1-3', mode: 'pdfVision' as const, pageRange: { start: 1, end: 3 } },
+    };
+    const assessment = {
+      status: 'unverified' as const,
+      confidence: 'none' as const,
+      expectedCount: 0,
+      validCoveredCount: 2,
+      reason: '',
+      coveredQuestionNumbers: [1, 2],
+    };
+
+    expect(shouldPreferTailFirstPdfVisionRetry(part, assessment, false)).toBe(true);
+    expect(shouldPreferTailFirstPdfVisionRetry(part, assessment, true)).toBe(false);
+    expect(shouldPreferTailFirstPdfVisionRetry(part, { ...assessment, validCoveredCount: 0 }, false)).toBe(false);
   });
 
   it('still includes inline vision parts even when context cache is available', () => {
@@ -1837,6 +2101,279 @@ D. Bốn
       recoveredCount: 2,
       partialRawCount: 2,
       partialAddedCount: 2,
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  it('skips retryFailed PDF Vision extraction when count-only verifier confirms saved coverage is complete', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const pdfProcessor = await import('../utils/pdfProcessor');
+    vi.spyOn(pdfProcessor, 'analyzePdfTextLayer').mockResolvedValue({
+      pageCount: 1,
+      pages: [{
+        ...pdfProcessor.scorePdfTextPage('', 1),
+        quality: 'scanOrEmpty',
+      }],
+      textBatches: [],
+      visionPageRanges: [{ start: 1, end: 1 }],
+      detectedMcqCount: 0,
+      mode: 'vision',
+    });
+    vi.spyOn(pdfProcessor, 'convertPdfToImages').mockResolvedValue(['image1']);
+
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            expectedCount: 2,
+            questionNumbers: [1, 2],
+            tailComplete: true,
+            confidence: 'high',
+            missingLikely: false,
+            reason: 'Nhìn đủ toàn bộ trang, tail không có thêm câu.',
+          }),
+        },
+      }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const existingQuestions = [1, 2].map((questionNumber) => ({
+      id: `seed-${questionNumber}`,
+      question: `Saved stem ${questionNumber}?`,
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: { core: 'A đúng.', evidence: '', analysis: '', warning: '' },
+      source: 'verified-scan.pdf | Trang 1',
+      trace: {
+        fileName: 'verified-scan.pdf',
+        sourceLabel: 'verified-scan.pdf | Trang 1',
+        questionNumber,
+        pageRange: { start: 1, end: 1 },
+        mode: 'pdfVision' as const,
+      },
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    }));
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-pdf-vision-verified-retry',
+        name: 'verified-scan.pdf',
+        type: 'application/pdf',
+        content: 'data:application/pdf;base64,JVBERi0xLjQK...',
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0,
+      undefined,
+      [1],
+      true,
+      {
+        retryProfile: 'rescue',
+        existingQuestions,
+      }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.failedBatches).toEqual([]);
+    expect(result.questions).toHaveLength(2);
+
+    vi.unstubAllGlobals();
+  });
+
+  it('uses tail-first probe before full retry when saved PDF Vision coverage can anchor the batch', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const pdfProcessor = await import('../utils/pdfProcessor');
+    vi.spyOn(pdfProcessor, 'analyzePdfTextLayer').mockResolvedValue({
+      pageCount: 3,
+      pages: [1, 2, 3].map(pageNumber => ({
+        ...pdfProcessor.scorePdfTextPage('', pageNumber),
+        quality: 'scanOrEmpty' as const,
+      })),
+      textBatches: [],
+      visionPageRanges: [{ start: 1, end: 3 }],
+      detectedMcqCount: 0,
+      mode: 'vision',
+    });
+    const convertSpy = vi.spyOn(pdfProcessor, 'convertPdfToImages').mockResolvedValue(['image1']);
+
+    const makeQuestionPayload = (question: string) => ({
+      question,
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: { core: 'A đúng.', evidence: '', analysis: '', warning: '' },
+      source: 'model-source',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    });
+    const verifierResponse = (confidence: 'low' | 'high', tailComplete: boolean) => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({
+        expectedCount: 2,
+        questionNumbers: [1, 2],
+        tailComplete,
+        confidence,
+        missingLikely: !tailComplete,
+        reason: tailComplete ? 'Tail đủ.' : 'Chưa chắc tail.',
+      }) } }],
+    }), { status: 200 });
+    const extractionResponse = () => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({
+        questions: [
+          makeQuestionPayload('1. Alpha stem?'),
+          makeQuestionPayload('2. Beta stem?'),
+        ],
+      }) } }],
+    }), { status: 200 });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(verifierResponse('low', false))
+      .mockResolvedValueOnce(extractionResponse())
+      .mockResolvedValueOnce(verifierResponse('high', true));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const existingQuestions = [1, 2].map((questionNumber, index) => ({
+      id: `seed-${questionNumber}`,
+      question: index === 0 ? 'Alpha stem?' : 'Beta stem?',
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: { core: 'A đúng.', evidence: '', analysis: '', warning: '' },
+      source: 'tail-first.pdf | Trang 1-3',
+      trace: {
+        fileName: 'tail-first.pdf',
+        sourceLabel: 'tail-first.pdf | Trang 1-3',
+        questionNumber,
+        pageRange: { start: 1, end: 3 },
+        mode: 'pdfVision' as const,
+      },
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    }));
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-pdf-vision-tail-first',
+        name: 'tail-first.pdf',
+        type: 'application/pdf',
+        content: 'data:application/pdf;base64,JVBERi0xLjQK...',
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0,
+      undefined,
+      [1],
+      true,
+      {
+        retryProfile: 'rescue',
+        existingQuestions,
+      }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(convertSpy.mock.calls.map(call => call[1])).toEqual([
+      { start: 1, end: 3 },
+      { start: 2, end: 3 },
+    ]);
+    expect(result.failedBatches).toEqual([]);
+    expect(result.questions).toHaveLength(2);
+
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps PDF Vision retry failed after duplicate-heavy tail probe when verifier is not confident', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const pdfProcessor = await import('../utils/pdfProcessor');
+    vi.spyOn(pdfProcessor, 'analyzePdfTextLayer').mockResolvedValue({
+      pageCount: 3,
+      pages: [1, 2, 3].map(pageNumber => ({
+        ...pdfProcessor.scorePdfTextPage('', pageNumber),
+        quality: 'scanOrEmpty' as const,
+      })),
+      textBatches: [],
+      visionPageRanges: [{ start: 1, end: 3 }],
+      detectedMcqCount: 0,
+      mode: 'vision',
+    });
+    const convertSpy = vi.spyOn(pdfProcessor, 'convertPdfToImages').mockResolvedValue(['image1']);
+
+    const verifierResponse = () => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({
+        expectedCount: 2,
+        questionNumbers: [1, 2],
+        tailComplete: false,
+        confidence: 'low',
+        missingLikely: true,
+        reason: 'Ảnh/cột cuối chưa đủ chắc.',
+      }) } }],
+    }), { status: 200 });
+    const extractionResponse = () => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({
+        questions: [{
+          question: '1. Alpha stem?',
+          options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+          correctAnswer: 'A',
+          explanation: { core: 'A đúng.', evidence: '', analysis: '', warning: '' },
+          source: 'model-source',
+          difficulty: 'Medium',
+          depthAnalysis: '',
+        }],
+      }) } }],
+    }), { status: 200 });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(verifierResponse())
+      .mockResolvedValueOnce(extractionResponse())
+      .mockResolvedValueOnce(verifierResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const existingQuestions = [{
+      id: 'seed-1',
+      question: 'Alpha stem?',
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: { core: 'A đúng.', evidence: '', analysis: '', warning: '' },
+      source: 'tail-uncertain.pdf | Trang 1-3',
+      trace: {
+        fileName: 'tail-uncertain.pdf',
+        sourceLabel: 'tail-uncertain.pdf | Trang 1-3',
+        questionNumber: 1,
+        pageRange: { start: 1, end: 3 },
+        mode: 'pdfVision' as const,
+      },
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    }];
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-pdf-vision-tail-uncertain',
+        name: 'tail-uncertain.pdf',
+        type: 'application/pdf',
+        content: 'data:application/pdf;base64,JVBERi0xLjQK...',
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0,
+      undefined,
+      [1],
+      true,
+      {
+        retryProfile: 'rescue',
+        existingQuestions,
+      }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(convertSpy.mock.calls.map(call => call[1])).toEqual([
+      { start: 1, end: 3 },
+      { start: 2, end: 3 },
+    ]);
+    expect(result.failedBatches).toEqual([1]);
+    expect(result.failedBatchDetails[0]).toMatchObject({
+      coverageStatus: 'missing',
+      coverageConfidence: 'low',
+      validCoveredCount: 1,
     });
 
     vi.unstubAllGlobals();

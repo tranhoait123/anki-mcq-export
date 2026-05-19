@@ -15,6 +15,7 @@ export {
 
 export {
   buildGoogleBatchMessage,
+  getPdfVisionCoverageSchema,
   getModelConfig,
 } from './googleProvider';
 

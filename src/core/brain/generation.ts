@@ -40,6 +40,7 @@ import {
 } from './openAiProvider';
 import {
   buildGoogleBatchMessage,
+  getPdfVisionCoverageSchema,
   getModelConfig,
   getQuestionSchema,
 } from './googleProvider';
@@ -70,6 +71,8 @@ import {
 } from './generationHelpers';
 import { SYSTEM_INSTRUCTION_EXTRACT } from './prompts';
 import { hasRecentSlowMetrics, measureSync } from '../../utils/performance';
+import { buildMCQFingerprint } from '../../utils/dedupe';
+import { parseJsonFromModelText } from './parsing';
 
 const STREAM_PREVIEW_PARSE_INTERVAL_MS = 400;
 const STREAM_PREVIEW_LONG_TASK_MS = 80;
@@ -159,6 +162,27 @@ export interface RecoveryPolicy {
 }
 
 const OPTION_MARKER_PATTERN = /(?:^|\n)\s*(?:[A-Ha-h]|[①-⑧])[\).:\-]\s+\S/g;
+export type PdfVisionCoverageStatus = 'complete' | 'missing' | 'unverified' | 'notApplicable';
+
+export interface PdfVisionCoverageAssessment {
+  status: PdfVisionCoverageStatus;
+  confidence: 'none' | 'low' | 'medium' | 'high' | 'exact';
+  expectedCount: number;
+  validCoveredCount: number;
+  tailComplete?: boolean;
+  missingLikely?: boolean;
+  reason: string;
+  coveredQuestionNumbers: number[];
+}
+
+export interface RescueEfficiencyStats {
+  rawCount: number;
+  addedCount: number;
+  duplicateCount: number;
+  autoSkippedCount: number;
+  unchangedCount: number;
+}
+
 type ExpectedQuestionEvidence = {
   confidence: 'none' | 'low' | 'medium' | 'high' | 'exact';
   count: number;
@@ -192,6 +216,184 @@ const buildStructuredExpectedEvidence = (count: number, reason = 'Số câu lấ
   reason,
   source: count > 0 ? 'structured-blocks' : 'none',
 });
+
+export const isDuplicateHeavyRescue = (
+  stats: RescueEfficiencyStats,
+  threshold = 0.9
+): boolean => {
+  const rawCount = Math.max(0, Number(stats.rawCount || 0));
+  if (rawCount <= 0) return false;
+  if (Math.max(0, Number(stats.addedCount || 0)) > 0) return false;
+  const nonProductiveCount = Math.max(0, Number(stats.duplicateCount || 0)) +
+    Math.max(0, Number(stats.autoSkippedCount || 0)) +
+    Math.max(0, Number(stats.unchangedCount || 0));
+  return nonProductiveCount / rawCount >= threshold;
+};
+
+const normalizeCoverageSourceLabel = (value: string = ''): string =>
+  String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+const normalizeCoverageAnswer = (value: string = ''): string =>
+  String(value || '').trim().match(/^[A-E]/i)?.[0]?.toUpperCase() || String(value || '').trim();
+
+const getCoverageQuestionNumber = (question: Partial<MCQ>): number | null => {
+  const traceNumber = Number(question.trace?.questionNumber);
+  if (Number.isFinite(traceNumber) && traceNumber > 0) return Math.floor(traceNumber);
+  return extractQuestionNumber(question.question || '');
+};
+
+const isRangeWithin = (
+  child?: { start: number; end: number },
+  parent?: { start: number; end: number }
+): boolean => {
+  if (!child || !parent) return false;
+  return child.start >= parent.start && child.end <= parent.end;
+};
+
+const isQuestionInCoverageScope = (question: Partial<MCQ>, part: any): boolean => {
+  const partFileId = String(part?.trace?.fileId || '').trim();
+  const questionFileId = String(question.trace?.fileId || '').trim();
+  if (partFileId && questionFileId && partFileId !== questionFileId) return false;
+
+  const trustedSource = normalizeCoverageSourceLabel(getTrustedSourceLabel(part));
+  const questionSource = normalizeCoverageSourceLabel(question.source || question.trace?.sourceLabel || '');
+  if (trustedSource && questionSource === trustedSource) return true;
+
+  if (part?.sourceMode !== 'pdfVision') return false;
+  const partFileName = normalizeCoverageSourceLabel(part?.trace?.fileName || part?.pdfFileName || '');
+  const questionFileName = normalizeCoverageSourceLabel(question.trace?.fileName || '');
+  return Boolean(
+    partFileName &&
+    questionFileName === partFileName &&
+    isRangeWithin(question.trace?.pageRange, part.trace?.pageRange)
+  );
+};
+
+const isValidCoveredMcq = (question: Partial<MCQ>, part: any): boolean => {
+  if (!isQuestionInCoverageScope(question, part)) return false;
+
+  const questionText = String(question.question || '').replace(/\s+/g, ' ').trim();
+  const options = Array.isArray(question.options) ? question.options.filter(option => String(option || '').trim()) : [];
+  const answer = normalizeCoverageAnswer(question.correctAnswer || '');
+  if (questionText.length < 8) return false;
+  if (/[,:;(\[{]\s*$/.test(questionText)) return false;
+  if (options.length < 2) return false;
+  if (!answer) return false;
+  return true;
+};
+
+const buildCoverageIdentity = (question: Partial<MCQ>): string => {
+  const questionNumber = getCoverageQuestionNumber(question);
+  const fileName = question.trace?.fileName || '';
+  if (questionNumber && fileName) return `qnum:${fileName.toLowerCase()}:${questionNumber}`;
+  return `fp:${buildMCQFingerprint(question)}`;
+};
+
+export const evaluatePdfVisionCoverage = (
+  part: any,
+  questions: MCQ[],
+  verifier?: Partial<Pick<PdfVisionCoverageAssessment, 'expectedCount' | 'tailComplete' | 'confidence' | 'missingLikely' | 'reason'> & { questionNumbers?: number[] }>
+): PdfVisionCoverageAssessment => {
+  if (part?.sourceMode !== 'pdfVision') {
+    return {
+      status: 'notApplicable',
+      confidence: 'none',
+      expectedCount: 0,
+      validCoveredCount: 0,
+      reason: 'Không phải PDF Vision batch.',
+      coveredQuestionNumbers: [],
+    };
+  }
+
+  const coverageKeys = new Set<string>();
+  const coveredNumbers = new Set<number>();
+  questions.forEach((question) => {
+    if (!isValidCoveredMcq(question, part)) return;
+    coverageKeys.add(buildCoverageIdentity(question));
+    const questionNumber = getCoverageQuestionNumber(question);
+    if (questionNumber) coveredNumbers.add(questionNumber);
+  });
+
+  const validCoveredCount = coverageKeys.size;
+  const coveredQuestionNumbers = Array.from(coveredNumbers).sort((a, b) => a - b);
+  const evidence = part?.expectedQuestionEvidence;
+  const evidenceConfidence = String(evidence?.confidence || 'none') as PdfVisionCoverageAssessment['confidence'];
+  const evidenceNumbers = Array.isArray(evidence?.numbers)
+    ? evidence.numbers.filter((value: number) => Number.isFinite(value) && value > 0)
+    : [];
+  const evidenceCount = Number(evidence?.count || part?.expectedQuestions || 0);
+  const evidenceUsable = evidenceCount > 0 && (evidenceConfidence === 'medium' || evidenceConfidence === 'high' || evidenceConfidence === 'exact');
+
+  if (evidenceUsable) {
+    const hasAllExpectedNumbers = evidenceNumbers.length === 0 || evidenceNumbers.every((number: number) => coveredNumbers.has(number));
+    const complete = validCoveredCount >= evidenceCount && hasAllExpectedNumbers;
+    return {
+      status: complete ? 'complete' : 'missing',
+      confidence: evidenceConfidence === 'exact' ? 'exact' : 'high',
+      expectedCount: evidenceCount,
+      validCoveredCount,
+      tailComplete: complete,
+      missingLikely: !complete,
+      reason: complete
+        ? 'Local text-layer/advisory evidence đã được phủ đủ bởi câu hợp lệ hiện có.'
+        : 'Local text-layer/advisory evidence vẫn còn thiếu câu hợp lệ.',
+      coveredQuestionNumbers,
+    };
+  }
+
+  const verifiedExpectedCount = Math.max(0, Math.floor(Number(verifier?.expectedCount || 0)));
+  const verifierConfidence = (verifier?.confidence || 'none') as PdfVisionCoverageAssessment['confidence'];
+  if (verifiedExpectedCount > 0) {
+    const verifierNumbers = Array.isArray((verifier as any)?.questionNumbers)
+      ? (verifier as any).questionNumbers.filter((value: number) => Number.isFinite(value) && value > 0)
+      : [];
+    const hasAllVerifierNumbers = verifierNumbers.length === 0 || verifierNumbers.every((number: number) => coveredNumbers.has(number));
+    const verifiedTailComplete = verifier?.tailComplete === true;
+    const verifiedMissingLikely = verifier?.missingLikely === true;
+    const verifierReason = verifier?.reason || '';
+    const complete = verifierConfidence === 'high' &&
+      verifiedTailComplete &&
+      !verifiedMissingLikely &&
+      validCoveredCount >= verifiedExpectedCount &&
+      hasAllVerifierNumbers;
+    return {
+      status: complete ? 'complete' : (verifiedMissingLikely || validCoveredCount < verifiedExpectedCount || !hasAllVerifierNumbers ? 'missing' : 'unverified'),
+      confidence: verifierConfidence,
+      expectedCount: verifiedExpectedCount,
+      validCoveredCount,
+      tailComplete: verifiedTailComplete,
+      missingLikely: verifiedMissingLikely,
+      reason: verifierReason || (complete ? 'AI verifier xác nhận đủ coverage.' : 'AI verifier chưa xác nhận đủ coverage hoặc thiếu số câu verifier thấy.'),
+      coveredQuestionNumbers,
+    };
+  }
+
+  return {
+    status: 'unverified',
+    confidence: 'none',
+    expectedCount: 0,
+    validCoveredCount,
+    reason: validCoveredCount > 0
+      ? 'Có câu đã salvage nhưng chưa có expected count đáng tin để xác minh đủ.'
+      : 'Chưa có câu hợp lệ nào để xác minh coverage.',
+    coveredQuestionNumbers,
+  };
+};
+
+export const shouldPreferTailFirstPdfVisionRetry = (
+  part: any,
+  assessment: PdfVisionCoverageAssessment,
+  expectedQuestionsReliable = false
+): boolean => Boolean(
+  part?.sourceMode === 'pdfVision' &&
+  part?.pdfDataUrl &&
+  part?.trace?.pageRange &&
+  !part?.partialRecovery &&
+  !part?.deferredRecovery &&
+  !expectedQuestionsReliable &&
+  assessment.validCoveredCount > 0 &&
+  assessment.status !== 'complete'
+);
 
 export const isGoogleKeyConservationActive = (
   provider: AppSettings['provider'],
@@ -830,6 +1032,11 @@ export const generateQuestions = async (
         'partialAutoSkippedCount' |
         'partialUnchangedCount' |
         'expectedQuestions' |
+        'coverageStatus' |
+        'coverageConfidence' |
+        'verifiedExpectedCount' |
+        'validCoveredCount' |
+        'tailComplete' |
         'diagnostics'
       >> = {}
     ) => {
@@ -1032,6 +1239,191 @@ export const generateQuestions = async (
       return recoveryParts;
     };
 
+    const toCoverageFailureExtras = (assessment: PdfVisionCoverageAssessment) => ({
+      coverageStatus: assessment.status,
+      coverageConfidence: assessment.confidence,
+      verifiedExpectedCount: assessment.expectedCount,
+      validCoveredCount: assessment.validCoveredCount,
+      tailComplete: assessment.tailComplete,
+    });
+
+    const parseCoverageVerifierResult = (text: string): Partial<PdfVisionCoverageAssessment> & { questionNumbers?: number[] } => {
+      const parsed = parseJsonFromModelText<any>(text);
+      const confidence = String(parsed?.confidence || 'none').toLowerCase();
+      return {
+        expectedCount: Math.max(0, Math.floor(Number(parsed?.expectedCount || 0))),
+        confidence: confidence === 'high' || confidence === 'medium' || confidence === 'low' ? confidence : 'none',
+        tailComplete: parsed?.tailComplete === true,
+        missingLikely: parsed?.missingLikely === true,
+        reason: String(parsed?.reason || '').slice(0, 240),
+        questionNumbers: Array.isArray(parsed?.questionNumbers)
+          ? parsed.questionNumbers.map((value: any) => Number(value)).filter((value: number) => Number.isFinite(value) && value > 0)
+          : [],
+      };
+    };
+
+    const verifyPdfVisionCoverageWithAi = async (part: any, localAssessment: PdfVisionCoverageAssessment): Promise<PdfVisionCoverageAssessment> => {
+      if (part?.sourceMode !== 'pdfVision' || localAssessment.validCoveredCount <= 0) return localAssessment;
+
+      const sourceLabel = getTrustedSourceLabel(part);
+      const existingNumbers = localAssessment.coveredQuestionNumbers.length > 0
+        ? localAssessment.coveredQuestionNumbers.join(', ')
+        : 'không có số câu đáng tin';
+      const verifierPrompt = [
+        `SOURCE_LABEL: ${sourceLabel}`,
+        'Bạn là bộ kiểm định coverage PDF Vision, KHÔNG trích xuất đáp án, KHÔNG tạo câu hỏi mới.',
+        'Nhiệm vụ: nhìn đúng trang/range ảnh hiện tại và chỉ đếm số câu hỏi trắc nghiệm MCQ thực sự có trong phạm vi này, đặc biệt kiểm tra phần cuối trang/range/cột phải có bị thiếu câu không.',
+        `Hiện app đã lưu ${localAssessment.validCoveredCount} câu hợp lệ cho SOURCE_LABEL này. Số câu đã lưu nếu đọc được: ${existingNumbers}.`,
+        'Trả JSON duy nhất theo schema: expectedCount, questionNumbers, tailComplete, confidence, missingLikely, reason.',
+        'Chỉ đặt confidence="high" khi bạn chắc chắn đã nhìn hết toàn bộ range và tail không còn câu bị bỏ sót. Nếu ảnh mờ/cắt/không chắc, dùng medium hoặc low và missingLikely=true nếu có nguy cơ thiếu.',
+      ].join('\n');
+
+      try {
+        const verifierResult = await (isOpenAICompatibleProvider(runtimeSettings.provider)
+          ? executeWithUserRotation(
+              extractionModel,
+              async (currentKey, activeModel, attemptContext) => {
+                const messages = [
+                  { role: 'system', content: 'Return strict JSON only. Count PDF Vision MCQ coverage; do not extract questions.' },
+                  { role: 'user', content: [{ type: 'text', text: verifierPrompt }, ...toOpenAIContentFromPart(part)] },
+                ];
+                const text = await callOpenAICompatibleProvider(runtimeSettings, activeModel, messages, true, {
+                  signal: attemptContext.signal,
+                  timeoutMs: attemptContext.timeoutMs,
+                });
+                return { ...parseCoverageVerifierResult(text), usedApiKey: currentKey };
+              },
+              undefined,
+              stableFallbackModel,
+              retryProfile,
+              controller
+            )
+          : executeWithUserRotation(
+              extractionModel,
+              async (currentKey, activeModel, attemptContext) => {
+                if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
+                const aiInstance = new GoogleGenAI({ apiKey: currentKey });
+                const activeProfile = getModelTokenProfile(runtimeSettings.provider, activeModel);
+                const config = getModelConfig(
+                  currentKey,
+                  'Return strict JSON only. Count PDF Vision MCQ coverage; do not extract questions.',
+                  getPdfVisionCoverageSchema(),
+                  activeModel,
+                  undefined,
+                  Math.min(1024, activeProfile.safeOutputBudget),
+                  {
+                    timeoutMs: attemptContext.timeoutMs,
+                    signal: attemptContext.signal,
+                  }
+                );
+                const chat = aiInstance.chats.create(config);
+                const result = await chat.sendMessage({ message: buildGoogleBatchMessage(part, verifierPrompt) });
+                return { ...parseCoverageVerifierResult(result.text || ''), usedApiKey: currentKey };
+              },
+              runtimeSettings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '',
+              stableFallbackModel,
+              retryProfile,
+              controller,
+              getGoogleRequestRateLimitOptions(runtimeSettings)
+            )
+        );
+        return evaluatePdfVisionCoverage(part, allQuestions, verifierResult);
+      } catch (error) {
+        console.warn(`Batch ${sourceLabel}: Coverage verifier failed; keeping conservative retry path.`, error);
+        return {
+          ...localAssessment,
+          status: 'unverified',
+          confidence: localAssessment.confidence === 'exact' ? 'exact' : 'none',
+          reason: 'Coverage verifier không chạy được; giữ đường retry an toàn.',
+        };
+      }
+    };
+
+    const shouldUseAiCoverageVerifier = (): boolean => isRescueMode || Boolean(retryIndices && retryIndices.length > 0);
+
+    const evaluatePdfVisionCoverageGate = async (part: any, allowAiVerifier = shouldUseAiCoverageVerifier()): Promise<PdfVisionCoverageAssessment> => {
+      const localAssessment = evaluatePdfVisionCoverage(part, allQuestions);
+      if (localAssessment.status === 'complete') return localAssessment;
+      if (!allowAiVerifier || part?.sourceMode !== 'pdfVision' || localAssessment.validCoveredCount <= 0) return localAssessment;
+      return verifyPdfVisionCoverageWithAi(part, localAssessment);
+    };
+
+    const maybeSkipPdfVisionRetryByCoverage = async (
+      part: any,
+      index: number,
+      label: string,
+      stage: BatchFailureInfo['stage'],
+      precomputedAssessment?: PdfVisionCoverageAssessment
+    ): Promise<boolean> => {
+      if (part?.sourceMode !== 'pdfVision') return false;
+      const assessment = precomputedAssessment || await evaluatePdfVisionCoverageGate(part);
+      if (assessment.status !== 'complete') return false;
+
+      const batchNumber = index + 1;
+      clearBatchFailure(batchNumber, label, stage);
+      skippedBatchSet.add(batchNumber);
+      console.info(`✅ Batch ${label}: Coverage gate xác nhận đủ ${assessment.validCoveredCount}/${assessment.expectedCount || assessment.validCoveredCount} câu; bỏ qua retry PDF Vision.`);
+      if (onProgress) {
+        onProgress(`Batch ${label} đã được xác minh đủ câu; bỏ qua quét lại để tiết kiệm request.`, allQuestions.length);
+      }
+      return true;
+    };
+
+    const getExistingQuestionsForPart = (part: any): MCQ[] => {
+      return allQuestions.filter((question) => isQuestionInCoverageScope(question, part));
+    };
+
+    const runTailFirstPdfVisionProbe = async (
+      part: any,
+      index: number,
+      label: string,
+      preTailAssessment: PdfVisionCoverageAssessment
+    ): Promise<boolean> => {
+      const recoveryParts = await buildPdfVisionRecoveryParts(
+        part,
+        getExistingQuestionsForPart(part),
+        1,
+        1,
+        'tailFirst'
+      );
+      if (recoveryParts.length === 0) return false;
+
+      const topLevelBatchNumber = index + 1;
+      const beforeTailCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
+      console.info(`Batch ${label}: Có ${preTailAssessment.validCoveredCount} câu đã lưu; ưu tiên tail-first probe trước khi quét lại full range.`);
+      if (onProgress) {
+        onProgress(`Đang kiểm tra phần cuối Batch ${label} trước khi quét lại toàn bộ...`, allQuestions.length);
+      }
+
+      await runPartsWithLimit(
+        recoveryParts,
+        1,
+        (recoveryPart, i) => processBatch(recoveryPart, index, 1, true, index, i, label)
+      );
+
+      const afterTailCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
+      const tailAddedCount = Math.max(0, afterTailCount - beforeTailCount);
+      const postTailAssessment = await evaluatePdfVisionCoverageGate(part);
+      if (postTailAssessment.status === 'complete') {
+        clearBatchFailure(topLevelBatchNumber, label, 'rescue');
+        clearBatchFailure(topLevelBatchNumber, label, 'partial');
+        skippedBatchSet.add(topLevelBatchNumber);
+        console.info(`✅ Batch ${label}: Tail-first probe xác nhận đủ coverage (${postTailAssessment.validCoveredCount}/${postTailAssessment.expectedCount || postTailAssessment.validCoveredCount}).`);
+        return true;
+      }
+
+      recordBatchFailure(index, label, new Error(
+        tailAddedCount > 0
+          ? `Tail-first probe thêm ${tailAddedCount} câu nhưng verifier chưa xác nhận đủ; giữ batch lỗi để tránh bỏ sót.`
+          : 'Tail-first probe không thêm câu mới; verifier chưa xác nhận đủ nên giữ batch lỗi thay vì quét full range lặp lại.'
+      ), 'rescue', {
+        recoveredCount: tailAddedCount,
+        ...toCoverageFailureExtras(postTailAssessment),
+      });
+      console.info(`Batch ${label}: Tail-first probe ${tailAddedCount > 0 ? `thêm ${tailAddedCount} câu` : 'không thêm câu mới'} nhưng coverage chưa đủ chắc; dừng trước full retry.`);
+      return true;
+    };
+
     // Hàm xử lý Batch chính có khả năng Đệ quy (Subdivision)
     const processBatch = async (part: any, index: number, depth: number = 0, forceJsonRepair: boolean = false, topLevelIndex: number = index, subIndex: number = 0, labelPrefix: string = `${index + 1}`) => {
       const batchLabel = depth === 0 ? labelPrefix : `${labelPrefix}${String.fromCharCode(96 + depth)}.${subIndex + 1}`;
@@ -1203,6 +1595,41 @@ export const generateQuestions = async (
             console.info(`Batch ${batchLabel}: Partial salvage ${partialStats}${partialNoAddReason ? `; ${partialNoAddReason}.` : '.'}`);
           }
 
+          const duplicateHeavyRescue = isDuplicateHeavyRescue({
+            rawCount: rawNewQs.length,
+            addedCount: newQs.length,
+            duplicateCount: partialDuplicateCount,
+            autoSkippedCount: partialAutoSkippedCount,
+            unchangedCount: partialUnchangedCount,
+          });
+          if (
+            duplicateHeavyRescue &&
+            part.sourceMode === 'pdfVision' &&
+            !hasReliableExpectedCount &&
+            (depth === 0 || part.deferredRecovery) &&
+            (isTargetedRetryBatch || isRescueMode || part.deferredRecovery)
+          ) {
+            const assessment = await evaluatePdfVisionCoverageGate(part);
+            if (assessment.status === 'complete') {
+              clearBatchFailure(topLevelBatchNumber, batchLabel, part.deferredRecovery ? 'deferred' : (isTargetedRetryBatch ? 'rescue' : 'partial'));
+              skippedBatchSet.add(topLevelBatchNumber);
+              console.info(`✅ Batch ${batchLabel}: Retry PDF Vision trả toàn trùng vì coverage đã đủ theo verifier.`);
+            } else if (depth === 0 && !part.deferredRecovery) {
+              recordBatchFailure(index, batchLabel, new Error('Retry PDF Vision trả gần như toàn câu trùng/không đổi; đã chuyển sang kiểm tra coverage/tail và giữ lỗi vì verifier chưa chắc.'), isTargetedRetryBatch ? 'rescue' : 'partial', {
+                recoveredCount: 0,
+                partialRawCount: rawNewQs.length,
+                partialAddedCount: newQs.length,
+                partialDuplicateCount,
+                partialAutoSkippedCount,
+                partialUnchangedCount,
+                expectedQuestions,
+                ...toCoverageFailureExtras(assessment),
+              });
+              console.info(`Batch ${batchLabel}: Duplicate-heavy rescue (${partialStats}); dừng retry sâu/full scan để tránh đốt request vào vùng đã đọc.`);
+            }
+            return true;
+          }
+
           if (salvagedPartial && !hasReliableExpectedCount && !part.deferredRecovery && depth === 0) {
             recordBatchFailure(index, batchLabel, salvageReasonError || new Error(`Đã thêm ${newQs.length}/${rawNewQs.length} câu từ phản hồi bị cắt nhưng chưa xác minh đủ vì không có số câu kỳ vọng đáng tin.`), 'partial', {
               recoveredCount: newQs.length,
@@ -1364,6 +1791,13 @@ export const generateQuestions = async (
                   forceJsonRepair: true,
                   depth: depth + 1,
                 });
+              }
+
+              const afterTailAssessment = await evaluatePdfVisionCoverageGate(part);
+              if (afterTailAssessment.status === 'complete') {
+                clearBatchFailure(topLevelBatchNumber, batchLabel, 'partial');
+                skippedBatchSet.add(topLevelBatchNumber);
+                console.info(`✅ Batch ${batchLabel}: Tail coverage verifier xác nhận đủ sau rescue nhẹ (${afterTailAssessment.validCoveredCount}/${afterTailAssessment.expectedCount}).`);
               }
             }
           }
@@ -1956,10 +2390,15 @@ export const generateQuestions = async (
           }
         } else {
           // No reliable expected count (e.g. Scanned PDF or Vision-only without good text layer)
-          // Run recovery with retry loop — không bỏ cuộc sau 1 lần!
+          // Run a conservative coverage gate first; if it cannot prove completeness, do one rescue pass only.
+          if (item.parts[0]?.sourceMode === 'pdfVision') {
+            const skippedByCoverage = await maybeSkipPdfVisionRetryByCoverage(item.parts[0], item.index, item.label, item.stage);
+            if (skippedByCoverage) continue;
+          }
           let deferredAttempt = 0;
           let afterDeferredCount = beforeDeferredCount;
-          while (deferredAttempt <= DEFERRED_RECOVERY_MAX_RETRIES) {
+          const maxDeferredAttempts = 0;
+          while (deferredAttempt <= maxDeferredAttempts) {
             if (deferredAttempt > 0) {
               const retrySettleMs = Math.min(3000 * deferredAttempt, retryProfile.singleKeyBackoffCapMs);
               console.info(`🔄 Batch ${item.label}: Deferred recovery lần ${deferredAttempt + 1}/${DEFERRED_RECOVERY_MAX_RETRIES + 1}, chờ ${Math.round(retrySettleMs / 1000)}s...`);
@@ -1990,14 +2429,34 @@ export const generateQuestions = async (
           const actuallyRecovered = Math.max(0, afterDeferredCount - beforeDeferredCount);
 
           if (actuallyRecovered > 0) {
-            recordBatchFailure(item.index, item.label, item.reasonError || new Error(`Đã cứu thêm ${actuallyRecovered} câu nhưng chưa xác minh đủ vì không có số câu kỳ vọng đáng tin.`), item.stage, {
-              recoveredCount: actuallyRecovered,
-            });
-            console.info(`Batch ${item.label}: Cứu hộ trì hoãn thu về thêm ${actuallyRecovered} câu nhưng chưa xác minh đủ; giữ batch trong danh sách quét lại.`);
+            const assessment = item.parts[0]?.sourceMode === 'pdfVision'
+              ? await evaluatePdfVisionCoverageGate(item.parts[0])
+              : null;
+            if (assessment?.status === 'complete') {
+              clearBatchFailure(topLevelBatchNumber, item.label, item.stage);
+              skippedBatchSet.add(topLevelBatchNumber);
+              console.info(`✅ Batch ${item.label}: Cứu hộ trì hoãn thêm ${actuallyRecovered} câu và coverage verifier xác nhận đủ.`);
+            } else {
+              recordBatchFailure(item.index, item.label, item.reasonError || new Error(`Đã cứu thêm ${actuallyRecovered} câu nhưng chưa xác minh đủ vì không có số câu kỳ vọng đáng tin.`), item.stage, {
+                recoveredCount: actuallyRecovered,
+                ...(assessment ? toCoverageFailureExtras(assessment) : {}),
+              });
+              console.info(`Batch ${item.label}: Cứu hộ trì hoãn thu về thêm ${actuallyRecovered} câu nhưng chưa xác minh đủ; giữ batch trong danh sách quét lại.`);
+            }
           } else {
+            const assessment = item.parts[0]?.sourceMode === 'pdfVision'
+              ? await evaluatePdfVisionCoverageGate(item.parts[0])
+              : null;
+            if (assessment?.status === 'complete') {
+              clearBatchFailure(topLevelBatchNumber, item.label, item.stage);
+              skippedBatchSet.add(topLevelBatchNumber);
+              console.info(`✅ Batch ${item.label}: Deferred rescue không thêm câu mới vì coverage đã đủ theo verifier.`);
+              continue;
+            }
             recordBatchFailure(item.index, item.label, item.reasonError || new Error(`Không thu hoạch được câu nào từ deferred recovery sau ${deferredAttempt + 1} lần thử`), item.stage, {
               missingCount: 1,
               recoveredCount: 0,
+              ...(assessment ? toCoverageFailureExtras(assessment) : {}),
             });
             console.info(`Batch ${item.label}: Cứu hộ trì hoãn không thu hoạch thêm được câu nào sau ${deferredAttempt + 1} lần thử.`);
           }
@@ -2024,7 +2483,21 @@ export const generateQuestions = async (
       const activePromises: Promise<void>[] = [];
       for (const partIndex of partIndexes) {
         await controller?.waitIfPaused();
-        const p = processBatch(allParts[partIndex], partIndex);
+        const part = allParts[partIndex];
+        if (retryIndices && retryIndices.includes(partIndex + 1)) {
+          const expectedQuestions = part.sourceMode === 'pdfVision'
+            ? (part.expectedQuestions || 0)
+            : (part.expectedQuestions || getNativeBatchExpectedCount(part.text || ''));
+          const recoveryPolicy = getRecoveryPolicyForPart(part, expectedQuestions, runtimeSettings.mainBatchOnlyRescue);
+          const coverageAssessment = await evaluatePdfVisionCoverageGate(part);
+          const skippedByCoverage = await maybeSkipPdfVisionRetryByCoverage(part, partIndex, String(partIndex + 1), 'rescue', coverageAssessment);
+          if (skippedByCoverage) continue;
+          if (shouldPreferTailFirstPdfVisionRetry(part, coverageAssessment, recoveryPolicy.expectedCountReliable)) {
+            const handledByTailProbe = await runTailFirstPdfVisionProbe(part, partIndex, String(partIndex + 1), coverageAssessment);
+            if (handledByTailProbe) continue;
+          }
+        }
+        const p = processBatch(part, partIndex);
         activePromises.push(p);
         while (activePromises.length >= Math.max(1, limitOverride || getConcurrencyLimit())) {
           const finishedIndex = await Promise.race(activePromises.map((p, idx) => p.then(() => idx)));

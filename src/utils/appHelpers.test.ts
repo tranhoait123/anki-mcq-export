@@ -121,7 +121,7 @@ describe('app helpers', () => {
       model: 'gemini-3.1-flash-lite-preview',
     })).toMatchObject({
       googleRpmLimiterEnabled: true,
-      googleRpmLimitPerMinute: 14,
+      googleRpmLimitPerMinute: 30,
     });
 
     expect(normalizePersistedSettings({

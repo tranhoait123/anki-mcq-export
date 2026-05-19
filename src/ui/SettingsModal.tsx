@@ -375,7 +375,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                         <div className="flex items-center justify-between gap-3">
                                             <div>
                                                 <p className="text-[11px] font-bold text-slate-700 dark:text-slate-200">Tuỳ chỉnh RPM</p>
-                                                <p className="text-[10px] text-slate-500 dark:text-slate-400">Mặc định 14/phút an toàn cho free-tier.</p>
+                                                <p className="text-[10px] text-slate-500 dark:text-slate-400">Mặc định 30/phút cân bằng; 14/phút dành cho free-tier strict.</p>
                                             </div>
                                             <input
                                                 type="number"

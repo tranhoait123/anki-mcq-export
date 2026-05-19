@@ -19,7 +19,7 @@ const settings: AppSettings = {
   projectLibraryEnabled: true,
   realtimePreviewEnabled: false,
   googleRpmLimiterEnabled: true,
-  googleRpmLimitPerMinute: 14,
+  googleRpmLimitPerMinute: 30,
 };
 
 const makeMcq = (id: string, question: string, answer = 'A'): MCQ => ({
@@ -88,7 +88,7 @@ describe('project library helpers', () => {
       projectLibraryEnabled: true,
       realtimePreviewEnabled: false,
       googleRpmLimiterEnabled: true,
-      googleRpmLimitPerMinute: 14,
+      googleRpmLimitPerMinute: 30,
       hasCustomPrompt: true,
     });
     expect(JSON.stringify(project)).not.toContain('secret');

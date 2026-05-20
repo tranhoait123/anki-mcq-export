@@ -63,6 +63,7 @@ export const buildProjectStats = (
 export const buildSettingsSummary = (settings: AppSettings) => ({
   provider: settings.provider,
   model: settings.model,
+  shopAIKeyEndpoint: settings.provider === 'shopaikey' ? settings.shopAIKeyEndpoint : undefined,
   skipAnalysis: settings.skipAnalysis,
   concurrencyLimit: settings.concurrencyLimit,
   adaptiveBatching: settings.adaptiveBatching,

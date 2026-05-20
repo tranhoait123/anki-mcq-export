@@ -81,6 +81,7 @@ describe('project library helpers', () => {
     expect(project.settingsSummary).toEqual({
       provider: 'google',
       model: 'gemini-3.1-flash-lite-preview',
+      shopAIKeyEndpoint: undefined,
       skipAnalysis: true,
       concurrencyLimit: 2,
       adaptiveBatching: true,

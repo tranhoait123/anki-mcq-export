@@ -266,6 +266,7 @@ export interface ProcessingController {
 export interface AppSettings {
   apiKey: string;
   shopAIKeyKey: string;
+  shopAIKeyEndpoint?: 'direct' | 'api';
   openRouterKey?: string;
   provider: 'google' | 'shopaikey' | 'openrouter';
   model: string;
@@ -285,6 +286,7 @@ export interface AppSettings {
 export interface ProjectSettingsSummary {
   provider: AppSettings['provider'];
   model: string;
+  shopAIKeyEndpoint?: AppSettings['shopAIKeyEndpoint'];
   skipAnalysis?: boolean;
   concurrencyLimit?: number;
   adaptiveBatching?: boolean;

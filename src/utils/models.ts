@@ -48,42 +48,43 @@ export const MODEL_GROUPS: Record<AIProvider, ModelGroup[]> = {
   ],
   shopaikey: [
     {
-      label: 'Mới nhất 2026',
+      label: 'OpenAI-compatible qua ShopAIKey',
       options: [
         { value: 'gpt-5.5', label: 'GPT-5.5 (ShopAIKey - mạnh nhất cho đề khó)' },
+        { value: 'gpt-5.4-pro', label: 'GPT-5.4 Pro (ShopAIKey)' },
+        { value: 'gpt-5.4', label: 'GPT-5.4 (ShopAIKey)' },
+        { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini (ShopAIKey)' },
+        { value: 'gpt-5.4-nano', label: 'GPT-5.4 Nano (ShopAIKey - rẻ/nhanh)' },
+        { value: 'gpt-5-nano', label: 'GPT-5 Nano (ShopAIKey - rẻ/nhanh)' },
+        { value: 'o3-pro', label: 'OpenAI o3 Pro' },
+        { value: 'o3-mini', label: 'OpenAI o3-mini' },
+      ],
+    },
+    {
+      label: 'Gemini qua ShopAIKey',
+      options: [
         { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview (ShopAIKey - PDF/ảnh + suy luận sâu)' },
         { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash-Lite (ShopAIKey - nhanh/rẻ cho scan đề)' },
+        { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (gateway tương thích)' },
+        { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite (gateway tương thích)' },
+        { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (Rất ổn định)' },
+        { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Cân bằng hiệu suất)' },
+      ],
+    },
+    {
+      label: 'Model khác qua ShopAIKey',
+      options: [
         { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro (ShopAIKey - text reasoning, 1M context)' },
         { value: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash (ShopAIKey - text nhanh/tiết kiệm)' },
         { value: 'qwen3.6-plus', label: 'Qwen3.6 Plus (ShopAIKey - long-context)' },
         { value: 'qwen3.6-27b', label: 'Qwen3.6 27B (ShopAIKey - cân bằng)' },
         { value: 'qwen3.6-35b-a3b', label: 'Qwen3.6 35B A3B (ShopAIKey - tiết kiệm)' },
-        { value: 'gpt-5.4-pro', label: 'GPT-5.4 Pro (ShopAIKey)' },
-        { value: 'gpt-5.4', label: 'GPT-5.4 (ShopAIKey)' },
-        { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini (ShopAIKey)' },
-        { value: 'gpt-5.4-nano', label: 'GPT-5.4 Nano (ShopAIKey)' },
-        { value: 'claude-opus-4-7', label: 'Claude Opus 4.7 (ShopAIKey)' },
-        { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (ShopAIKey)' },
-        { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (ShopAIKey)' },
-        { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (gateway tương thích)' },
-        { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite (gateway tương thích)' },
-        { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner (ShopAIKey)' },
-      ],
-    },
-    {
-      label: 'Hệ thống ShopAIKey (2026)',
-      options: [
         { value: 'grok-4-20-reasoning', label: 'Grok 4-20 Reasoning (ShopAIKey - suy luận text)' },
         { value: 'grok-4-20-non-reasoning', label: 'Grok 4-20 Non-Reasoning (ShopAIKey - nhanh hơn)' },
         { value: 'MiniMax-M2.7', label: 'MiniMax M2.7 (ShopAIKey - text model mới)' },
         { value: 'mimo-v2.5-pro', label: 'MiMo V2.5 Pro (ShopAIKey - text reasoning)' },
-        { value: 'o3-pro', label: 'OpenAI o3 Pro' },
-        { value: 'o3-mini', label: 'OpenAI o3-mini' },
-        { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
         { value: 'deepseek-v3.2', label: 'DeepSeek V3.2' },
-        { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash-Lite (Tối ưu chi phí)' },
-        { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (Rất ổn định)' },
-        { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Cân bằng hiệu suất)' },
+        { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner (ShopAIKey)' },
       ],
     },
   ],
@@ -103,6 +104,7 @@ export const MODEL_GROUPS: Record<AIProvider, ModelGroup[]> = {
         { value: 'openai/gpt-5.4', label: 'GPT-5.4' },
         { value: 'openai/gpt-5.4-mini', label: 'GPT-5.4 Mini' },
         { value: 'openai/gpt-5.4-nano', label: 'GPT-5.4 Nano' },
+        { value: 'openai/gpt-5-nano', label: 'GPT-5 Nano' },
         { value: 'anthropic/claude-opus-4.7', label: 'Claude Opus 4.7' },
         { value: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6' },
         { value: 'anthropic/claude-haiku-4.5', label: 'Claude Haiku 4.5' },
@@ -201,6 +203,7 @@ const SHOPAIKEY_MODEL_ALIASES: Record<string, string> = {
   'openai/gpt-5.4': 'gpt-5.4',
   'openai/gpt-5.4-mini': 'gpt-5.4-mini',
   'openai/gpt-5.4-nano': 'gpt-5.4-nano',
+  'openai/gpt-5-nano': 'gpt-5-nano',
   'google/gemini-3.1-pro-preview': 'gemini-3.1-pro-preview',
   'google/gemini-3.1-flash-lite-preview': 'gemini-3.1-flash-lite-preview',
   'google/gemini-3-flash-preview': 'gemini-3-flash-preview',
@@ -209,10 +212,6 @@ const SHOPAIKEY_MODEL_ALIASES: Record<string, string> = {
   'google/gemini-2.5-flash': 'gemini-2.5-flash',
   'openai/o3-pro': 'o3-pro',
   'openai/o3-mini': 'o3-mini',
-  'anthropic/claude-opus-4.7': 'claude-opus-4-7',
-  'anthropic/claude-sonnet-4.6': 'claude-sonnet-4-6',
-  'anthropic/claude-haiku-4.5': 'claude-haiku-4-5-20251001',
-  'anthropic/claude-3.7-sonnet': 'claude-sonnet-4-20250514',
   'deepseek/deepseek-v3.2': 'deepseek-v3.2',
   'deepseek/deepseek-reasoner': 'deepseek-reasoner',
   'deepseek/deepseek-v4-pro': 'deepseek-v4-pro',
@@ -231,6 +230,16 @@ export const isShopAIKeyDeepSeekModel = (model: string): boolean => {
   const normalized = normalizeModelForProvider('shopaikey', model || '').toLowerCase();
   return normalized.startsWith('deepseek-') || normalized === 'deepseek-chat' || normalized === 'deepseek-reasoner';
 };
+
+export const isShopAIKeyGeminiModel = (model: string): boolean => {
+  const normalized = normalizeModelForProvider('shopaikey', model || '').toLowerCase();
+  return normalized.startsWith('gemini-');
+};
+
+export const isShopAIKeyOpenAIModel = (model: string): boolean =>
+  Boolean(normalizeModelForProvider('shopaikey', model || '')) && !isShopAIKeyGeminiModel(model);
+
+export const isShopAIKeyOpenAIResponsesModel = isShopAIKeyOpenAIModel;
 
 export const isModelAllowedForProvider = (provider: AIProvider, model: string): boolean => {
   const normalizedModel = normalizeModelForProvider(provider, model);

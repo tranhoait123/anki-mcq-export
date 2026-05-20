@@ -12,6 +12,7 @@ const RETIRED_PROVIDER_ID = `${RETIRED_PROVIDER_PREFIX}ai`;
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   apiKey: '',
   shopAIKeyKey: '',
+  shopAIKeyEndpoint: 'direct',
   provider: 'google',
   model: 'gemini-3.1-flash-lite-preview',
   customPrompt: '',
@@ -174,6 +175,9 @@ export const normalizePersistedSettings = (settings: LegacyPersistedSettings): A
   }
 
   if (persistedSettings.shopAIKeyKey === undefined) persistedSettings.shopAIKeyKey = '';
+  if (persistedSettings.shopAIKeyEndpoint !== 'api' && persistedSettings.shopAIKeyEndpoint !== 'direct') {
+    persistedSettings.shopAIKeyEndpoint = 'direct';
+  }
   if (persistedSettings.openRouterKey === undefined) persistedSettings.openRouterKey = '';
   if (persistedSettings.skipAnalysis === undefined) persistedSettings.skipAnalysis = true;
   if (persistedSettings.concurrencyLimit === undefined) persistedSettings.concurrencyLimit = 1;

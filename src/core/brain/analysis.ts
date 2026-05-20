@@ -1,10 +1,10 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { Type } from '@google/genai';
 import { AnalysisResult, AppSettings, AuditResult, UploadedFile } from '../../types';
 import { coerceModelForProvider, coerceModelForProviderInput, getProviderFallbackModel, getProviderModelMismatchMessage } from '../../utils/models';
 import { getDetectedDocxMcqCount, getFileTextContent } from './batching';
 import { executeWithRetry, executeWithUserRotation, userKeyRotator } from './retryExecutor';
-import { getModelConfig } from './googleProvider';
-import { isOpenAICompatibleProvider, callOpenAICompatibleProvider, toOpenAIContentFromFile } from './openAiProvider';
+import { createGoogleGenAIClient, getGoogleRuntimeApiKeys, getGoogleRuntimeBaseUrl, getModelConfig } from './googleProvider';
+import { isOpenAICompatibleRuntime, callOpenAICompatibleProvider, toOpenAIContentFromFile } from './openAiProvider';
 import { parseJsonFromModelText } from './parsing';
 import { buildAnalyzePrompt, SYSTEM_INSTRUCTION_AUDIT } from './prompts';
 import { getGoogleRequestRateLimitOptions } from './requestRateLimiter';
@@ -51,13 +51,15 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
 
   const mismatchMessage = getProviderModelMismatchMessage(settings.provider, settings.model);
   let runtimeSettings = mismatchMessage ? { ...settings, model: coerceModelForProvider(settings.provider, settings.model) } : settings;
-  if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
+  const providerSafeModel = coerceModelForProvider(runtimeSettings.provider, runtimeSettings.model);
+  if (providerSafeModel !== runtimeSettings.model) runtimeSettings = { ...runtimeSettings, model: providerSafeModel };
+  if (isOpenAICompatibleRuntime(runtimeSettings)) {
     const coercedModel = coerceModelForProviderInput(runtimeSettings.provider, runtimeSettings.model, filesRequireVision(files));
     if (coercedModel !== runtimeSettings.model) runtimeSettings = { ...runtimeSettings, model: coercedModel };
   }
   const finalPrompt = buildAnalyzePrompt();
 
-  if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
+  if (isOpenAICompatibleRuntime(runtimeSettings)) {
     return await executeWithRetry(async () => {
       const parts = files.map(toOpenAIContentFromFile);
       const text = await callOpenAICompatibleProvider(runtimeSettings, runtimeSettings.model, [
@@ -68,10 +70,10 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
     });
   }
 
-  userKeyRotator.init(runtimeSettings.apiKey, 1);
+  userKeyRotator.init(getGoogleRuntimeApiKeys(runtimeSettings), 1);
   return await executeWithUserRotation(runtimeSettings.model, async (apiKey, activeModel, attemptContext) => {
     if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = createGoogleGenAIClient(runtimeSettings, apiKey);
     const parts: any[] = files.map(toGoogleContentFromFile);
 
     const schema = {
@@ -89,6 +91,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
     const chat = ai.chats.create(getModelConfig(apiKey, finalPrompt, schema, activeModel, undefined, undefined, {
       timeoutMs: attemptContext.timeoutMs,
       signal: attemptContext.signal,
+      baseUrl: getGoogleRuntimeBaseUrl(runtimeSettings),
     }));
     const result = await chat.sendMessage({ message: parts });
     return normalizeAnalysisResult(parseJsonFromModelText(requireModelText(result.text, 'Phân tích tài liệu')));
@@ -98,11 +101,13 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
 export const auditMissingQuestions = async (files: UploadedFile[], count: number, settings: AppSettings): Promise<AuditResult> => {
   const mismatchMessage = getProviderModelMismatchMessage(settings.provider, settings.model);
   let runtimeSettings = mismatchMessage ? { ...settings, model: coerceModelForProvider(settings.provider, settings.model) } : settings;
-  if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
+  const providerSafeModel = coerceModelForProvider(runtimeSettings.provider, runtimeSettings.model);
+  if (providerSafeModel !== runtimeSettings.model) runtimeSettings = { ...runtimeSettings, model: providerSafeModel };
+  if (isOpenAICompatibleRuntime(runtimeSettings)) {
     const coercedModel = coerceModelForProviderInput(runtimeSettings.provider, runtimeSettings.model, filesRequireVision(files));
     if (coercedModel !== runtimeSettings.model) runtimeSettings = { ...runtimeSettings, model: coercedModel };
   }
-  if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
+  if (isOpenAICompatibleRuntime(runtimeSettings)) {
     return await executeWithRetry(async () => {
       const parts = files.map(toOpenAIContentFromFile);
       const text = await callOpenAICompatibleProvider(runtimeSettings, runtimeSettings.model, [
@@ -119,12 +124,12 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
     });
   }
 
-  userKeyRotator.init(runtimeSettings.apiKey, 1);
+  userKeyRotator.init(getGoogleRuntimeApiKeys(runtimeSettings), 1);
   return await executeWithUserRotation(runtimeSettings.model, async (apiKey, activeModel, attemptContext) => {
     if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
     const parts: any[] = files.map(toGoogleContentFromFile);
 
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = createGoogleGenAIClient(runtimeSettings, apiKey);
     const schema = {
       type: Type.OBJECT,
       properties: {
@@ -140,6 +145,7 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
     const chat = ai.chats.create(getModelConfig(apiKey, SYSTEM_INSTRUCTION_AUDIT, schema, activeModel, undefined, undefined, {
       timeoutMs: attemptContext.timeoutMs,
       signal: attemptContext.signal,
+      baseUrl: getGoogleRuntimeBaseUrl(runtimeSettings),
     }));
     const res = await chat.sendMessage({
       message: [

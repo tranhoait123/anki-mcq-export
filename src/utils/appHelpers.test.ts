@@ -137,4 +137,17 @@ describe('app helpers', () => {
       googleRpmLimitPerMinute: 9999,
     }).googleRpmLimitPerMinute).toBe(600);
   });
+
+  it('defaults ShopAIKey endpoint to direct while preserving official API selection', () => {
+    expect(normalizePersistedSettings({
+      provider: 'shopaikey',
+      model: 'gpt-5.4-mini',
+    }).shopAIKeyEndpoint).toBe('direct');
+
+    expect(normalizePersistedSettings({
+      provider: 'shopaikey',
+      model: 'gpt-5.4-mini',
+      shopAIKeyEndpoint: 'api',
+    }).shopAIKeyEndpoint).toBe('api');
+  });
 });

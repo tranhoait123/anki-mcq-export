@@ -470,6 +470,10 @@ describe('Core Logic', () => {
       choices: [{ message: { content: '{"ok":true}' } }],
     })).toBe('{"ok":true}');
 
+    expect(extractProviderMessageContent({
+      output_text: '{"questions":[]}',
+    })).toBe('{"questions":[]}');
+
     expect(() => extractProviderMessageContent({ choices: [{ message: {} }] }))
       .toThrow('AI_FORMAT_ERROR_EMPTY_PROVIDER_RESPONSE');
   });

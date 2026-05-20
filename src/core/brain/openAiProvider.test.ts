@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildOpenAICompatibleProviderRequest,
   callOpenAICompatibleProvider,
+  getOpenAICompatibleRuntimeApiKeys,
+  getShopAIKeyOpenAIBaseUrl,
+  SHOPAIKEY_OPENAI_API_BASE_URL,
+  SHOPAIKEY_OPENAI_DIRECT_BASE_URL,
   toOpenAIContentFromPart,
   validateShopAIKeyConnection,
 } from './openAiProvider';
@@ -39,20 +43,57 @@ describe('OpenAI-compatible provider vision payloads', () => {
     ]);
   });
 
-  it('builds ShopAIKey requests with normalized model ids and bearer auth', () => {
+  it('builds ShopAIKey OpenAI-compatible model requests for chat completions with normalized ids and bearer auth', () => {
     const request = buildOpenAICompatibleProviderRequest(
       shopAIKeySettings,
       'openai/gpt-5.4-mini',
       [{ role: 'user', content: 'Return JSON.' }]
     );
 
-    expect(request.url).toBe('https://api.shopaikey.com/v1/chat/completions');
+    expect(request.url).toBe('https://direct.shopaikey.com/v1/chat/completions');
     expect(request.providerName).toBe('ShopAIKey');
     expect(request.model).toBe('gpt-5.4-mini');
+    expect(request.endpointKind).toBe('chat');
     expect(request.headers.Authorization).toBe('Bearer shop-key');
     expect(request.body.model).toBe('gpt-5.4-mini');
+    expect(request.body.messages).toEqual([{ role: 'user', content: 'Return JSON.' }]);
     expect(request.body.response_format).toEqual({ type: 'json_object' });
     expect(request.body.max_tokens).toBe(65536);
+  });
+
+  it('can switch ShopAIKey OpenAI-compatible requests between direct and official API endpoints', () => {
+    expect(getShopAIKeyOpenAIBaseUrl({ shopAIKeyEndpoint: 'direct' })).toBe(SHOPAIKEY_OPENAI_DIRECT_BASE_URL);
+    expect(getShopAIKeyOpenAIBaseUrl({ shopAIKeyEndpoint: 'api' })).toBe(SHOPAIKEY_OPENAI_API_BASE_URL);
+
+    const officialRequest = buildOpenAICompatibleProviderRequest(
+      { ...shopAIKeySettings, shopAIKeyEndpoint: 'api' },
+      'openai/gpt-5.4-mini',
+      [{ role: 'user', content: 'Return JSON.' }]
+    );
+
+    expect(officialRequest.url).toBe('https://api.shopaikey.com/v1/chat/completions');
+  });
+
+  it('uses the active rotated key override for OpenAI-compatible provider attempts', () => {
+    const request = buildOpenAICompatibleProviderRequest(
+      { ...shopAIKeySettings, shopAIKeyKey: 'key-one,key-two' },
+      'openai/gpt-5.4-mini',
+      [{ role: 'user', content: 'Return JSON.' }],
+      true,
+      'key-two'
+    );
+
+    expect(getOpenAICompatibleRuntimeApiKeys({ ...shopAIKeySettings, shopAIKeyKey: 'key-one,key-two' })).toBe('key-one,key-two');
+    expect(request.apiKey).toBe('key-two');
+    expect(request.headers.Authorization).toBe('Bearer key-two');
+  });
+
+  it('rejects ShopAIKey Gemini requests from the OpenAI-compatible adapter', () => {
+    expect(() => buildOpenAICompatibleProviderRequest(
+      { ...shopAIKeySettings, model: 'gemini-3.1-flash-lite-preview' },
+      'gemini-3.1-flash-lite-preview',
+      [{ role: 'user', content: 'Return JSON.' }]
+    )).toThrow('Unsupported OpenAI-compatible provider');
   });
 
   it('blocks ShopAIKey DeepSeek image_url payloads before hitting the gateway', () => {
@@ -76,11 +117,12 @@ describe('OpenAI-compatible provider vision payloads', () => {
       [{ role: 'user', content: [{ type: 'text', text: 'Trích xuất từ OCR này.' }] }]
     );
     expect(request.body.model).toBe('deepseek-v4-pro');
+    expect(request.endpointKind).toBe('chat');
     expect(request.body.messages[0].content).toEqual([{ type: 'text', text: 'Trích xuất từ OCR này.' }]);
     expect(request.body.response_format).toEqual({ type: 'json_object' });
   });
 
-  it('retries ShopAIKey calls without response_format when a model rejects JSON mode', async () => {
+  it('retries ShopAIKey chat calls without response_format when a model rejects JSON mode', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
         error: { message: 'This model does not support response_format' },
@@ -104,6 +146,7 @@ describe('OpenAI-compatible provider vision payloads', () => {
     expect(firstBody.response_format).toEqual({ type: 'json_object' });
     expect(secondBody.model).toBe('gpt-5.4-mini');
     expect(secondBody.response_format).toBeUndefined();
+    expect(secondBody.messages[0].content).toContain('Endpoint hiện tại không hỗ trợ response_format');
   });
 
   it('passes external abort signals through provider fetch calls', async () => {
@@ -155,15 +198,80 @@ describe('OpenAI-compatible provider vision payloads', () => {
     expect(result.selectedModel).toBe('gpt-5.4-mini');
     expect(result.selectedModelAvailable).toBe(true);
     expect(result.models).toEqual(['deepseek-v3.2', 'gpt-5.4-mini']);
-    expect(fetchMock).toHaveBeenCalledWith('https://api.shopaikey.com/v1/models', expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith('https://direct.shopaikey.com/v1/models', expect.objectContaining({
       method: 'GET',
       headers: expect.objectContaining({ Authorization: 'Bearer shop-key' }),
     }));
     const probeBody = JSON.parse(fetchMock.mock.calls[1][1].body);
-    expect(fetchMock.mock.calls[1][0]).toBe('https://api.shopaikey.com/v1/chat/completions');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://direct.shopaikey.com/v1/chat/completions');
     expect(probeBody.model).toBe('gpt-5.4-mini');
     expect(probeBody.messages).toEqual([{ role: 'user', content: 'ping' }]);
+    expect(probeBody.max_tokens).toBe(8);
     expect(probeBody.response_format).toBeUndefined();
+  });
+
+  it('validates ShopAIKey through the official API endpoint when selected', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        object: 'list',
+        data: [{ id: 'gpt-5.4-mini' }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: 'pong' } }],
+      }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await validateShopAIKeyConnection('shop-key', 'gpt-5.4-mini', 'api');
+
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain('official api');
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.shopaikey.com/v1/models');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://api.shopaikey.com/v1/chat/completions');
+  });
+
+  it('validates ShopAIKey Gemini models through the native Google GenAI endpoint', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        object: 'list',
+        data: [{ id: 'gpt-5.4-mini' }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: 'pong' }] } }],
+      }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await validateShopAIKeyConnection('shop-key', 'google/gemini-3.1-flash-lite-preview');
+
+    expect(result.ok).toBe(true);
+    expect(result.selectedModel).toBe('gemini-3.1-flash-lite-preview');
+    expect(result.selectedModelAvailable).toBe(true);
+    expect(result.models).toContain('gemini-3.1-flash-lite-preview');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://direct.shopaikey.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent');
+    expect(fetchMock.mock.calls[1][1].headers).toMatchObject({
+      Authorization: 'Bearer shop-key',
+      'Content-Type': 'application/json',
+    });
+    const probeBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(probeBody.contents).toEqual([{ role: 'user', parts: [{ text: 'ping' }] }]);
+    expect(probeBody.generationConfig.maxOutputTokens).toBe(8);
+  });
+
+  it('validates ShopAIKey Gemini through the official Google GenAI endpoint when selected', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        object: 'list',
+        data: [{ id: 'gpt-5.4-mini' }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: 'pong' }] } }],
+      }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await validateShopAIKeyConnection('shop-key', 'gemini-3.1-flash-lite-preview', 'api');
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.shopaikey.com/v1/models');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://api.shopaikey.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent');
   });
 
   it('fails ShopAIKey validation when the selected model has no chat channel', async () => {

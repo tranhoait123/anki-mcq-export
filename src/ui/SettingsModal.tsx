@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, Trash2, ChevronDown, ShieldAlert, Gauge, Zap, Database, RefreshCw, CheckCircle2, AlertCircle, Archive, ShieldCheck, Lock } from 'lucide-react';
+import { Settings as SettingsIcon, Trash2, ChevronDown, ShieldAlert, Gauge, Zap, Database, RefreshCw, CheckCircle2, AlertCircle, Archive, ShieldCheck, Lock, Network } from 'lucide-react';
 import { AppSettings } from '../types';
 import { db } from '../core/db';
 import { toast } from 'sonner';
@@ -81,7 +81,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
 
     const handleShopAIKeyCheck = async () => {
         setIsCheckingShopAIKey(true);
-        const result = await validateShopAIKeyConnection(settings.shopAIKeyKey, settings.model);
+        const result = await validateShopAIKeyConnection(settings.shopAIKeyKey, settings.model, settings.shopAIKeyEndpoint);
         setShopAIKeyValidation(result);
         setVerifiedShopAIKeyModels(result.models);
         setIsCheckingShopAIKey(false);
@@ -202,6 +202,45 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                     : 'Truy cập hàng loạt model đỉnh nhất như Claude 3.7, GPT-4o, DeepSeek.'}
                         </p>
                     </section>
+
+                    {/* Model Selection */}
+                    {settings.provider === 'shopaikey' && (
+                        <section>
+                            <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2 uppercase tracking-wide text-[11px]">
+                                ShopAIKey Endpoint
+                            </label>
+                            <div className="grid grid-cols-2 p-1.5 gap-1.5 bg-gray-100/80 dark:bg-slate-800 rounded-2xl border dark:border-slate-700">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShopAIKeyValidation(null);
+                                        setSettings({ ...settings, shopAIKeyEndpoint: 'direct' });
+                                    }}
+                                    className={`min-h-12 py-2 px-2 rounded-xl text-xs font-bold leading-tight transition-all duration-300 ${settings.shopAIKeyEndpoint !== 'api' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md ring-1 ring-black/5' : 'text-gray-500 dark:text-gray-400 hover:bg-white/50 dark:hover:bg-slate-700/50'}`}
+                                >
+                                    <span className="flex items-center justify-center gap-1.5">
+                                        <Network size={13} />
+                                        Direct backup
+                                    </span>
+                                    <span className="block opacity-70 text-[10px] mt-0.5">direct.shopaikey.com</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShopAIKeyValidation(null);
+                                        setSettings({ ...settings, shopAIKeyEndpoint: 'api' });
+                                    }}
+                                    className={`min-h-12 py-2 px-2 rounded-xl text-xs font-bold leading-tight transition-all duration-300 ${settings.shopAIKeyEndpoint === 'api' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md ring-1 ring-black/5' : 'text-gray-500 dark:text-gray-400 hover:bg-white/50 dark:hover:bg-slate-700/50'}`}
+                                >
+                                    <span className="flex items-center justify-center gap-1.5">
+                                        <Zap size={13} />
+                                        Official API
+                                    </span>
+                                    <span className="block opacity-70 text-[10px] mt-0.5">api.shopaikey.com</span>
+                                </button>
+                            </div>
+                        </section>
+                    )}
 
                     {/* Model Selection */}
                     <section>

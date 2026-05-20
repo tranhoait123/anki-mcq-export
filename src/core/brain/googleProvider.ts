@@ -1,9 +1,36 @@
-import { Type } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
+import { AppSettings } from '../../types';
+import { isShopAIKeyGeminiModel } from '../../utils/models';
+
+export const SHOPAIKEY_GOOGLE_GENAI_DIRECT_BASE_URL = 'https://direct.shopaikey.com';
+export const SHOPAIKEY_GOOGLE_GENAI_API_BASE_URL = 'https://api.shopaikey.com';
+export const SHOPAIKEY_GOOGLE_GENAI_BASE_URL = SHOPAIKEY_GOOGLE_GENAI_DIRECT_BASE_URL;
 
 export interface GoogleRequestRuntimeOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
+  baseUrl?: string;
 }
+
+export const isShopAIKeyGeminiRuntime = (settings: Pick<AppSettings, 'provider' | 'model'>): boolean =>
+  settings.provider === 'shopaikey' && isShopAIKeyGeminiModel(settings.model);
+
+export const getGoogleRuntimeApiKeys = (settings: Pick<AppSettings, 'provider' | 'apiKey' | 'shopAIKeyKey' | 'model'>): string =>
+  isShopAIKeyGeminiRuntime(settings) ? settings.shopAIKeyKey : settings.apiKey;
+
+export const getShopAIKeyGoogleBaseUrl = (settings: Pick<AppSettings, 'shopAIKeyEndpoint'>): string =>
+  settings.shopAIKeyEndpoint === 'api' ? SHOPAIKEY_GOOGLE_GENAI_API_BASE_URL : SHOPAIKEY_GOOGLE_GENAI_DIRECT_BASE_URL;
+
+export const getGoogleRuntimeBaseUrl = (settings: Pick<AppSettings, 'provider' | 'model' | 'shopAIKeyEndpoint'>): string | undefined =>
+  isShopAIKeyGeminiRuntime(settings) ? getShopAIKeyGoogleBaseUrl(settings) : undefined;
+
+export const createGoogleGenAIClient = (
+  settings: Pick<AppSettings, 'provider' | 'model' | 'shopAIKeyEndpoint'>,
+  apiKey: string
+): GoogleGenAI => new GoogleGenAI({
+  apiKey,
+  ...(getGoogleRuntimeBaseUrl(settings) ? { httpOptions: { baseUrl: getGoogleRuntimeBaseUrl(settings) } } : {}),
+});
 
 export const getModelConfig = (
   apiKey: string,
@@ -25,6 +52,7 @@ export const getModelConfig = (
       maxOutputTokens,
       abortSignal: runtimeOptions.signal,
       httpOptions: {
+        ...(runtimeOptions.baseUrl ? { baseUrl: runtimeOptions.baseUrl } : {}),
         ...(runtimeOptions.timeoutMs ? { timeout: runtimeOptions.timeoutMs } : {}),
         retryOptions: { attempts: 1 },
       },

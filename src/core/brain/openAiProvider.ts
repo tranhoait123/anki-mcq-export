@@ -1,6 +1,7 @@
 import { AppSettings, UploadedFile } from '../../types';
-import { getModelTokenProfile, isShopAIKeyDeepSeekModel, normalizeModelForProvider } from '../../utils/models';
+import { getModelTokenProfile, isShopAIKeyDeepSeekModel, isShopAIKeyGeminiModel, normalizeModelForProvider } from '../../utils/models';
 import { getFileTextContent } from './batching';
+import { getShopAIKeyGoogleBaseUrl } from './googleProvider';
 import { createProviderApiError, translateErrorForUser } from './providerErrors';
 
 export type OpenAICompatibleProvider = 'shopaikey' | 'openrouter';
@@ -9,6 +10,7 @@ export interface ProviderRequestConfig {
   url: string;
   providerName: string;
   model: string;
+  endpointKind: 'chat';
   apiKey: string;
   headers: Record<string, string>;
   body: Record<string, any>;
@@ -26,12 +28,23 @@ export interface ShopAIKeyValidationResult {
 export interface OpenAICompatibleCallOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
+  apiKeyOverride?: string;
 }
 
 const JSON_MODE_FALLBACK_INSTRUCTION = 'QUAN TRỌNG: Endpoint hiện tại không hỗ trợ response_format. Bạn vẫn PHẢI trả về JSON hợp lệ duy nhất, không markdown, không giải thích ngoài JSON.';
+export const SHOPAIKEY_OPENAI_DIRECT_BASE_URL = 'https://direct.shopaikey.com/v1';
+export const SHOPAIKEY_OPENAI_API_BASE_URL = 'https://api.shopaikey.com/v1';
+export const SHOPAIKEY_OPENAI_BASE_URL = SHOPAIKEY_OPENAI_DIRECT_BASE_URL;
+const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 export const isOpenAICompatibleProvider = (provider: AppSettings['provider']): provider is OpenAICompatibleProvider =>
   provider === 'shopaikey' || provider === 'openrouter';
+
+export const isShopAIKeyGeminiRuntime = (settings: Pick<AppSettings, 'provider' | 'model'>): boolean =>
+  settings.provider === 'shopaikey' && isShopAIKeyGeminiModel(settings.model);
+
+export const isOpenAICompatibleRuntime = (settings: Pick<AppSettings, 'provider' | 'model'>): settings is Pick<AppSettings, 'provider' | 'model'> & { provider: OpenAICompatibleProvider } =>
+  settings.provider === 'openrouter' || (settings.provider === 'shopaikey' && !isShopAIKeyGeminiRuntime(settings));
 
 const getProviderName = (provider: OpenAICompatibleProvider): string => {
   if (provider === 'shopaikey') return 'ShopAIKey';
@@ -43,14 +56,25 @@ const normalizeProviderModel = (provider: OpenAICompatibleProvider, model: strin
   return model;
 };
 
+export const getShopAIKeyOpenAIBaseUrl = (settings: Pick<AppSettings, 'shopAIKeyEndpoint'>): string =>
+  settings.shopAIKeyEndpoint === 'api' ? SHOPAIKEY_OPENAI_API_BASE_URL : SHOPAIKEY_OPENAI_DIRECT_BASE_URL;
+
 const buildProviderUrl = (settings: AppSettings): string => {
-  if (settings.provider === 'shopaikey') return 'https://api.shopaikey.com/v1/chat/completions';
-  return 'https://openrouter.ai/api/v1/chat/completions';
+  if (settings.provider === 'shopaikey') {
+    return `${getShopAIKeyOpenAIBaseUrl(settings)}/chat/completions`;
+  }
+  return OPENROUTER_CHAT_COMPLETIONS_URL;
 };
 
 const getProviderApiKey = (settings: AppSettings): string | undefined => {
   if (settings.provider === 'shopaikey') return settings.shopAIKeyKey;
   return settings.openRouterKey;
+};
+
+export const getOpenAICompatibleRuntimeApiKeys = (settings: Pick<AppSettings, 'provider' | 'shopAIKeyKey' | 'openRouterKey'>): string => {
+  if (settings.provider === 'shopaikey') return settings.shopAIKeyKey;
+  if (settings.provider === 'openrouter') return settings.openRouterKey || '';
+  return '';
 };
 
 const buildProviderHeaders = (settings: AppSettings, apiKey: string): Record<string, string> => {
@@ -76,41 +100,59 @@ const contentContainsImageUrl = (content: any): boolean => {
 const messagesContainImageUrl = (messages: any[]): boolean =>
   messages.some(message => contentContainsImageUrl(message?.content));
 
-export const buildOpenAICompatibleProviderRequest = (
+const buildChatRequestBody = (
   settings: AppSettings,
   modelName: string,
+  model: string,
   messages: any[],
-  includeResponseFormat: boolean = true
-): ProviderRequestConfig => {
-  if (!isOpenAICompatibleProvider(settings.provider)) {
-    throw new Error(`Unsupported OpenAI-compatible provider: ${settings.provider}`);
-  }
-
-  const apiKey = getProviderApiKey(settings) || '';
-  const model = normalizeProviderModel(settings.provider, modelName);
-  if (settings.provider === 'shopaikey' && isShopAIKeyDeepSeekModel(model) && messagesContainImageUrl(messages)) {
-    throw new Error(`SHOPAIKEY_DEEPSEEK_VISION_GROUP_UNSUPPORTED: DeepSeek ShopAIKey nằm trong group Cheap API nên app không gửi image_url/PDF scan thô để tránh gateway route sang group Gemini. Hãy dùng file text/OCR hoặc chọn model vision khác. | model=${model}`);
-  }
+  includeResponseFormat: boolean
+): Record<string, any> => {
   const body: Record<string, any> = {
     model,
     messages,
     temperature: 0.1,
+    max_tokens: getModelTokenProfile(settings.provider, modelName).safeOutputBudget,
   };
-  body.max_tokens = getModelTokenProfile(settings.provider, modelName).safeOutputBudget;
 
   if (includeResponseFormat) {
     body.response_format = { type: 'json_object' };
   }
 
+  return body;
+};
+
+export const buildOpenAICompatibleProviderRequest = (
+  settings: AppSettings,
+  modelName: string,
+  messages: any[],
+  includeResponseFormat: boolean = true,
+  apiKeyOverride?: string
+): ProviderRequestConfig => {
+  if (!isOpenAICompatibleRuntime(settings)) {
+    throw new Error(`Unsupported OpenAI-compatible provider: ${settings.provider}`);
+  }
+
+  const apiKey = apiKeyOverride || getProviderApiKey(settings) || '';
+  const model = normalizeProviderModel(settings.provider, modelName);
+  if (settings.provider === 'shopaikey' && isShopAIKeyDeepSeekModel(model) && messagesContainImageUrl(messages)) {
+    throw new Error(`SHOPAIKEY_DEEPSEEK_VISION_GROUP_UNSUPPORTED: DeepSeek ShopAIKey nằm trong group Cheap API nên app không gửi image_url/PDF scan thô để tránh gateway route sang group Gemini. Hãy dùng file text/OCR hoặc chọn model vision khác. | model=${model}`);
+  }
+  const endpointKind = 'chat';
+  const body = buildChatRequestBody(settings, modelName, model, messages, includeResponseFormat);
+
   return {
     url: buildProviderUrl(settings),
     providerName: getProviderName(settings.provider),
     model,
+    endpointKind,
     apiKey,
     headers: buildProviderHeaders(settings, apiKey),
     body,
   };
 };
+
+const buildShopAIKeyGeminiProbeUrl = (model: string, endpoint: AppSettings['shopAIKeyEndpoint']): string =>
+  `${getShopAIKeyGoogleBaseUrl({ shopAIKeyEndpoint: endpoint })}/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
 const extractProviderErrorDetail = async (response: Response): Promise<string> => {
   try {
@@ -148,7 +190,8 @@ const getShopAIKeyValidationErrorMessage = (status: number, detail: string): str
 
 export const validateShopAIKeyConnection = async (
   apiKey: string,
-  selectedModel: string
+  selectedModel: string,
+  endpoint: AppSettings['shopAIKeyEndpoint'] = 'direct'
 ): Promise<ShopAIKeyValidationResult> => {
   const token = apiKey.trim();
   const normalizedSelectedModel = normalizeModelForProvider('shopaikey', selectedModel || '');
@@ -163,7 +206,8 @@ export const validateShopAIKeyConnection = async (
   }
 
   try {
-    const response = await fetch('https://api.shopaikey.com/v1/models', {
+    const openAIBaseUrl = getShopAIKeyOpenAIBaseUrl({ shopAIKeyEndpoint: endpoint });
+    const response = await fetch(`${openAIBaseUrl}/models`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -184,8 +228,12 @@ export const validateShopAIKeyConnection = async (
     }
 
     const data = await response.json();
-    const models = extractShopAIKeyModelIds(data);
-    const selectedModelAvailable = Boolean(normalizedSelectedModel && models.includes(normalizedSelectedModel));
+    const listedModels = extractShopAIKeyModelIds(data);
+    const isGeminiModel = isShopAIKeyGeminiModel(normalizedSelectedModel);
+    const models = isGeminiModel && normalizedSelectedModel && !listedModels.includes(normalizedSelectedModel)
+      ? [...listedModels, normalizedSelectedModel].sort((a, b) => a.localeCompare(b))
+      : listedModels;
+    const selectedModelAvailable = Boolean(normalizedSelectedModel && (listedModels.includes(normalizedSelectedModel) || isGeminiModel));
 
     if (!selectedModelAvailable) {
       return {
@@ -197,20 +245,33 @@ export const validateShopAIKeyConnection = async (
       };
     }
 
-    const probeResponse = await fetch('https://api.shopaikey.com/v1/chat/completions', {
+    const probeResponse = await fetch(
+      isGeminiModel
+        ? buildShopAIKeyGeminiProbeUrl(normalizedSelectedModel, endpoint)
+        : `${openAIBaseUrl}/chat/completions`,
+      {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: normalizedSelectedModel,
-        messages: [{ role: 'user', content: 'ping' }],
-        max_tokens: 8,
-        temperature: 0,
-      }),
-    });
+      body: JSON.stringify(isGeminiModel
+        ? {
+            contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
+            generationConfig: {
+              maxOutputTokens: 8,
+              temperature: 0,
+            },
+          }
+        : {
+            model: normalizedSelectedModel,
+            messages: [{ role: 'user', content: 'ping' }],
+            max_tokens: 8,
+            temperature: 0,
+          }),
+      }
+    );
 
     if (!probeResponse.ok) {
       const error = await createProviderApiError('ShopAIKey', probeResponse, normalizedSelectedModel);
@@ -229,7 +290,7 @@ export const validateShopAIKeyConnection = async (
       models,
       selectedModel: normalizedSelectedModel,
       selectedModelAvailable,
-      message: `ShopAIKey kết nối OK. Model "${normalizedSelectedModel}" có trong danh sách và phản hồi chat OK.`,
+      message: `ShopAIKey kết nối OK (${endpoint === 'api' ? 'official api' : 'direct backup'}). Model "${normalizedSelectedModel}" phản hồi ${isGeminiModel ? 'Google GenAI' : 'OpenAI Chat Completions'} OK.`,
     };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -265,7 +326,21 @@ const withJsonModeFallbackPrompt = (messages: any[]): any[] => {
   return next;
 };
 
+const extractResponsesOutputText = (data: any): string => {
+  if (typeof data?.output_text === 'string' && data.output_text.trim()) return data.output_text;
+  const output = Array.isArray(data?.output) ? data.output : [];
+  return output
+    .flatMap((item: any) => Array.isArray(item?.content) ? item.content : [])
+    .map((part: any) => {
+      if (typeof part === 'string') return part;
+      return part?.text || part?.content || '';
+    })
+    .join('');
+};
+
 export const extractProviderMessageContent = (data: any): string => {
+  const responsesText = extractResponsesOutputText(data);
+  if (responsesText.trim()) return responsesText;
   const content = data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? data?.content;
   if (Array.isArray(content)) {
     return content
@@ -289,7 +364,7 @@ export const callOpenAICompatibleProvider = async (
   includeResponseFormat: boolean = true,
   options: OpenAICompatibleCallOptions = {}
 ): Promise<string> => {
-  const request = buildOpenAICompatibleProviderRequest(settings, modelName, messages, includeResponseFormat);
+  const request = buildOpenAICompatibleProviderRequest(settings, modelName, messages, includeResponseFormat, options.apiKeyOverride);
   const localAbortController = !options.signal && options.timeoutMs ? new AbortController() : null;
   const timeoutId = localAbortController && options.timeoutMs
     ? setTimeout(() => localAbortController.abort(), options.timeoutMs)

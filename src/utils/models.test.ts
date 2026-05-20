@@ -12,6 +12,9 @@ import {
   isLegacyGeminiModel,
   isModelAllowedForProvider,
   isShopAIKeyDeepSeekModel,
+  isShopAIKeyGeminiModel,
+  isShopAIKeyOpenAIModel,
+  isShopAIKeyOpenAIResponsesModel,
   normalizeModelForProvider,
 } from './models';
 
@@ -60,11 +63,10 @@ describe('AI model registry', () => {
     expect(values).toContain('qwen/qwen3.6-plus');
   });
 
-  it('keeps existing ShopAIKey models and appends OpenAI-compatible newest models', () => {
+  it('keeps ShopAIKey OpenAI-compatible and Gemini models without Claude entries', () => {
     const values = getModelValues('shopaikey');
 
     expect(values).toContain('o3-pro');
-    expect(values).toContain('claude-sonnet-4-20250514');
     expect(values).toContain('deepseek-v3.2');
     expect(values).toContain('gpt-5.5');
     expect(values).toContain('gemini-3.1-pro-preview');
@@ -79,15 +81,16 @@ describe('AI model registry', () => {
     expect(values).toContain('mimo-v2.5-pro');
     expect(values).toContain('gpt-5.4-mini');
     expect(values).toContain('gpt-5.4-nano');
-    expect(values).toContain('claude-sonnet-4-6');
+    expect(values).toContain('gpt-5-nano');
     expect(values).toContain('deepseek-reasoner');
     expect(values).not.toContain('openai/gpt-5.4-mini');
     expect(values).not.toContain('anthropic/claude-sonnet-4.6');
+    expect(values.some(value => value.toLowerCase().includes('claude'))).toBe(false);
   });
 
   it('renders newest groups first for every provider', () => {
     expect(getModelGroups('google')[0].label).toBe('Mới nhất 2026');
-    expect(getModelGroups('shopaikey')[0].label).toBe('Mới nhất 2026');
+    expect(getModelGroups('shopaikey')[0].label).toBe('OpenAI-compatible qua ShopAIKey');
     expect(getModelGroups('openrouter')[0].label).toBe('Mới nhất 2026');
   });
 
@@ -150,12 +153,27 @@ describe('AI model registry', () => {
   it('normalizes legacy OpenRouter-style ShopAIKey model ids to official ShopAIKey ids', () => {
     expect(normalizeModelForProvider('shopaikey', 'openai/gpt-5.4-mini')).toBe('gpt-5.4-mini');
     expect(normalizeModelForProvider('shopaikey', 'openai/gpt-5.5')).toBe('gpt-5.5');
+    expect(normalizeModelForProvider('shopaikey', 'openai/gpt-5-nano')).toBe('gpt-5-nano');
     expect(normalizeModelForProvider('shopaikey', 'google/gemini-3.1-pro-preview')).toBe('gemini-3.1-pro-preview');
-    expect(normalizeModelForProvider('shopaikey', 'anthropic/claude-opus-4.7')).toBe('claude-opus-4-7');
+    expect(normalizeModelForProvider('shopaikey', 'anthropic/claude-opus-4.7')).toBe('anthropic/claude-opus-4.7');
     expect(normalizeModelForProvider('shopaikey', 'deepseek/deepseek-reasoner')).toBe('deepseek-reasoner');
     expect(normalizeModelForProvider('shopaikey', 'deepseek/deepseek-v4-pro')).toBe('deepseek-v4-pro');
     expect(normalizeModelForProvider('shopaikey', 'qwen/qwen3.6-35b-a3b')).toBe('qwen3.6-35b-a3b');
     expect(normalizeModelForProvider('openrouter', 'openai/gpt-5.4-mini')).toBe('openai/gpt-5.4-mini');
+  });
+
+  it('detects ShopAIKey Gemini vs OpenAI-compatible runtime families', () => {
+    expect(isShopAIKeyGeminiModel('gemini-3.1-flash-lite-preview')).toBe(true);
+    expect(isShopAIKeyGeminiModel('google/gemini-3.1-pro-preview')).toBe(true);
+    expect(isShopAIKeyGeminiModel('gpt-5-nano')).toBe(false);
+    expect(isShopAIKeyOpenAIModel('gpt-5-nano')).toBe(true);
+    expect(isShopAIKeyOpenAIModel('openai/gpt-5.4-mini')).toBe(true);
+    expect(isShopAIKeyOpenAIModel('deepseek-v4-pro')).toBe(true);
+    expect(isShopAIKeyOpenAIModel('qwen3.6-plus')).toBe(true);
+    expect(isShopAIKeyOpenAIModel('grok-4-20-reasoning')).toBe(true);
+    expect(isShopAIKeyOpenAIModel('MiniMax-M2.7')).toBe(true);
+    expect(isShopAIKeyOpenAIModel('mimo-v2.5-pro')).toBe(true);
+    expect(isShopAIKeyOpenAIResponsesModel('gemini-3.1-flash-lite-preview')).toBe(false);
   });
 
   it('builds ShopAIKey model groups only from verified API model ids', () => {

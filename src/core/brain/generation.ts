@@ -1,4 +1,3 @@
-import { GoogleGenAI } from "@google/genai";
 import { UploadedFile, ProgressCallback, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, BatchFailureDiagnostics, SourceTrace } from "../../types";
 import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage, isShopAIKeyDeepSeekModel } from '../../utils/models';
 import { analyzePdfTextLayer, convertPdfToImages, estimatePdfQuestionMarkers, splitPdfRangeForVisionRecovery, type PdfQuestionMarkerEstimate, type PdfVisionRecoveryDirection } from '../../utils/pdfProcessor';
@@ -33,11 +32,15 @@ import {
 } from './providerErrors';
 import {
   callOpenAICompatibleProvider,
-  isOpenAICompatibleProvider,
+  getOpenAICompatibleRuntimeApiKeys,
+  isOpenAICompatibleRuntime,
   toOpenAIContentFromPart,
 } from './openAiProvider';
 import {
   buildGoogleBatchMessage,
+  createGoogleGenAIClient,
+  getGoogleRuntimeApiKeys,
+  getGoogleRuntimeBaseUrl,
   getPdfVisionCoverageSchema,
   getModelConfig,
   getQuestionSchema,
@@ -526,12 +529,19 @@ export const generateQuestions = async (
   try {
     const mismatchMessage = getProviderModelMismatchMessage(settings.provider, settings.model);
     let runtimeSettings = mismatchMessage ? { ...settings, model: coerceModelForProvider(settings.provider, settings.model) } : settings;
+    const providerSafeModel = coerceModelForProvider(runtimeSettings.provider, runtimeSettings.model);
+    if (providerSafeModel !== runtimeSettings.model) runtimeSettings = { ...runtimeSettings, model: providerSafeModel };
     const retryProfile = getRetryProfile(options.retryProfile || (isAdvancedMode ? 'rescue' : 'normal'));
     const isRescueMode = retryProfile.name === 'rescue';
     const controller = options.controller;
     const requestedConcurrency = Math.max(1, runtimeSettings.concurrencyLimit || 1);
     
-    userKeyRotator.init(runtimeSettings.apiKey, requestedConcurrency);
+    userKeyRotator.init(
+      isOpenAICompatibleRuntime(runtimeSettings)
+        ? getOpenAICompatibleRuntimeApiKeys(runtimeSettings)
+        : getGoogleRuntimeApiKeys(runtimeSettings),
+      requestedConcurrency
+    );
     
     // Tải trạng thái sức khỏe key từ DB sau khi init để không bị resetState làm mất dữ liệu
     const savedHealth = await db.getKeyHealth();
@@ -605,7 +615,7 @@ export const generateQuestions = async (
           const visionRanges = pdfTextAnalysis.visionPageRanges;
           if (visionRanges.length > 0) {
             if (onProgress) onProgress(`PDF hybrid: ${pdfTextAnalysis.textBatches.length} batch text, ${visionRanges.length} batch Vision.`, 0);
-            if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
+            if (isOpenAICompatibleRuntime(runtimeSettings)) {
               for (const range of visionRanges) {
                 const images = await convertPdfToImages(pdfDataUrl, range);
                 const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(range));
@@ -682,7 +692,7 @@ export const generateQuestions = async (
         } catch (splitError) {
           console.info('PDF safe hybrid fallback to legacy vision:', splitError);
           const legacyRanges = getPdfPageRanges(await getPdfPageCount(rawBase64), visionPagesPerChunk, 1);
-          if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
+          if (isOpenAICompatibleRuntime(runtimeSettings)) {
             for (const range of legacyRanges) {
               const images = await convertPdfToImages(pdfDataUrl, range);
               const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(range));
@@ -827,7 +837,7 @@ export const generateQuestions = async (
       }
     }
 
-    if (isOpenAICompatibleProvider(runtimeSettings.provider)) {
+    if (isOpenAICompatibleRuntime(runtimeSettings)) {
       const coercedModel = coerceModelForProviderInput(runtimeSettings.provider, runtimeSettings.model, partsRequireVision(allParts));
       if (coercedModel !== runtimeSettings.model) {
         console.warn(`🛡️ ${runtimeSettings.provider}: model ${runtimeSettings.model} không phù hợp với input ảnh/PDF. Đổi sang ${coercedModel}.`);
@@ -1314,7 +1324,7 @@ export const generateQuestions = async (
       ].join('\n');
 
       try {
-        const verifierResult = await (isOpenAICompatibleProvider(runtimeSettings.provider)
+        const verifierResult = await (isOpenAICompatibleRuntime(runtimeSettings)
           ? executeWithUserRotation(
               extractionModel,
               async (currentKey, activeModel, attemptContext) => {
@@ -1323,6 +1333,7 @@ export const generateQuestions = async (
                   { role: 'user', content: [{ type: 'text', text: verifierPrompt }, ...toOpenAIContentFromPart(part)] },
                 ];
                 const text = await callOpenAICompatibleProvider(runtimeSettings, activeModel, messages, true, {
+                  apiKeyOverride: currentKey,
                   signal: attemptContext.signal,
                   timeoutMs: attemptContext.timeoutMs,
                 });
@@ -1337,7 +1348,7 @@ export const generateQuestions = async (
               extractionModel,
               async (currentKey, activeModel, attemptContext) => {
                 if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
-                const aiInstance = new GoogleGenAI({ apiKey: currentKey });
+                const aiInstance = createGoogleGenAIClient(runtimeSettings, currentKey);
                 const activeProfile = getModelTokenProfile(runtimeSettings.provider, activeModel);
                 const config = getModelConfig(
                   currentKey,
@@ -1349,6 +1360,7 @@ export const generateQuestions = async (
                   {
                     timeoutMs: attemptContext.timeoutMs,
                     signal: attemptContext.signal,
+                    baseUrl: getGoogleRuntimeBaseUrl(runtimeSettings),
                   }
                 );
                 const chat = aiInstance.chats.create(config);
@@ -1912,7 +1924,7 @@ export const generateQuestions = async (
         };
         handlePostprocessResultForPartial = handlePostprocessResult;
 
-        const postprocessResult: BatchPostprocessResult = await (isOpenAICompatibleProvider(runtimeSettings.provider)
+        const postprocessResult: BatchPostprocessResult = await (isOpenAICompatibleRuntime(runtimeSettings)
           ? executeWithUserRotation(
               extractionModel,
               async (currentKey, activeModel, attemptContext) => {
@@ -1924,6 +1936,7 @@ export const generateQuestions = async (
                   ];
 
                   const text = await callOpenAICompatibleProvider(runtimeSettings, activeModel, messages, true, {
+                    apiKeyOverride: currentKey,
                     signal: attemptContext.signal,
                     timeoutMs: attemptContext.timeoutMs,
                   });
@@ -1940,7 +1953,7 @@ export const generateQuestions = async (
               extractionModel,
               async (currentKey, activeModel, attemptContext) => {
                   if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
-                  const aiInstance = new GoogleGenAI({ apiKey: currentKey });
+                  const aiInstance = createGoogleGenAIClient(runtimeSettings, currentKey);
                   const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
                   // Cache key bao gồm cả modelName để tránh dùng cache của model cũ khi fallback
                   const cacheSessionKey = `${hashApiKey(currentKey)}_${activeModel}`;
@@ -1959,6 +1972,7 @@ export const generateQuestions = async (
                   const config = getModelConfig(currentKey, (isAdvancedMode || forceJsonRepair) ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction, questionSchema, activeModel, kCacheName || undefined, activeProfile.safeOutputBudget, {
                     timeoutMs: attemptContext.timeoutMs,
                     signal: attemptContext.signal,
+                    baseUrl: getGoogleRuntimeBaseUrl(runtimeSettings),
                   });
                   const chat = aiInstance.chats.create(config);
                   const batchPrompt = kCacheName ? `${sourceInstruction}\n\nDựa trên tài liệu đã cache, hãy trích xuất thêm trắc nghiệm cho Phần ${batchLabel}.` : scanPrompt;

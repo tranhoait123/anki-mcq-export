@@ -11,6 +11,7 @@ import {
   isVisionCapableModel,
   isLegacyGeminiModel,
   isModelAllowedForProvider,
+  isShopAIKeyDeepSeekModel,
   normalizeModelForProvider,
 } from './models';
 
@@ -127,7 +128,7 @@ describe('AI model registry', () => {
     expect(getModelLifecycleWarning('openrouter', 'openai/gpt-5.4')).toBeNull();
   });
 
-  it('coerces text-only gateway models to vision fallbacks for image or PDF input', () => {
+  it('keeps ShopAIKey DeepSeek direct for image or PDF input instead of silently falling back', () => {
     expect(isVisionCapableModel('openrouter', 'deepseek/deepseek-chat')).toBe(false);
     expect(isVisionCapableModel('openrouter', 'deepseek/deepseek-v4-pro')).toBe(false);
     expect(isVisionCapableModel('openrouter', 'x-ai/grok-4.3')).toBe(true);
@@ -138,7 +139,11 @@ describe('AI model registry', () => {
     expect(isVisionCapableModel('shopaikey', 'qwen3.6-27b')).toBe(true);
     expect(isVisionCapableModel('shopaikey', 'gpt-5.4-mini')).toBe(true);
     expect(coerceModelForProviderInput('openrouter', 'deepseek/deepseek-chat', true)).toBe('google/gemini-2.5-flash');
-    expect(coerceModelForProviderInput('shopaikey', 'deepseek/deepseek-v3.2', true)).toBe('gemini-3.1-flash-lite-preview');
+    expect(coerceModelForProviderInput('shopaikey', 'deepseek-v4-pro', true)).toBe('deepseek-v4-pro');
+    expect(coerceModelForProviderInput('shopaikey', 'deepseek-v4-flash', true)).toBe('deepseek-v4-flash');
+    expect(coerceModelForProviderInput('shopaikey', 'deepseek/deepseek-v3.2', true)).toBe('deepseek-v3.2');
+    expect(isShopAIKeyDeepSeekModel('deepseek-v4-pro')).toBe(true);
+    expect(isShopAIKeyDeepSeekModel('deepseek/deepseek-v4-flash')).toBe(true);
     expect(coerceModelForProviderInput('openrouter', 'deepseek/deepseek-chat', false)).toBe('deepseek/deepseek-chat');
   });
 

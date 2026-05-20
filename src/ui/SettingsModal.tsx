@@ -4,7 +4,7 @@ import { AppSettings } from '../types';
 import { db } from '../core/db';
 import { toast } from 'sonner';
 import { validateShopAIKeyConnection } from '../core/brain';
-import { AIProvider, coerceModelForProvider, getModelGroups, getShopAIKeyVerifiedModelGroups } from '../utils/models';
+import { AIProvider, coerceModelForProvider, getModelGroups, getShopAIKeyVerifiedModelGroups, isShopAIKeyDeepSeekModel } from '../utils/models';
 import { ConfirmDialogOptions } from '../hooks/useConfirmDialog';
 import type { ShopAIKeyValidationResult } from '../core/brain/openAiProvider';
 import { GOOGLE_RPM_PRESETS, normalizeGoogleRpmLimit } from '../utils/rateLimitSettings';
@@ -196,7 +196,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                             {settings.provider === 'google'
                                 ? 'Tự động xoay vòng nếu nhập nhiều Key (phân cách bằng dấu phẩy).'
                                 : settings.provider === 'shopaikey'
-                                    ? 'Dùng key ShopAIKey dạng Bearer token; nên kiểm tra model trước khi quét.'
+                                    ? isShopAIKeyDeepSeekModel(settings.model)
+                                        ? 'DeepSeek qua ShopAIKey dùng Cheap API: app gọi trực tiếp bằng text/OCR; nếu tài liệu chỉ có ảnh/PDF scan, app sẽ báo lỗi thay vì tự đổi model.'
+                                        : 'Dùng key ShopAIKey dạng Bearer token; nên kiểm tra model trước khi quét.'
                                     : 'Truy cập hàng loạt model đỉnh nhất như Claude 3.7, GPT-4o, DeepSeek.'}
                         </p>
                     </section>

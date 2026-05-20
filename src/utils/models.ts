@@ -227,6 +227,11 @@ export const normalizeModelForProvider = (provider: AIProvider, model: string): 
   return model;
 };
 
+export const isShopAIKeyDeepSeekModel = (model: string): boolean => {
+  const normalized = normalizeModelForProvider('shopaikey', model || '').toLowerCase();
+  return normalized.startsWith('deepseek-') || normalized === 'deepseek-chat' || normalized === 'deepseek-reasoner';
+};
+
 export const isModelAllowedForProvider = (provider: AIProvider, model: string): boolean => {
   const normalizedModel = normalizeModelForProvider(provider, model);
   if (!normalizedModel) return false;
@@ -278,6 +283,7 @@ export const coerceModelForProvider = (provider: AIProvider, model: string): str
 export const coerceModelForProviderInput = (provider: AIProvider, model: string, requiresVision: boolean): string => {
   const providerSafeModel = coerceModelForProvider(provider, model);
   if (!requiresVision) return providerSafeModel;
+  if (provider === 'shopaikey' && isShopAIKeyDeepSeekModel(providerSafeModel)) return providerSafeModel;
   if (isVisionCapableModel(provider, providerSafeModel)) return providerSafeModel;
   return getVisionFallbackModel(provider);
 };

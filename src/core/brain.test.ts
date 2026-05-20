@@ -31,6 +31,7 @@ import {
   shouldPreferTailFirstPdfVisionRetry,
   shouldHoldDeferredRecoveryForPressure,
   splitRecoveryPartsForImmediateRun,
+  prepareShopAIKeyDeepSeekTextOnlyParts,
 } from './brain/generation';
 import type { RetryProfile } from '../utils/retryStrategy';
 import { AppSettings } from '../types';
@@ -97,6 +98,59 @@ describe('Core Logic', () => {
     expect(message).toContain('Model đang không khớp provider');
     expect(message).toContain('OpenRouter');
     expect(message).toContain('gemini-*');
+  });
+
+  it('reports ShopAIKey DeepSeek vision rejection without suggesting silent fallback', () => {
+    const message = translateErrorForUser(
+      new Error('ShopAIKey API Error: 400 | model=deepseek-v4-pro | image_url is unsupported for this model'),
+      'Trích xuất'
+    );
+
+    expect(message).toContain('Model DeepSeek ShopAIKey này không nhận ảnh/PDF scan');
+    expect(message).toContain('Model: deepseek-v4-pro');
+    expect(message).not.toContain('gemini-3.1-flash-lite-preview');
+  });
+
+  it('explains ShopAIKey no-channel routing errors as provider/key availability issues', () => {
+    const message = translateErrorForUser(
+      new Error('ShopAIKey API Error: 500 | model=deepseek-v4-flash | no available channel for group cheap,gemini model deepseek-v4-flash (retry) (request id: 202605200257472425651278268d9d6RupUoyRY)'),
+      'Trích xuất'
+    );
+
+    expect(message).toContain('chưa có kênh khả dụng');
+    expect(message).toContain('không phải lỗi format request của app');
+    expect(message).toContain('KIỂM TRA KEY & MODEL');
+    expect(message).toContain('Model: deepseek-v4-flash');
+    expect(message).toContain('request id');
+  });
+
+  it('converts ShopAIKey DeepSeek PDF vision parts with text layer to text-only', () => {
+    const [part] = prepareShopAIKeyDeepSeekTextOnlyParts([{
+      text: 'Câu 1. Nội dung từ text layer/OCR.',
+      inlineDataParts: [{ mimeType: 'image/jpeg', data: 'page-1' }],
+      sourceMode: 'pdfVision',
+      sourceLabel: 'de.pdf | Trang 1',
+    }]);
+
+    expect(part.text).toContain('Câu 1');
+    expect(part.inlineDataParts).toBeUndefined();
+    expect(part.inlineData).toBeUndefined();
+    expect(part.sourceMode).toBe('pdfText');
+    expect(part.shopAIKeyDeepSeekTextOnly).toBe(true);
+  });
+
+  it('fails ShopAIKey DeepSeek scan-only vision parts before request routing', () => {
+    expect(() => prepareShopAIKeyDeepSeekTextOnlyParts([{
+      inlineData: { mimeType: 'image/png', data: 'scan' },
+      sourceLabel: 'scan.png',
+    }])).toThrow('SHOPAIKEY_DEEPSEEK_VISION_GROUP_UNSUPPORTED');
+
+    const message = translateErrorForUser(
+      new Error('SHOPAIKEY_DEEPSEEK_VISION_GROUP_UNSUPPORTED: scan.png'),
+      'Trích xuất'
+    );
+    expect(message).toContain('Cheap API');
+    expect(message).toContain('OCR');
   });
 
   it('omits text parts from Google batch messages when context cache is available', () => {

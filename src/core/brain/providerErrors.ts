@@ -6,6 +6,29 @@ export const translateErrorForUser = (error: any, context?: string): string => {
   const providerModel = msg.match(/model=([^|]+)/)?.[1]?.trim();
   const providerDetail = msg.includes('|') ? msg.split('|').slice(2).join('|').trim() : '';
   const providerSuffix = `${providerModel ? ` Model: ${providerModel}.` : ''}${providerDetail ? ` Chi tiết: ${providerDetail}` : ''}`;
+  const isDeepSeekModel = Boolean(providerModel && providerModel.toLowerCase().includes("deepseek"));
+  const hasVisionUnsupportedSignal = (
+    msgLow.includes("image_url") ||
+    msgLow.includes("unsupported image") ||
+    msgLow.includes("image input") ||
+    msgLow.includes("vision") ||
+    msgLow.includes("multimodal") ||
+    msgLow.includes("multi-modal") ||
+    msgLow.includes("content array") ||
+    msgLow.includes("content must be a string")
+  );
+
+  if (msgLow.includes("shopaikey_deepseek_vision_group_unsupported")) {
+    return `${prefix}🤖 DeepSeek ShopAIKey nằm trong group Cheap API nên app không gửi ảnh/PDF scan thô qua image_url để tránh gateway route sang group Gemini. Hãy dùng file text/OCR, chạy OCR trước, hoặc chọn model vision khác.${providerSuffix}`;
+  }
+
+  if (msgLow.includes("shopaikey api error") && isDeepSeekModel && hasVisionUnsupportedSignal) {
+    return `${prefix}🤖 Model DeepSeek ShopAIKey này không nhận ảnh/PDF scan qua OpenAI-format. Hãy dùng file text/OCR hoặc chọn model vision khác.${providerSuffix}`;
+  }
+
+  if (msgLow.includes("shopaikey api error") && msgLow.includes("no available channel")) {
+    return `${prefix}🤖 ShopAIKey chưa có kênh khả dụng cho model đang chọn. Đây là lỗi route/channel phía ShopAIKey hoặc key hiện tại chưa truy cập được model này, không phải lỗi format request của app. Vào Cài đặt bấm "KIỂM TRA KEY & MODEL"; nếu model không có trong danh sách đã xác minh thì chọn model khác hoặc gửi request ID cho ShopAIKey support.${providerSuffix}`;
+  }
 
   if (msgLow.includes("openrouter api error")) {
     const code = msg.match(/:\s*(\d+)/)?.[1] || "?";

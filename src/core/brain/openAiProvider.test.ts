@@ -55,6 +55,31 @@ describe('OpenAI-compatible provider vision payloads', () => {
     expect(request.body.max_tokens).toBe(65536);
   });
 
+  it('blocks ShopAIKey DeepSeek image_url payloads before hitting the gateway', () => {
+    expect(() => buildOpenAICompatibleProviderRequest(
+      { ...shopAIKeySettings, model: 'deepseek-v4-pro' },
+      'deepseek-v4-pro',
+      [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Mô tả ảnh này.' },
+          { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,abc123' } },
+        ],
+      }]
+    )).toThrow('SHOPAIKEY_DEEPSEEK_VISION_GROUP_UNSUPPORTED');
+  });
+
+  it('keeps ShopAIKey DeepSeek text-only requests on the selected model', () => {
+    const request = buildOpenAICompatibleProviderRequest(
+      { ...shopAIKeySettings, model: 'deepseek-v4-pro' },
+      'deepseek-v4-pro',
+      [{ role: 'user', content: [{ type: 'text', text: 'Trích xuất từ OCR này.' }] }]
+    );
+    expect(request.body.model).toBe('deepseek-v4-pro');
+    expect(request.body.messages[0].content).toEqual([{ type: 'text', text: 'Trích xuất từ OCR này.' }]);
+    expect(request.body.response_format).toEqual({ type: 'json_object' });
+  });
+
   it('retries ShopAIKey calls without response_format when a model rejects JSON mode', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -111,13 +136,17 @@ describe('OpenAI-compatible provider vision payloads', () => {
   });
 
   it('validates a ShopAIKey key and selected model through /v1/models', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
       object: 'list',
       data: [
         { id: 'deepseek-v3.2' },
         { id: 'gpt-5.4-mini' },
       ],
-    }), { status: 200 }));
+    }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: 'pong' } }],
+      }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await validateShopAIKeyConnection('shop-key', 'openai/gpt-5.4-mini');
@@ -130,6 +159,31 @@ describe('OpenAI-compatible provider vision payloads', () => {
       method: 'GET',
       headers: expect.objectContaining({ Authorization: 'Bearer shop-key' }),
     }));
+    const probeBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(fetchMock.mock.calls[1][0]).toBe('https://api.shopaikey.com/v1/chat/completions');
+    expect(probeBody.model).toBe('gpt-5.4-mini');
+    expect(probeBody.messages).toEqual([{ role: 'user', content: 'ping' }]);
+    expect(probeBody.response_format).toBeUndefined();
+  });
+
+  it('fails ShopAIKey validation when the selected model has no chat channel', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: [{ id: 'deepseek-v4-flash' }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { message: 'no available channel for group cheap,gemini model deepseek-v4-flash (request id: req-1)' },
+      }), { status: 500 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await validateShopAIKeyConnection('shop-key', 'deepseek-v4-flash');
+
+    expect(result.ok).toBe(false);
+    expect(result.selectedModelAvailable).toBe(true);
+    expect(result.status).toBe(500);
+    expect(result.message).toContain('chưa có kênh khả dụng');
+    expect(result.message).toContain('Model: deepseek-v4-flash');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('reports a valid ShopAIKey key with a missing selected model', async () => {

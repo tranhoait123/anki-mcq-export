@@ -109,6 +109,8 @@ export const classifyBatchError = (error: any): BatchErrorKind => {
   const hasRateLimitSignal = statusCode === 429 || msg.includes('429') || msg.includes('quota') || msg.includes('exhausted') || msg.includes('resource_exhausted') || msg.includes('too many requests') || msg.includes('rate limit') || msg.includes('ratelimit') || msg.includes('userratelimitexceeded');
   if (hasExplicitInvalidKey || hasExpiredAuthToken) return 'auth';
   if (msg.includes('context length') || msg.includes('context_length') || msg.includes('context too long') || msg.includes('context too large') || msg.includes('token limit') || msg.includes('max tokens') || msg.includes('maximum tokens') || msg.includes('request too large') || msg.includes('payload too large') || statusCode === 413) return 'format';
+  if (msg.includes('shopaikey_deepseek_vision_group_unsupported')) return 'fatal';
+  if (msg.includes('no available channel')) return 'fatal';
   if (statusCode === 400 || msg.includes('400 invalid_argument') || msg.includes('invalid_argument')) return 'fatal';
   if (hasRateLimitSignal) return 'rateLimit';
   if (hasAuthStatus) return 'auth';

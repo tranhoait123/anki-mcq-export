@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { UploadedFile, ProgressCallback, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, BatchFailureDiagnostics, SourceTrace } from "../../types";
-import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage } from '../../utils/models';
+import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage, isShopAIKeyDeepSeekModel } from '../../utils/models';
 import { analyzePdfTextLayer, convertPdfToImages, estimatePdfQuestionMarkers, splitPdfRangeForVisionRecovery, type PdfQuestionMarkerEstimate, type PdfVisionRecoveryDirection } from '../../utils/pdfProcessor';
 import {
   classifyBatchError,
@@ -77,6 +77,39 @@ const KEY_CONSERVATION_PRESSURE_WINDOW_MS = 60 * 1000;
 const MAX_IMMEDIATE_RECOVERY_PARTS = 3;
 const DEFERRED_RECOVERY_MIN_SETTLE_MS = 1000;
 const DEFERRED_RECOVERY_MAX_RETRIES = 2;
+
+const hasInlineVisionInput = (part: any): boolean =>
+  Boolean(part?.inlineData) || (Array.isArray(part?.inlineDataParts) && part.inlineDataParts.length > 0);
+
+const getShopAIKeyDeepSeekTextOnlyError = (labels: string[]): Error => {
+  const sample = labels.slice(0, 5).join(', ');
+  const suffix = sample ? ` Batch chưa có text/OCR: ${sample}.` : '';
+  return new Error(`SHOPAIKEY_DEEPSEEK_VISION_GROUP_UNSUPPORTED: DeepSeek ShopAIKey nằm trong group Cheap API nên app không gửi ảnh/PDF scan thô để tránh gateway route sang group Gemini.${suffix} Hãy dùng file text/OCR hoặc chọn model vision khác.`);
+};
+
+export const prepareShopAIKeyDeepSeekTextOnlyParts = (parts: any[]): any[] => {
+  const missingTextLabels: string[] = [];
+  const nextParts = parts.map((part, index) => {
+    if (!hasInlineVisionInput(part)) return part;
+    const text = typeof part?.text === 'string' ? part.text.trim() : '';
+    if (!text) {
+      missingTextLabels.push(part?.sourceLabel || `Batch ${index + 1}`);
+      return part;
+    }
+    return {
+      ...part,
+      inlineData: undefined,
+      inlineDataParts: undefined,
+      sourceMode: part.sourceMode === 'pdfVision' ? 'pdfText' : part.sourceMode,
+      shopAIKeyDeepSeekTextOnly: true,
+    };
+  });
+
+  if (missingTextLabels.length > 0) {
+    throw getShopAIKeyDeepSeekTextOnlyError(missingTextLabels);
+  }
+  return nextParts;
+};
 
 const getNowMs = () => (
   typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -785,6 +818,13 @@ export const generateQuestions = async (
 
     if (allParts.length === 0) {
       return { questions: [], duplicates: [], failedBatches: [], failedBatchDetails: [], autoSkippedCount: 0 };
+    }
+
+    if (runtimeSettings.provider === 'shopaikey' && isShopAIKeyDeepSeekModel(runtimeSettings.model) && partsRequireVision(allParts)) {
+      allParts = prepareShopAIKeyDeepSeekTextOnlyParts(allParts);
+      if (onProgress) {
+        onProgress('DeepSeek ShopAIKey dùng Cheap API: chuyển batch có text/OCR sang text-only, không gửi ảnh thô để tránh route sang Gemini group.', 0);
+      }
     }
 
     if (isOpenAICompatibleProvider(runtimeSettings.provider)) {

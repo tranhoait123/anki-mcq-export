@@ -1,7 +1,7 @@
 import { AppSettings, UploadedFile } from '../../types';
-import { getModelTokenProfile, normalizeModelForProvider } from '../../utils/models';
+import { getModelTokenProfile, isShopAIKeyDeepSeekModel, normalizeModelForProvider } from '../../utils/models';
 import { getFileTextContent } from './batching';
-import { createProviderApiError } from './providerErrors';
+import { createProviderApiError, translateErrorForUser } from './providerErrors';
 
 export type OpenAICompatibleProvider = 'shopaikey' | 'openrouter';
 
@@ -68,6 +68,14 @@ const buildProviderHeaders = (settings: AppSettings, apiKey: string): Record<str
   return headers;
 };
 
+const contentContainsImageUrl = (content: any): boolean => {
+  if (!Array.isArray(content)) return false;
+  return content.some(part => part?.type === 'image_url' || part?.image_url);
+};
+
+const messagesContainImageUrl = (messages: any[]): boolean =>
+  messages.some(message => contentContainsImageUrl(message?.content));
+
 export const buildOpenAICompatibleProviderRequest = (
   settings: AppSettings,
   modelName: string,
@@ -80,6 +88,9 @@ export const buildOpenAICompatibleProviderRequest = (
 
   const apiKey = getProviderApiKey(settings) || '';
   const model = normalizeProviderModel(settings.provider, modelName);
+  if (settings.provider === 'shopaikey' && isShopAIKeyDeepSeekModel(model) && messagesContainImageUrl(messages)) {
+    throw new Error(`SHOPAIKEY_DEEPSEEK_VISION_GROUP_UNSUPPORTED: DeepSeek ShopAIKey nằm trong group Cheap API nên app không gửi image_url/PDF scan thô để tránh gateway route sang group Gemini. Hãy dùng file text/OCR hoặc chọn model vision khác. | model=${model}`);
+  }
   const body: Record<string, any> = {
     model,
     messages,
@@ -176,14 +187,49 @@ export const validateShopAIKeyConnection = async (
     const models = extractShopAIKeyModelIds(data);
     const selectedModelAvailable = Boolean(normalizedSelectedModel && models.includes(normalizedSelectedModel));
 
+    if (!selectedModelAvailable) {
+      return {
+        ok: false,
+        models,
+        selectedModel: normalizedSelectedModel,
+        selectedModelAvailable,
+        message: `ShopAIKey key hợp lệ, nhưng model "${normalizedSelectedModel || '(trống)'}" không có trong danh sách model của key này. Hãy chọn model khả dụng từ danh sách đã xác minh.`,
+      };
+    }
+
+    const probeResponse = await fetch('https://api.shopaikey.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: normalizedSelectedModel,
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 8,
+        temperature: 0,
+      }),
+    });
+
+    if (!probeResponse.ok) {
+      const error = await createProviderApiError('ShopAIKey', probeResponse, normalizedSelectedModel);
+      return {
+        ok: false,
+        models,
+        selectedModel: normalizedSelectedModel,
+        selectedModelAvailable,
+        status: probeResponse.status,
+        message: translateErrorForUser(error, 'Kiểm tra ShopAIKey'),
+      };
+    }
+
     return {
-      ok: selectedModelAvailable,
+      ok: true,
       models,
       selectedModel: normalizedSelectedModel,
       selectedModelAvailable,
-      message: selectedModelAvailable
-        ? `ShopAIKey kết nối OK. Model "${normalizedSelectedModel}" dùng được.`
-        : `ShopAIKey key hợp lệ, nhưng model "${normalizedSelectedModel || '(trống)'}" không có trong danh sách model của key này. Hãy chọn model khả dụng từ danh sách đã xác minh.`,
+      message: `ShopAIKey kết nối OK. Model "${normalizedSelectedModel}" có trong danh sách và phản hồi chat OK.`,
     };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);

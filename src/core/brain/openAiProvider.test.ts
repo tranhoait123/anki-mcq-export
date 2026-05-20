@@ -294,6 +294,29 @@ describe('OpenAI-compatible provider vision payloads', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('diagnoses official API channel failures when direct backup works', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: [{ id: 'gpt-5-nano-2025-08-07' }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { message: 'no available channel for group cheap,gemini model gpt-5-nano-2025-08-07 (request id: req-2)' },
+      }), { status: 500 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: 'pong' } }],
+      }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await validateShopAIKeyConnection('shop-key', 'gpt-5-nano-2025-08-07', 'api');
+
+    expect(result.ok).toBe(false);
+    expect(result.selectedModelAvailable).toBe(true);
+    expect(result.message).toContain('Official API');
+    expect(result.message).toContain('Direct backup phản hồi OK');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://api.shopaikey.com/v1/chat/completions');
+    expect(fetchMock.mock.calls[2][0]).toBe('https://direct.shopaikey.com/v1/chat/completions');
+  });
+
   it('reports a valid ShopAIKey key with a missing selected model', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
       data: [{ id: 'deepseek-v3.2' }],

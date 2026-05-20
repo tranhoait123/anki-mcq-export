@@ -27,7 +27,7 @@ export const translateErrorForUser = (error: any, context?: string): string => {
   }
 
   if (msgLow.includes("shopaikey api error") && msgLow.includes("no available channel")) {
-    return `${prefix}🤖 ShopAIKey chưa có kênh khả dụng cho model đang chọn. Đây là lỗi route/channel phía ShopAIKey hoặc key hiện tại chưa truy cập được model này, không phải lỗi format request của app. Vào Cài đặt bấm "KIỂM TRA KEY & MODEL"; nếu model không có trong danh sách đã xác minh thì chọn model khác hoặc gửi request ID cho ShopAIKey support.${providerSuffix}`;
+    return `${prefix}🤖 ShopAIKey chưa có kênh khả dụng cho model đang chọn. Đây là lỗi route/channel phía ShopAIKey hoặc key hiện tại chưa truy cập được model này, không phải lỗi format request của app. Nếu đang chọn ShopAIKey Endpoint "Official API", hãy đổi sang "Direct backup" rồi bấm "KIỂM TRA KEY & MODEL" lại; nếu vẫn lỗi thì chọn model khác hoặc gửi request ID cho ShopAIKey support.${providerSuffix}`;
   }
 
   if (msgLow.includes("openrouter api error")) {

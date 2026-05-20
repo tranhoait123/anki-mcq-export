@@ -154,6 +154,24 @@ export const buildOpenAICompatibleProviderRequest = (
 const buildShopAIKeyGeminiProbeUrl = (model: string, endpoint: AppSettings['shopAIKeyEndpoint']): string =>
   `${getShopAIKeyGoogleBaseUrl({ shopAIKeyEndpoint: endpoint })}/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
+const buildShopAIKeyChatProbeBody = (model: string): Record<string, any> => ({
+  model,
+  messages: [{ role: 'user', content: 'ping' }],
+  max_tokens: 8,
+  temperature: 0,
+});
+
+const buildShopAIKeyGeminiProbeBody = (): Record<string, any> => ({
+  contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
+  generationConfig: {
+    maxOutputTokens: 8,
+    temperature: 0,
+  },
+});
+
+const hasNoAvailableChannelSignal = (error: Error): boolean =>
+  error.message.toLowerCase().includes('no available channel');
+
 const extractProviderErrorDetail = async (response: Response): Promise<string> => {
   try {
     const raw = await response.text();
@@ -257,24 +275,34 @@ export const validateShopAIKeyConnection = async (
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(isGeminiModel
-        ? {
-            contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
-            generationConfig: {
-              maxOutputTokens: 8,
-              temperature: 0,
-            },
-          }
-        : {
-            model: normalizedSelectedModel,
-            messages: [{ role: 'user', content: 'ping' }],
-            max_tokens: 8,
-            temperature: 0,
-          }),
+        ? buildShopAIKeyGeminiProbeBody()
+        : buildShopAIKeyChatProbeBody(normalizedSelectedModel)),
       }
     );
 
     if (!probeResponse.ok) {
       const error = await createProviderApiError('ShopAIKey', probeResponse, normalizedSelectedModel);
+      if (endpoint === 'api' && !isGeminiModel && hasNoAvailableChannelSignal(error)) {
+        const directProbeResponse = await fetch(`${SHOPAIKEY_OPENAI_DIRECT_BASE_URL}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(buildShopAIKeyChatProbeBody(normalizedSelectedModel)),
+        });
+        if (directProbeResponse.ok) {
+          return {
+            ok: false,
+            models,
+            selectedModel: normalizedSelectedModel,
+            selectedModelAvailable,
+            status: probeResponse.status,
+            message: `Official API của ShopAIKey đang lỗi channel cho model "${normalizedSelectedModel}", nhưng Direct backup phản hồi OK. Hãy đổi ShopAIKey Endpoint sang "Direct backup" rồi kiểm tra lại. Chi tiết official: ${error.message.slice(0, 220)}`,
+          };
+        }
+      }
       return {
         ok: false,
         models,

@@ -275,7 +275,6 @@ export interface AppSettings {
   adaptiveBatching?: boolean;
   batchingMode?: 'safe';
   projectLibraryEnabled?: boolean;
-  realtimePreviewEnabled?: boolean;
   mainBatchOnlyRescue?: boolean;
   visionPagesPerBatch?: number;
   autoGroupClinicalCases?: boolean;
@@ -290,7 +289,6 @@ export interface ProjectSettingsSummary {
   concurrencyLimit?: number;
   adaptiveBatching?: boolean;
   projectLibraryEnabled?: boolean;
-  realtimePreviewEnabled?: boolean;
   mainBatchOnlyRescue?: boolean;
   visionPagesPerBatch?: number;
   autoGroupClinicalCases?: boolean;

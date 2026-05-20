@@ -20,7 +20,6 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   adaptiveBatching: true,
   batchingMode: 'safe',
   projectLibraryEnabled: true,
-  realtimePreviewEnabled: true,
   mainBatchOnlyRescue: false,
   visionPagesPerBatch: 2,
   autoGroupClinicalCases: true,
@@ -181,7 +180,7 @@ export const normalizePersistedSettings = (settings: LegacyPersistedSettings): A
   if (persistedSettings.adaptiveBatching === undefined) persistedSettings.adaptiveBatching = true;
   if (persistedSettings.batchingMode === undefined) persistedSettings.batchingMode = 'safe';
   if (persistedSettings.projectLibraryEnabled === undefined) persistedSettings.projectLibraryEnabled = true;
-  if (persistedSettings.realtimePreviewEnabled === undefined) persistedSettings.realtimePreviewEnabled = true;
+  delete (persistedSettings as any).realtimePreviewEnabled;
   if (persistedSettings.mainBatchOnlyRescue === undefined) persistedSettings.mainBatchOnlyRescue = false;
   if (persistedSettings.visionPagesPerBatch === undefined) persistedSettings.visionPagesPerBatch = 2;
   if (persistedSettings.autoGroupClinicalCases === undefined) persistedSettings.autoGroupClinicalCases = true;

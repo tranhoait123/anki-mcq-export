@@ -83,7 +83,7 @@ describe('app helpers', () => {
     expect(normalized.provider).toBe('google');
     expect(normalized.model).toBe('gemini-3.1-flash-lite-preview');
     expect(normalized.projectLibraryEnabled).toBe(true);
-    expect(normalized.realtimePreviewEnabled).toBe(true);
+    expect('realtimePreviewEnabled' in normalized).toBe(false);
     expect(`${retiredPrefix}ProjectId` in normalized).toBe(false);
     expect(`${retiredPrefix}Location` in normalized).toBe(false);
     expect(`${retiredPrefix}AccessToken` in normalized).toBe(false);
@@ -102,17 +102,14 @@ describe('app helpers', () => {
     }).projectLibraryEnabled).toBe(false);
   });
 
-  it('defaults realtime preview on while preserving an explicit off preference', () => {
-    expect(normalizePersistedSettings({
-      provider: 'google',
-      model: 'gemini-3.1-flash-lite-preview',
-    }).realtimePreviewEnabled).toBe(true);
-
-    expect(normalizePersistedSettings({
+  it('drops removed realtime preview preference from persisted settings', () => {
+    const normalized = normalizePersistedSettings({
       provider: 'google',
       model: 'gemini-3.1-flash-lite-preview',
       realtimePreviewEnabled: false,
-    }).realtimePreviewEnabled).toBe(false);
+    } as any);
+
+    expect('realtimePreviewEnabled' in normalized).toBe(false);
   });
 
   it('defaults Google RPM guard on and normalizes custom limits', () => {

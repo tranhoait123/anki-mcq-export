@@ -59,14 +59,13 @@ export const shouldDelayAutoRescue = (
   ).length;
   const heavyPressureDiagnostics = failedBatchDetails.some(detail => {
     const keyHealth = detail.diagnostics?.keyHealth || [];
-    const coolingOrBusyKeys = keyHealth.filter(key =>
+    const blockedKeys = keyHealth.filter(key =>
       key.status === 'cooldown' ||
-      key.status === 'rateLimited' ||
-      key.status === 'serverBusy' ||
       key.status === 'quotaBlocked' ||
+      key.status === 'authBlocked' ||
       key.remainingMs > 0
     ).length;
-    return coolingOrBusyKeys >= 3;
+    return blockedKeys >= 3;
   });
   if (pressureFailureCount >= 2 || heavyPressureDiagnostics) {
     return true;

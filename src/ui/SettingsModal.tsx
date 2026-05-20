@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, Trash2, ChevronDown, ShieldAlert, Gauge, Zap, Database, RefreshCw, CheckCircle2, AlertCircle, Archive, Eye, ShieldCheck, Lock } from 'lucide-react';
+import { Settings as SettingsIcon, Trash2, ChevronDown, ShieldAlert, Gauge, Zap, Database, RefreshCw, CheckCircle2, AlertCircle, Archive, ShieldCheck, Lock } from 'lucide-react';
 import { AppSettings } from '../types';
 import { db } from '../core/db';
 import { toast } from 'sonner';
@@ -302,17 +302,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
 
                                 <div className="border-t border-slate-100 dark:border-slate-800/50 pt-5">
                                     <Toggle 
-                                        enabled={settings.realtimePreviewEnabled !== false}
-                                        onChange={val => setSettings({ ...settings, realtimePreviewEnabled: val })}
-                                        icon={<Eye size={16} />}
-                                        label="Xem câu hỏi Realtime"
-                                        description="Hiện câu ngay khi AI viết. Tắt nếu tài liệu cực lớn gây lag trình duyệt."
-                                        colorClass="text-sky-500"
-                                    />
-                                </div>
-                                
-                                <div className="border-t border-slate-100 dark:border-slate-800/50 pt-5">
-                                    <Toggle 
                                         enabled={settings.mainBatchOnlyRescue === true}
                                         onChange={val => setSettings({ ...settings, mainBatchOnlyRescue: val })}
                                         icon={<ShieldAlert size={16} />}
@@ -419,7 +408,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                         onChange={val => setSettings({ ...settings, adaptiveBatching: val })}
                                         icon={<RefreshCw size={16} />}
                                         label="Adaptive Batch Sizing"
-                                        description="Tự động chia nhỏ câu hỏi khi phát hiện Server quá tải. Đảm bảo tỷ lệ thành công 100%."
+                                        description="Giảm rủi ro lỗi và tự chia nhỏ khi provider quá tải."
                                         colorClass="text-indigo-500"
                                     />
                                 </div>

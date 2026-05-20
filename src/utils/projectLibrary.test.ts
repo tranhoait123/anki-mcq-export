@@ -17,7 +17,6 @@ const settings: AppSettings = {
   adaptiveBatching: true,
   batchingMode: 'safe',
   projectLibraryEnabled: true,
-  realtimePreviewEnabled: false,
   googleRpmLimiterEnabled: true,
   googleRpmLimitPerMinute: 30,
 };
@@ -86,7 +85,6 @@ describe('project library helpers', () => {
       concurrencyLimit: 2,
       adaptiveBatching: true,
       projectLibraryEnabled: true,
-      realtimePreviewEnabled: false,
       googleRpmLimiterEnabled: true,
       googleRpmLimitPerMinute: 30,
       hasCustomPrompt: true,

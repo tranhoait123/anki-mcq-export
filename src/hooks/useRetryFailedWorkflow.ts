@@ -77,7 +77,6 @@ export const useRetryFailedWorkflow = ({
     }
     if (warnVisionRecommendedDocx()) return;
     const requestSettings = getRequestSettings(currentFilesRequireVision());
-    const realtimePreviewEnabled = requestSettings.realtimePreviewEnabled === true;
 
     isWorkingRef.current = true;
     let retryCompleted = false;
@@ -103,7 +102,6 @@ export const useRetryFailedWorkflow = ({
         retryProfile: 'rescue',
         seedQuestions: baselineQuestions,
         seedDuplicates: duplicatesRef.current,
-        liveAppendToVisible: realtimePreviewEnabled,
         renderCompletedBatchesToVisible: true,
         skipInferredCompletedBatches: true,
         forcedOcrMode: ocrMode,

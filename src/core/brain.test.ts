@@ -2210,8 +2210,8 @@ D. Bốn
     });
     const verifierResponse = (confidence: 'low' | 'high', tailComplete: boolean) => new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({
-        expectedCount: 2,
-        questionNumbers: [1, 2],
+        expectedCount: 3,
+        questionNumbers: [1, 2, 3],
         tailComplete,
         confidence,
         missingLikely: !tailComplete,
@@ -2221,8 +2221,7 @@ D. Bốn
     const extractionResponse = () => new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({
         questions: [
-          makeQuestionPayload('1. Alpha stem?'),
-          makeQuestionPayload('2. Beta stem?'),
+          makeQuestionPayload('3. Gamma stem?'),
         ],
       }) } }],
     }), { status: 200 });
@@ -2276,7 +2275,7 @@ D. Bốn
       { start: 2, end: 3 },
     ]);
     expect(result.failedBatches).toEqual([]);
-    expect(result.questions).toHaveLength(2);
+    expect(result.questions).toHaveLength(3);
 
     vi.unstubAllGlobals();
   });
@@ -2322,8 +2321,7 @@ D. Bốn
     }), { status: 200 });
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(verifierResponse())
-      .mockResolvedValueOnce(extractionResponse())
-      .mockResolvedValueOnce(verifierResponse());
+      .mockResolvedValueOnce(extractionResponse());
     vi.stubGlobal('fetch', fetchMock);
 
     const existingQuestions = [{
@@ -2364,7 +2362,7 @@ D. Bốn
       }
     );
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(convertSpy.mock.calls.map(call => call[1])).toEqual([
       { start: 1, end: 3 },
       { start: 2, end: 3 },

@@ -98,7 +98,7 @@ describe('resume session selection', () => {
           keyHealth: [
             { keyNumber: 1, status: 'cooldown', remainingMs: 1000, inFlightCount: 0, failureCount: 1, successCount: 0 },
             { keyNumber: 2, status: 'cooldown', remainingMs: 1000, inFlightCount: 0, failureCount: 1, successCount: 0 },
-            { keyNumber: 3, status: 'serverBusy', remainingMs: 1000, inFlightCount: 0, failureCount: 1, successCount: 0 },
+            { keyNumber: 3, status: 'authBlocked', remainingMs: 1000, inFlightCount: 0, failureCount: 1, successCount: 0 },
           ],
         },
       },

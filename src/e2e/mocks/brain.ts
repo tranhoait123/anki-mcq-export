@@ -148,7 +148,7 @@ export const generateQuestions = async (
   onBatch?: (newQuestions: MCQ[]) => void,
   retryIndices?: number[],
   _isAdvancedMode?: boolean,
-  options: { autoRescue?: boolean; existingQuestions?: MCQ[]; onPartialQuestions?: (questions: MCQ[], batchIndex: number) => void } = {}
+  options: { autoRescue?: boolean; existingQuestions?: MCQ[] } = {}
 ): Promise<GeneratedResponse> => {
   if (files[0]?.name === 'e2e-retry.txt') {
     if (retryIndices?.length) {
@@ -237,12 +237,11 @@ export const generateQuestions = async (
   if (files[0]?.name === 'e2e-stream-large.txt') {
     const questions = makeLargeMockQuestions(files, 320).map((question, index) => ({
       ...question,
-      question: `Câu ${index + 1}: Stream preview item ${index + 1} vẫn nhập tìm kiếm mượt?`,
+      question: `Câu ${index + 1}: Large stream item ${index + 1} vẫn nhập tìm kiếm mượt?`,
     }));
     for (let index = 0; index < questions.length; index += 20) {
       const batch = questions.slice(index, index + 20);
-      onProgress?.('Mock e2e đang stream preview danh sách lớn...', index + batch.length);
-      options.onPartialQuestions?.(batch, Math.floor(index / 20) + 1);
+      onProgress?.('Mock e2e đang nhận danh sách lớn...', index + batch.length);
       await new Promise(resolve => setTimeout(resolve, 15));
     }
     for (let index = 0; index < questions.length; index += 80) {
@@ -266,7 +265,6 @@ export const generateQuestions = async (
     for (let index = 0; index < questions.length; index += 30) {
       const batch = questions.slice(index, index + 30);
       onProgress?.(`Mock e2e đang nhận dữ liệu lớn... ${index + batch.length}/${questions.length}`, 0);
-      options.onPartialQuestions?.(batch, Math.floor(index / 30) + 1);
       await new Promise(resolve => setTimeout(resolve, 35));
     }
     for (let index = 0; index < questions.length; index += 70) {

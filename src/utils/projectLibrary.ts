@@ -67,7 +67,6 @@ export const buildSettingsSummary = (settings: AppSettings) => ({
   concurrencyLimit: settings.concurrencyLimit,
   adaptiveBatching: settings.adaptiveBatching,
   projectLibraryEnabled: settings.projectLibraryEnabled,
-  realtimePreviewEnabled: settings.realtimePreviewEnabled,
   googleRpmLimiterEnabled: settings.googleRpmLimiterEnabled,
   googleRpmLimitPerMinute: settings.googleRpmLimitPerMinute,
   hasCustomPrompt: Boolean(settings.customPrompt?.trim()),

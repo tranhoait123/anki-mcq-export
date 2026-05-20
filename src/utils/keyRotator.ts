@@ -5,15 +5,13 @@ export type KeyHealthStatus =
   | 'cooldown'
   | 'authBlocked'
   | 'quotaBlocked'
-  | 'suspect'
-  | 'providerPressure';
+  | 'suspect';
 
 export type KeyResultKind = 'success' | 'rateLimit' | 'quota' | 'auth' | 'suspect' | 'serverBusy' | 'formatError';
 
 export interface KeySelectionOptions {
   excludeKeys?: Iterable<string>;
   allowRetriedKeys?: boolean;
-  onlyTriedKeys?: boolean;
 }
 
 export interface KeyResult {
@@ -239,8 +237,7 @@ export class UserKeyRotator {
       .map((key, index) => ({ key, index, record: this.getOrCreateRecord(key) }))
       .filter(({ key, record }) => (
         record.status === 'healthy' &&
-        (options.allowRetriedKeys || !excluded.has(key)) &&
-        (!options.onlyTriedKeys || record.lastSelectedAt > 0)
+        (options.allowRetriedKeys || !excluded.has(key))
       ))
       .map(candidate => ({
         ...candidate,
@@ -289,17 +286,7 @@ export class UserKeyRotator {
       record.status = 'healthy';
       record.blockedUntil = 0;
       record.formatErrorCount++;
-      record.lastSuccessAt = now;
-      record.lastError = undefined;
-
-      if (result.elapsedTimeMs !== undefined && !isNaN(result.elapsedTimeMs)) {
-        if (record.averageLatencyMs === undefined || isNaN(record.averageLatencyMs)) {
-          record.averageLatencyMs = result.elapsedTimeMs;
-        } else {
-          record.averageLatencyMs = 0.8 * record.averageLatencyMs + 0.2 * result.elapsedTimeMs;
-        }
-      }
-      this.registerSuccess();
+      if (result.error) record.lastError = getErrorText(result.error);
       return;
     }
 
@@ -712,4 +699,3 @@ export class UserKeyRotator {
 }
 
 export const userKeyRotator = new UserKeyRotator();
-

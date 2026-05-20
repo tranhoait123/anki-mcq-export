@@ -207,12 +207,12 @@ test('renders, filters, edits, deletes, and traces a large virtualized MCQ list'
   await expect(page.getByText('Tài liệu gốc')).toBeVisible();
 });
 
-test('streams a large realtime preview without duplicate final cards and keeps search responsive', async ({ page }) => {
+test('renders a large streamed result set once per batch and keeps search responsive', async ({ page }) => {
   await page.goto('/');
   await page.getByTestId('file-input').setInputFiles({
     name: 'e2e-stream-large.txt',
     mimeType: 'text/plain',
-    buffer: Buffer.from('E2E realtime preview should stream many partial questions without duplicate final cards.'),
+    buffer: Buffer.from('E2E streamed result set should render completed batches without duplicate final cards.'),
   });
 
   await page.getByTestId('analyze-button').click();
@@ -220,8 +220,8 @@ test('streams a large realtime preview without duplicate final cards and keeps s
   await page.getByTestId('generate-button').click();
   await expect(page.getByTestId('result-count')).toHaveText('320');
 
-  await page.getByPlaceholder('Tìm câu hỏi...').fill('Stream preview item 120');
-  await expect(page.getByText('Câu 120: Stream preview item 120 vẫn nhập tìm kiếm mượt?')).toBeVisible();
+  await page.getByPlaceholder('Tìm câu hỏi...').fill('Large stream item 120');
+  await expect(page.getByText('Câu 120: Large stream item 120 vẫn nhập tìm kiếm mượt?')).toBeVisible();
   await page.getByPlaceholder('Tìm câu hỏi...').fill('');
   await expect(page.getByText('320 / 320 câu')).toBeVisible();
 });

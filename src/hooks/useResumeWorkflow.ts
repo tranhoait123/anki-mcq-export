@@ -89,7 +89,6 @@ export const useResumeWorkflow = ({
       duplicatesRef.current = session.duplicatesSnapshot || [];
       const controller = startProcessingController();
       let activeOcrMode: 'gemini' | 'tesseract' = session.forcedOcrMode || 'gemini';
-      const realtimePreviewEnabled = session.settingsSnapshot.realtimePreviewEnabled === true;
       let filesToUse = await prepareFiles(activeOcrMode, controller, session.settingsSnapshot);
       const expectedQuestionCount = session.analysisSnapshot?.estimatedCount || getDetectedDocxMcqCount();
 
@@ -104,7 +103,6 @@ export const useResumeWorkflow = ({
           seedDuplicates: [],
           existingCompletedBatchIndices: session.completedBatchIndices,
           deprioritizedBatchIndices: session.failedBatchIndices || [],
-          liveAppendToVisible: realtimePreviewEnabled,
           renderCompletedBatchesToVisible: true,
           forcedOcrMode: activeOcrMode,
         });
@@ -172,7 +170,6 @@ export const useResumeWorkflow = ({
               isAdvancedMode: true,
               retryProfile: 'rescue',
               autoRescue: true,
-              liveAppendToVisible: realtimePreviewEnabled,
               renderCompletedBatchesToVisible: true,
               forcedOcrMode: activeOcrMode,
               seedQuestions: res.questions.length > 0 ? res.questions : mcqsRef.current,
@@ -261,7 +258,6 @@ export const useResumeWorkflow = ({
               isAdvancedMode: true,
               retryProfile: 'rescue',
               autoRescue: true,
-              liveAppendToVisible: realtimePreviewEnabled,
               renderCompletedBatchesToVisible: true,
               forcedOcrMode: activeOcrMode,
               seedQuestions: selectedRes.questions.length > 0 ? selectedRes.questions : mcqsRef.current,
@@ -296,7 +292,6 @@ export const useResumeWorkflow = ({
           isAdvancedMode: true,
           retryProfile: 'rescue',
           autoRescue: session.phase === 'rescue',
-          liveAppendToVisible: realtimePreviewEnabled,
           renderCompletedBatchesToVisible: true,
           existingCompletedBatchIndices: session.completedBatchIndices || [],
           seedQuestions: (session.phaseQuestionsSnapshot || []).length > 0 ? (session.phaseQuestionsSnapshot || []) : mcqsRef.current,

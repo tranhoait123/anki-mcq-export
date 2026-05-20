@@ -215,6 +215,25 @@ describe('UserKeyRotator scheduler v2', () => {
     expect(rotator.getKeyHealthSnapshot()[0].inFlightCount).toBe(0);
   });
 
+  it('records format errors without treating the key as successful or faster', () => {
+    const rotator = new UserKeyRotator(() => 1_000, () => 0);
+    rotator.init('key-one-valid,key-two-valid', 2);
+
+    rotator.markKeyResult('key-one-valid', {
+      kind: 'formatError',
+      elapsedTimeMs: 500,
+      error: new Error('Thiếu nhiều câu sau partial salvage'),
+    });
+
+    const [firstKey] = rotator.getKeyHealthSnapshot();
+    expect(firstKey.status).toBe('healthy');
+    expect(firstKey.formatErrorCount).toBe(1);
+    expect(firstKey.successCount).toBe(0);
+    expect(firstKey.lastSuccessAt).toBe(0);
+    expect(firstKey.averageLatencyMs).toBeUndefined();
+    expect(firstKey.lastError).toContain('Thiếu nhiều câu');
+  });
+
   it('keeps rate limits key-specific even after provider pressure', () => {
     let now = 1_000;
     const rotator = new UserKeyRotator(() => now, () => 0);

@@ -12,7 +12,6 @@ import {
 } from '../../utils/retryStrategy';
 import { splitNativeMcqTextIntoBatches } from '../docxNative';
 import {
-  applyTrustedSourceMetadata,
   buildSourceSnippet,
   formatPageRangeLabel,
   getAdaptiveTextCharBudget,
@@ -27,9 +26,8 @@ import {
   joinSourceLabel,
   splitStructuredPartByBatchSize,
 } from './batching';
-import { BatchPostprocessInput, BatchPostprocessResult, applySharedCaseMetadata } from './batchPostprocess';
+import { BatchPostprocessInput, BatchPostprocessResult } from './batchPostprocess';
 import { createBatchPostprocessor } from './batchPostprocessor';
-import { createStreamingPreviewParser } from './streamingPreviewParser';
 import {
   translateErrorForUser,
 } from './providerErrors';
@@ -70,13 +68,10 @@ import {
   waitWithController,
 } from './generationHelpers';
 import { SYSTEM_INSTRUCTION_EXTRACT } from './prompts';
-import { hasRecentSlowMetrics, measureSync } from '../../utils/performance';
+import { measureSync } from '../../utils/performance';
 import { buildMCQFingerprint } from '../../utils/dedupe';
 import { parseJsonFromModelText } from './parsing';
 
-const STREAM_PREVIEW_PARSE_INTERVAL_MS = 400;
-const STREAM_PREVIEW_LONG_TASK_MS = 80;
-const STREAM_PREVIEW_MAX_BATCH_EMITS = 120;
 const FULL_CHECKPOINT_INTERVAL_MS = 30000;
 const KEY_CONSERVATION_PRESSURE_WINDOW_MS = 60 * 1000;
 const MAX_IMMEDIATE_RECOVERY_PARTS = 3;
@@ -1389,7 +1384,7 @@ export const generateQuestions = async (
       if (recoveryParts.length === 0) return false;
 
       const topLevelBatchNumber = index + 1;
-      const beforeTailCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
+      const beforeTailQuestionCount = allQuestions.length;
       console.info(`Batch ${label}: Có ${preTailAssessment.validCoveredCount} câu đã lưu; ưu tiên tail-first probe trước khi quét lại full range.`);
       if (onProgress) {
         onProgress(`Đang kiểm tra phần cuối Batch ${label} trước khi quét lại toàn bộ...`, allQuestions.length);
@@ -1401,9 +1396,10 @@ export const generateQuestions = async (
         (recoveryPart, i) => processBatch(recoveryPart, index, 1, true, index, i, label)
       );
 
-      const afterTailCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
-      const tailAddedCount = Math.max(0, afterTailCount - beforeTailCount);
-      const postTailAssessment = await evaluatePdfVisionCoverageGate(part);
+      const tailAddedQuestionCount = Math.max(0, allQuestions.length - beforeTailQuestionCount);
+      const postTailAssessment = tailAddedQuestionCount > 0
+        ? await evaluatePdfVisionCoverageGate(part)
+        : preTailAssessment;
       if (postTailAssessment.status === 'complete') {
         clearBatchFailure(topLevelBatchNumber, label, 'rescue');
         clearBatchFailure(topLevelBatchNumber, label, 'partial');
@@ -1413,14 +1409,14 @@ export const generateQuestions = async (
       }
 
       recordBatchFailure(index, label, new Error(
-        tailAddedCount > 0
-          ? `Tail-first probe thêm ${tailAddedCount} câu nhưng verifier chưa xác nhận đủ; giữ batch lỗi để tránh bỏ sót.`
-          : 'Tail-first probe không thêm câu mới; verifier chưa xác nhận đủ nên giữ batch lỗi thay vì quét full range lặp lại.'
+        tailAddedQuestionCount > 0
+          ? `Tail-first probe thêm ${tailAddedQuestionCount} câu nhưng verifier chưa xác nhận đủ; giữ batch lỗi để tránh bỏ sót.`
+          : 'Tail-first probe không thêm câu mới; dùng kết quả verifier trước đó và giữ batch lỗi thay vì quét full range lặp lại.'
       ), 'rescue', {
-        recoveredCount: tailAddedCount,
+        recoveredCount: tailAddedQuestionCount,
         ...toCoverageFailureExtras(postTailAssessment),
       });
-      console.info(`Batch ${label}: Tail-first probe ${tailAddedCount > 0 ? `thêm ${tailAddedCount} câu` : 'không thêm câu mới'} nhưng coverage chưa đủ chắc; dừng trước full retry.`);
+      console.info(`Batch ${label}: Tail-first probe ${tailAddedQuestionCount > 0 ? `thêm ${tailAddedQuestionCount} câu` : 'không thêm câu mới'} nhưng coverage chưa đủ chắc; dừng trước full retry.`);
       return true;
     };
 
@@ -1930,60 +1926,7 @@ export const generateQuestions = async (
                   const resultStream = await chat.sendMessageStream({ message: buildGoogleBatchMessage(part, batchPrompt, kCacheName || undefined) });
                   
                   let fullText = '';
-                  const currentBatchIndex = topLevelIndex + 1;
-                  const streamingPreviewParser = options.onPartialQuestions ? createStreamingPreviewParser() : null;
-                  let lastPreviewParseAt = -STREAM_PREVIEW_PARSE_INTERVAL_MS;
-                  let emittedPreviewCount = 0;
-                  let disablePreviewForBatch = false;
-                  let previewFlushPromise: Promise<void> | null = null;
-                  let pendingPreviewFlush = false;
                   let lastStreamHeartbeatAt = getNowMs();
-                  const disableStreamingPreview = () => {
-                      if (disablePreviewForBatch) return;
-                      disablePreviewForBatch = true;
-                      streamingPreviewParser?.dispose();
-                  };
-
-                  const emitPreviewQuestions = (previewQuestions: any[]) => {
-                      if (!options.onPartialQuestions || previewQuestions.length === 0) return;
-                      applyTrustedSourceMetadata(previewQuestions, part);
-                      applySharedCaseMetadata(previewQuestions, part);
-                      previewQuestions.forEach((q) => {
-                         if (!q.id) q.id = `mcq-stream-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-                      });
-                      emittedPreviewCount += previewQuestions.length;
-                      options.onPartialQuestions(previewQuestions, currentBatchIndex);
-                  };
-                  const requestPreviewFlush = () => {
-                      if (!streamingPreviewParser || disablePreviewForBatch) return;
-                      if (previewFlushPromise) {
-                          pendingPreviewFlush = true;
-                          return;
-                      }
-                      const startedAt = getNowMs();
-                      previewFlushPromise = streamingPreviewParser.flush()
-                        .then((previewQuestions) => {
-                            const elapsed = getNowMs() - startedAt;
-                            emitPreviewQuestions(previewQuestions);
-                            if (
-                              elapsed > STREAM_PREVIEW_LONG_TASK_MS ||
-                              emittedPreviewCount >= STREAM_PREVIEW_MAX_BATCH_EMITS ||
-                              hasRecentSlowMetrics({ sinceMs: 4000, threshold: 3, includeLongTasks: true })
-                            ) {
-                              disableStreamingPreview();
-                            }
-                        })
-                        .catch(() => {
-                            disableStreamingPreview();
-                        })
-                        .finally(() => {
-                            previewFlushPromise = null;
-                            if (pendingPreviewFlush && !disablePreviewForBatch) {
-                                pendingPreviewFlush = false;
-                                requestPreviewFlush();
-                            }
-                        });
-                  };
 
                   try {
                       for await (const chunk of resultStream) {
@@ -1995,26 +1938,6 @@ export const generateQuestions = async (
                               const receivedKb = Math.max(1, Math.round(fullText.length / 1024));
                               onProgress(`Quét Batch ${batchLabel}/${totalBatches}${depth > 0 ? ' (Đang chia nhỏ)' : ''}... đã nhận ${receivedKb}KB`, allQuestions.length);
                           }
-
-                          if (streamingPreviewParser && !disablePreviewForBatch) {
-                              if (
-                                emittedPreviewCount >= STREAM_PREVIEW_MAX_BATCH_EMITS ||
-                                hasRecentSlowMetrics({ sinceMs: 4000, threshold: 3, includeLongTasks: true })
-                              ) {
-                                  disableStreamingPreview();
-                                  continue;
-                              }
-                              streamingPreviewParser.append(chunkText);
-                              if (now - lastPreviewParseAt >= STREAM_PREVIEW_PARSE_INTERVAL_MS) {
-                                  lastPreviewParseAt = now;
-                                  requestPreviewFlush();
-                              }
-                          }
-                      }
-
-                      if (streamingPreviewParser && !disablePreviewForBatch) {
-                          requestPreviewFlush();
-                          while (previewFlushPromise) await previewFlushPromise;
                       }
                   } catch (streamError: any) {
                       if (fullText.trim()) {
@@ -2022,8 +1945,6 @@ export const generateQuestions = async (
                           console.warn(`Batch ${batchLabel}: Stream interrupted after receiving ${Math.round(fullText.length / 1024)}KB; will try to salvage complete questions before retry/split.`);
                       }
                       throw streamError;
-                  } finally {
-                      streamingPreviewParser?.dispose();
                   }
 
                   const postprocessResult = await batchPostprocessor!.processBatch(createPostprocessInput(fullText));
@@ -2395,36 +2316,21 @@ export const generateQuestions = async (
             const skippedByCoverage = await maybeSkipPdfVisionRetryByCoverage(item.parts[0], item.index, item.label, item.stage);
             if (skippedByCoverage) continue;
           }
-          let deferredAttempt = 0;
-          let afterDeferredCount = beforeDeferredCount;
-          const maxDeferredAttempts = 0;
-          while (deferredAttempt <= maxDeferredAttempts) {
-            if (deferredAttempt > 0) {
-              const retrySettleMs = Math.min(3000 * deferredAttempt, retryProfile.singleKeyBackoffCapMs);
-              console.info(`🔄 Batch ${item.label}: Deferred recovery lần ${deferredAttempt + 1}/${DEFERRED_RECOVERY_MAX_RETRIES + 1}, chờ ${Math.round(retrySettleMs / 1000)}s...`);
-              if (onProgress) {
-                onProgress(`Đang thử lại cứu Batch ${item.label} lần ${deferredAttempt + 1} sau ${Math.round(retrySettleMs / 1000)}s...`, allQuestions.length);
-              }
-              await waitWithController(retrySettleMs, controller);
-            } else if (onProgress) {
-              onProgress(`Đang cứu Batch ${item.label} sau cooldown (chạy tuần tự không giới hạn budget)...`, allQuestions.length);
-            }
-
-            await runPartsWithLimit(
-              item.parts.map((recoveryPart) => ({
-                ...recoveryPart,
-                deferredRecovery: true,
-                // No recoveryBudgetKey means unlimited budget!
-              })),
-              1,
-              (recoveryPart, i) => processBatch(recoveryPart, item.index, item.depth, item.forceJsonRepair, item.topLevelIndex, i, item.label)
-            );
-
-            afterDeferredCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
-            const actuallyRecovered = Math.max(0, afterDeferredCount - beforeDeferredCount);
-            if (actuallyRecovered > 0) break;
-            deferredAttempt++;
+          const limitedRecoveryParts = item.parts.slice(0, Math.max(1, item.missingCount || 1));
+          if (onProgress) {
+            onProgress(`Đang cứu Batch ${item.label} sau cooldown (${limitedRecoveryParts.length} phần, chạy tuần tự)...`, allQuestions.length);
           }
+
+          await runPartsWithLimit(
+            limitedRecoveryParts.map((recoveryPart) => ({
+              ...recoveryPart,
+              deferredRecovery: true,
+            })),
+            1,
+            (recoveryPart, i) => processBatch(recoveryPart, item.index, item.depth, item.forceJsonRepair, item.topLevelIndex, i, item.label)
+          );
+
+          const afterDeferredCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
 
           const actuallyRecovered = Math.max(0, afterDeferredCount - beforeDeferredCount);
 
@@ -2453,12 +2359,12 @@ export const generateQuestions = async (
               console.info(`✅ Batch ${item.label}: Deferred rescue không thêm câu mới vì coverage đã đủ theo verifier.`);
               continue;
             }
-            recordBatchFailure(item.index, item.label, item.reasonError || new Error(`Không thu hoạch được câu nào từ deferred recovery sau ${deferredAttempt + 1} lần thử`), item.stage, {
+            recordBatchFailure(item.index, item.label, item.reasonError || new Error('Không thu hoạch được câu nào từ deferred recovery sau 1 lượt giới hạn'), item.stage, {
               missingCount: 1,
               recoveredCount: 0,
               ...(assessment ? toCoverageFailureExtras(assessment) : {}),
             });
-            console.info(`Batch ${item.label}: Cứu hộ trì hoãn không thu hoạch thêm được câu nào sau ${deferredAttempt + 1} lần thử.`);
+            console.info(`Batch ${item.label}: Cứu hộ trì hoãn không thu hoạch thêm được câu nào sau 1 lượt giới hạn.`);
           }
         }
       }

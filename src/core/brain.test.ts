@@ -1343,6 +1343,79 @@ describe('Core Logic', () => {
     });
   });
 
+  it('clears targeted rescue batches when a retry returns duplicate-only questions perfectly', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const makeQuestionPayload = (question: string) => ({
+      question,
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: {
+        core: 'A đúng.',
+        evidence: '',
+        analysis: '',
+        warning: '',
+      },
+      source: 'model-source',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    });
+    const providerResponse = (questions: any[]) => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ questions }) } }],
+    }), { status: 200 });
+    const fetchMock = vi.fn().mockResolvedValueOnce(providerResponse([
+      makeQuestionPayload('1. Existing stem?'),
+    ]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const existingQuestion = {
+      id: 'existing-alpha',
+      question: 'Existing stem?',
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: {
+        core: 'A đúng.',
+        evidence: '',
+        analysis: '',
+        warning: '',
+      },
+      source: 'deck.docx | Nhóm 1',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    };
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-1',
+        name: 'deck.docx',
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        content: '',
+        nativeText: [
+          '<<<MCQ 1>>>',
+          'Question: 1. Existing stem?',
+          'A. Một',
+          'B. Hai',
+          'C. Ba',
+          'D. Bốn',
+        ].join('\n'),
+      }],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0,
+      undefined,
+      [1],
+      true,
+      {
+        existingQuestions: [existingQuestion],
+        retryProfile: 'rescue',
+      }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.failedBatches).toEqual([]);
+    expect(result.failedBatchDetails).toEqual([]);
+  });
+
   it('does not infer-skip explicit rescue retry indices from seeded partial questions', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const makeQuestionPayload = (question: string) => ({

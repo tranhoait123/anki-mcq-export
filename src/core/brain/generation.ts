@@ -70,7 +70,7 @@ import {
   partsRequireVision,
   waitWithController,
 } from './generationHelpers';
-import { SYSTEM_INSTRUCTION_EXTRACT, SYSTEM_INSTRUCTION_RESCUE, RESCUE_ADDENDUM } from './prompts';
+import { SYSTEM_INSTRUCTION_EXTRACT, RESCUE_ADDENDUM } from './prompts';
 import { measureSync } from '../../utils/performance';
 import { buildMCQFingerprint } from '../../utils/dedupe';
 import { parseJsonFromModelText } from './parsing';
@@ -1967,16 +1967,21 @@ export const generateQuestions = async (
             !salvagedPartial &&
             newQs.length === 0
           ) {
-            recordBatchFailure(index, batchLabel, new Error(`Quét lại Batch ${batchLabel} không thêm được câu mới và chưa có số câu kỳ vọng đáng tin để xác minh đã đủ.`), 'rescue', {
-              recoveredCount: 0,
-              partialRawCount: rawNewQs.length,
-              partialAddedCount: newQs.length,
-              partialDuplicateCount,
-              partialAutoSkippedCount,
-              partialUnchangedCount,
-              expectedQuestions,
-            });
-            console.info(`Batch ${batchLabel}: Quét lại không thêm câu mới (${partialStats}); giữ batch trong danh sách quét lại vì chưa xác minh đủ.`);
+            if (rawNewQs.length > 0) {
+              clearBatchFailure(topLevelBatchNumber, batchLabel, 'rescue');
+              console.info(`✅ Batch ${batchLabel}: Quét lại trả hoàn hảo câu hỏi (tất cả trùng/đã lưu); đã xóa trạng thái lỗi.`);
+            } else {
+              recordBatchFailure(index, batchLabel, new Error(`Quét lại Batch ${batchLabel} không thêm được câu mới và chưa có số câu kỳ vọng đáng tin để xác minh đã đủ.`), 'rescue', {
+                recoveredCount: 0,
+                partialRawCount: rawNewQs.length,
+                partialAddedCount: newQs.length,
+                partialDuplicateCount,
+                partialAutoSkippedCount,
+                partialUnchangedCount,
+                expectedQuestions,
+              });
+              console.info(`Batch ${batchLabel}: Quét lại không thêm câu mới (${partialStats}); giữ batch trong danh sách quét lại vì chưa xác minh đủ.`);
+            }
           }
 
           const advisoryExpectedNumbers = Array.isArray(part.expectedQuestionEvidence?.numbers)

@@ -1,5 +1,0 @@
-streamlit
-google-generativeai
-pandas
-python-docx
-pypdf

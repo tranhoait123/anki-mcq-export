@@ -23,10 +23,9 @@
 8. [📤 Xuất File](#-xuất-file)
 9. [📲 Import CSV vào Anki](#-import-csv-vào-anki)
 10. [💻 Cài đặt chạy trên máy (Tùy chọn)](#-cài-đặt-chạy-trên-máy-tùy-chọn)
-11. [🐍 Phiên bản Streamlit (Python)](#-phiên-bản-streamlit-python)
-12. [🧪 Kiểm Thử & Build](#-kiểm-thử--build)
-13. [🎯 Mẹo nâng cao & Xử lý lỗi](#-mẹo-nâng-cao--xử-lý-lỗi)
-14. [❓ Câu hỏi thường gặp (FAQ)](#-câu-hỏi-thường-gặp-faq)
+11. [🧪 Kiểm Thử & Build](#-kiểm-thử--build)
+12. [🎯 Mẹo nâng cao & Xử lý lỗi](#-mẹo-nâng-cao--xử-lý-lỗi)
+13. [❓ Câu hỏi thường gặp (FAQ)](#-câu-hỏi-thường-gặp-faq)
 
 ---
 
@@ -69,11 +68,10 @@ flowchart TD
     K --> L["Xuất CSV/DOCX hoặc lưu Project Library"]
 ```
 
-**Có 3 cách sử dụng:**
+**Có 2 cách sử dụng:**
 
 1. **⚡ Truy cập Online** — Nhanh nhất, không cần cài đặt gì cả *(khuyên dùng)*
 2. **💻 Cài đặt trên máy (Node.js)** — Chạy offline, toàn quyền kiểm soát
-3. **🐍 Streamlit App (Python)** — Giao diện đơn giản hơn, chạy nhanh qua Python
 
 ---
 
@@ -613,26 +611,6 @@ npm run build
 
 ---
 
-## 🐍 Phiên Bản Streamlit (Python)
-
-Phiên bản đơn giản hơn, phù hợp nếu bạn muốn nhanh gọn.
-
-```bash
-# Cài đặt
-pip install -r requirements.txt
-
-# Chạy
-streamlit run streamlit_app.py
-```
-
-Trình duyệt sẽ tự mở tại **http://localhost:8501**
-
-1. **Sidebar:** Nhập **Gemini API Key** + Chọn **Model**
-2. **Control Center:** Tải file lên → Nhấn **"🚀 BẮT ĐẦU TRÍCH XUẤT"**
-3. **Kết quả:** Xem câu hỏi + Nhấn **"💾 TẢI XUỐNG CSV ANKI"**
-
----
-
 ## 🧪 Kiểm Thử & Build
 
 Trước khi deploy hoặc sửa code lớn, nên chạy:
@@ -765,19 +743,19 @@ Chỉ nên chuyển khi app báo **"Nên dùng PDF/Ảnh"** hoặc DOCX là ản
 ### 🗨️ "Có cần bật Allow HTML trong Anki không?"
 **Có.** Khi import CSV vào Anki, hãy bật **Allow HTML in fields** để phần giải thích giữ được bảng, màu sắc, xuống dòng và định dạng đẹp.
 
-### 🗨️ "Sự khác biệt giữa 3 cách sử dụng?"
+### 🗨️ "Sự khác biệt giữa các cách sử dụng?"
 
-| | ⚡ Online (Khuyên dùng) | 💻 Cài trên máy (Node.js) | 🐍 Streamlit (Python) |
-|:---|:---|:---|:---|
-| **Link** | [mcqankigen.drponz.com](https://mcqankigen.drponz.com/) | localhost:5173 | localhost:8501 |
-| **Cài đặt** | ❌ Không cần | Cần Node.js + npm | Cần Python + pip |
-| **Giao diện** | Premium, Dark Mode, Split View | Giống hệt bản online | Đơn giản |
-| **Lưu trữ** | IndexedDB (vĩnh viễn) | IndexedDB (vĩnh viễn) | Mất khi reload |
-| **Chống trùng** | ✅ Có | ✅ Có | ❌ Không |
-| **Xoay vòng Key** | ✅ Tự động | ✅ Tự động | ❌ Không |
-| **Xuất DOCX** | ✅ Có | ✅ Có | ❌ Không |
-| **PWA** | ✅ Cài đặt như app | ✅ Cài đặt như app | ❌ Không |
-| **Chạy Offline** | ❌ Cần internet | ✅ Có thể | ✅ Có thể |
+| | ⚡ Online (Khuyên dùng) | 💻 Cài trên máy (Node.js) |
+|:---|:---|:---|
+| **Link** | [mcqankigen.drponz.com](https://mcqankigen.drponz.com/) | localhost:5173 |
+| **Cài đặt** | ❌ Không cần | Cần Node.js + npm |
+| **Giao diện** | Premium, Dark Mode, Split View | Giống hệt bản online |
+| **Lưu trữ** | IndexedDB (vĩnh viễn) | IndexedDB (vĩnh viễn) |
+| **Chống trùng** | ✅ Có | ✅ Có |
+| **Xoay vòng Key** | ✅ Tự động | ✅ Tự động |
+| **Xuất DOCX** | ✅ Có | ✅ Có |
+| **PWA** | ✅ Cài đặt như app | ✅ Cài đặt như app |
+| **Chạy Offline** | ❌ Cần internet | ✅ Có thể |
 
 ---
 

@@ -23,10 +23,9 @@
 8. [📤 Export Files](#-export-files)
 9. [📲 Import CSV into Anki](#-import-csv-into-anki)
 10. [💻 Local Installation (Optional)](#-local-installation-optional)
-11. [🐍 Streamlit Version (Python)](#-streamlit-version-python)
-12. [🧪 Tests & Build](#-tests--build)
-13. [🎯 Advanced Tips & Troubleshooting](#-advanced-tips--troubleshooting)
-14. [❓ Frequently Asked Questions (FAQ)](#-frequently-asked-questions-faq)
+11. [🧪 Tests & Build](#-tests--build)
+12. [🎯 Advanced Tips & Troubleshooting](#-advanced-tips--troubleshooting)
+13. [❓ Frequently Asked Questions (FAQ)](#-frequently-asked-questions-faq)
 
 ---
 
@@ -68,11 +67,10 @@ flowchart TD
     K --> L["Export CSV/DOCX or save Project Library"]
 ```
 
-**3 ways to use it:**
+**2 ways to use it:**
 
 1. **⚡ Access Online** — The fastest way, zero setup *(recommended)*
 2. **💻 Local Install (Node.js)** — Run offline, full control
-3. **🐍 Streamlit App (Python)** — Simpler interface, fast processing via Python
 
 ---
 
@@ -454,19 +452,6 @@ npm run build
 ```
 
 Current tests cover Anki HTML escaping/formatting, DOCX export, DOCX native parsing, dedupe, model registry, retry strategy, provider request/error handling, partial salvage accounting, free-tier key rotation caps, deferred recovery pressure guards, and safe resume.
-
----
-
-## 🐍 Streamlit Version (Python)
-
-A simpler alternative dashboard.
-
-```bash
-pip install -r requirements.txt
-streamlit run streamlit_app.py
-```
-
-Runs on **http://localhost:8501**.
 
 ---
 

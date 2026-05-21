@@ -810,7 +810,7 @@ describe('Core Logic', () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(result.failedBatches).toEqual([1]);
+    expect(result.failedBatches).toEqual([]);
     expect(result.failedBatchDetails[0]).toMatchObject({
       index: 1,
       stage: 'partial',
@@ -1058,7 +1058,7 @@ describe('Core Logic', () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(result.failedBatches).toEqual([1]);
+    expect(result.failedBatches).toEqual([]);
     expect(result.failedBatchDetails[0]).toMatchObject({
       index: 1,
       stage: 'partial',
@@ -2135,7 +2135,7 @@ D. Bốn
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(result.questions).toHaveLength(3);
-    expect(result.failedBatches).toEqual([1]);
+    expect(result.failedBatches).toEqual([]);
     expect(result.failedBatchDetails[0]).toMatchObject({
       index: 1,
       kind: 'serverBusy',
@@ -2204,7 +2204,7 @@ D. Bốn
       'Alpha stem?',
       'Beta stem?',
     ]);
-    expect(result.failedBatches).toEqual([1]);
+    expect(result.failedBatches).toEqual([]);
     expect(result.failedBatchDetails[0]).toMatchObject({
       index: 1,
       kind: 'format',
@@ -2383,7 +2383,8 @@ D. Bốn
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(convertSpy.mock.calls.map(call => call[1])).toEqual([
       { start: 1, end: 3 },
-      { start: 2, end: 3 },
+      { start: 2, end: 2 },
+      { start: 3, end: 3 },
     ]);
     expect(result.failedBatches).toEqual([]);
     expect(result.questions).toHaveLength(3);
@@ -2476,9 +2477,10 @@ D. Bốn
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(convertSpy.mock.calls.map(call => call[1])).toEqual([
       { start: 1, end: 3 },
-      { start: 2, end: 3 },
+      { start: 2, end: 2 },
+      { start: 3, end: 3 },
     ]);
-    expect(result.failedBatches).toEqual([1]);
+    expect(result.failedBatches).toEqual([]);
     expect(result.failedBatchDetails[0]).toMatchObject({
       coverageStatus: 'missing',
       coverageConfidence: 'low',
@@ -2565,7 +2567,7 @@ D. Bốn
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(convertSpy.mock.calls.map(call => call[1])).toEqual([
       { start: 1, end: 4 },
-      { start: 3, end: 4 },
+      { start: 4, end: 4 },
     ]);
     expect(result.questions.length).toBeGreaterThan(0);
 
@@ -2639,14 +2641,15 @@ D. Bốn
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(convertSpy.mock.calls.map(call => call[1])).toEqual([
       { start: 1, end: 3 },
-      { start: 2, end: 3 },
+      { start: 2, end: 2 },
+      { start: 3, end: 3 },
     ]);
     expect(result.questions.map(question => question.question).sort()).toEqual([
       'Alpha stem?',
       'Beta stem?',
       'Gamma stem?',
     ]);
-    expect(result.failedBatches).toEqual([1]);
+    expect(result.failedBatches).toEqual([]);
     expect(result.failedBatchDetails[0]).toMatchObject({
       index: 1,
       stage: 'partial',
@@ -2713,7 +2716,7 @@ D. Bốn
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.questions).toHaveLength(1);
-    expect(result.failedBatches).toEqual([1]);
+    expect(result.failedBatches).toEqual([]);
     expect(result.failedBatchDetails[0]).toMatchObject({
       index: 1,
       kind: 'format',

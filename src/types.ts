@@ -283,6 +283,7 @@ export interface AppSettings {
   googleRpmLimiterEnabled?: boolean;
   googleRpmLimitPerMinute?: number;
   pdfVisionQuality?: 'standard' | 'high';
+  enableContextCaching?: boolean;
 }
 
 export interface ProjectSettingsSummary {
@@ -300,6 +301,7 @@ export interface ProjectSettingsSummary {
   googleRpmLimiterEnabled?: boolean;
   googleRpmLimitPerMinute?: number;
   pdfVisionQuality?: AppSettings['pdfVisionQuality'];
+  enableContextCaching?: boolean;
   hasCustomPrompt: boolean;
 }
 

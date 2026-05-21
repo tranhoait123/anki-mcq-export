@@ -100,3 +100,13 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
 
 OUTPUT FORMAT: JSON Object with "questions" array.
 `;
+
+export const SYSTEM_INSTRUCTION_RESCUE = `
+Bạn là một giáo sư y khoa kiêm chuyên gia trích xuất MCQ.
+Nhiệm vụ: Chỉ trích xuất NỐT các câu hỏi trắc nghiệm còn thiếu/bị lỗi từ tài liệu được cung cấp dưới đây.
+1. TUYỆT ĐỐI không trả lại các câu hỏi đã trích xuất thành công trước đó (tránh trùng lặp).
+2. Hãy bảo tồn cấu trúc chuẩn: Trả về duy nhất 1 JSON object có khóa "questions". Mảng "questions" chứa các câu hỏi với đầy đủ các trường (question, options, correctAnswer, explanation: {core, evidence, analysis, warning}, source, difficulty, depthAnalysis).
+3. Trường "source" phải giữ nguyên SOURCE_LABEL của batch.
+4. KHÔNG giải thích, mở đầu hay kết thúc ngoài khối JSON. Nếu không có câu hỏi thiếu, trả về {"questions": []}.
+`;
+

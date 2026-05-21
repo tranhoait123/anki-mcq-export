@@ -505,6 +505,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                     />
                                 </div>
 
+                                {/* Context Caching */}
+                                <div className="border-t border-slate-100 dark:border-slate-800/50 pt-5">
+                                    <Toggle 
+                                        enabled={settings.enableContextCaching === true}
+                                        onChange={val => setSettings({ ...settings, enableContextCaching: val })}
+                                        icon={<Database size={16} />}
+                                        label="Tối ưu hóa Context Caching (Gemini Paid Key)"
+                                        description="Giảm tới 75-80% chi phí token đầu vào khi quét file PDF dài nhiều trang bằng Gemini. Chỉ hỗ trợ API Key trả phí (Pay-as-you-go). Tắt khi dùng Key miễn phí để tránh lỗi."
+                                        colorClass="text-indigo-500"
+                                    />
+                                </div>
+
                                 {/* API Key Health Diagnostics */}
                                 {settings.provider === 'shopaikey' && (
                                     <div className="border-t border-slate-100 dark:border-slate-800/50 pt-5 space-y-3">

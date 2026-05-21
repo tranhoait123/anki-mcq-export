@@ -70,7 +70,7 @@ import {
   partsRequireVision,
   waitWithController,
 } from './generationHelpers';
-import { SYSTEM_INSTRUCTION_EXTRACT } from './prompts';
+import { SYSTEM_INSTRUCTION_EXTRACT, SYSTEM_INSTRUCTION_RESCUE } from './prompts';
 import { measureSync } from '../../utils/performance';
 import { buildMCQFingerprint } from '../../utils/dedupe';
 import { parseJsonFromModelText } from './parsing';
@@ -1101,7 +1101,15 @@ export const generateQuestions = async (
         ...failureExtras,
         ...(diagnostics ? { diagnostics } : {}),
       };
-      if (!failedBatches.includes(batchNumber)) failedBatches.push(batchNumber);
+      const hasQuestions = getBatchCoveredQuestionCount(batchNumber) > 0;
+      const isPartialOrRescueSuccess = (stage === 'partial' || stage === 'rescue' || stage === 'deferred') && hasQuestions;
+      if (!isPartialOrRescueSuccess) {
+        if (!failedBatches.includes(batchNumber)) failedBatches.push(batchNumber);
+      } else {
+        // If it was previously added (e.g. from an earlier empty try), but now successfully has questions,
+        // we can remove it from failedBatches since it completed successfully now.
+        failedBatches = failedBatches.filter(item => item !== batchNumber);
+      }
       const existingIndex = failedBatchDetails.findIndex(item => item.index === batchNumber && item.label === label && item.stage === stage);
       if (existingIndex >= 0) {
         failedBatchDetails[existingIndex] = nextDetail;
@@ -1236,20 +1244,99 @@ export const generateQuestions = async (
       const fileName = part.pdfFileName || part.trace?.fileName || getTrustedSourceLabel(part).split('|')[0] || 'PDF';
       const recoveryParts: any[] = [];
 
+      const getPageCoveredCount = (p: number): number => {
+        const candidateQuestions = salvagedQuestions.filter((q: any) => {
+          const qRange = q.trace?.pageRange;
+          if (!qRange) return false;
+          return p >= qRange.start && p <= qRange.end;
+        });
+
+        let count = 0;
+        for (const q of candidateQuestions) {
+          const qRange = q.trace?.pageRange!;
+          if (qRange.start === qRange.end) {
+            if (qRange.start === p) {
+              count++;
+            }
+          } else {
+            const qNum = getCoverageQuestionNumber(q);
+            if (qNum) {
+              const pText = getPdfVisionRangeText(part, { start: p, end: p });
+              const pEstimate = estimatePdfQuestionMarkers(pText);
+              if (pEstimate.numbers?.includes(qNum)) {
+                count++;
+                continue;
+              }
+
+              let matchedOther = false;
+              for (let otherP = qRange.start; otherP <= qRange.end; otherP++) {
+                if (otherP === p) continue;
+                const otherText = getPdfVisionRangeText(part, { start: otherP, end: otherP });
+                const otherEstimate = estimatePdfQuestionMarkers(otherText);
+                if (otherEstimate.numbers?.includes(qNum)) {
+                  matchedOther = true;
+                  break;
+                }
+              }
+              if (matchedOther) {
+                continue;
+              }
+            }
+
+            if (qRange.start === p) {
+              count++;
+            }
+          }
+        }
+        return count;
+      };
+
       for (const range of ranges) {
         if (recoveryParts.length >= maxParts) break;
-        const rangeText = getPdfVisionRangeText(part, range);
+
+        const rangeStart = range.start;
+        const rangeEnd = range.end;
+        const activePagesInRange: number[] = [];
+
+        for (let p = rangeStart; p <= rangeEnd; p++) {
+          const pageText = getPdfVisionRangeText(part, { start: p, end: p });
+          const markerEstimate = estimatePdfQuestionMarkers(pageText);
+          const expectedFromText = isUsablePdfMarkerEstimate(markerEstimate) ? markerEstimate.count : 0;
+          const salvagedOnPage = getPageCoveredCount(p);
+
+          const isPageCompleted = expectedFromText > 0 && salvagedOnPage >= expectedFromText && salvagedOnPage > 0;
+          if (!isPageCompleted) {
+            activePagesInRange.push(p);
+          } else {
+            console.info(`[Vision Incremental Exclusion] Page ${p} of file "${fileName}" is fully resolved (${salvagedOnPage}/${expectedFromText} questions). Excluding from recovery.`);
+          }
+        }
+
+        if (activePagesInRange.length === 0) {
+          console.info(`[Vision Incremental Exclusion] Skipping entire recovery range ${range.start}-${range.end} because all pages are completed.`);
+          continue;
+        }
+
+        const activeStart = Math.min(...activePagesInRange);
+        const activeEnd = Math.max(...activePagesInRange);
+        const activeRange = { start: activeStart, end: activeEnd };
+
+        const rangeText = getPdfVisionRangeText(part, activeRange);
         const markerEstimate = estimatePdfQuestionMarkers(rangeText);
         const expectedFromText = isUsablePdfMarkerEstimate(markerEstimate) ? markerEstimate.count : 0;
         
-        // Only enforce expectedQuestions in recovery if the parent count came from structured blocks.
         const parentHasReliableCount = part.expectedQuestionsReliable === true && typeof part.expectedQuestions === 'number' && part.expectedQuestions > 0;
         const expectedQuestions = parentHasReliableCount 
           ? Math.max(1, Math.min(missingCount, expectedFromText || missingCount))
           : 0;
 
-        const images = await convertPdfToImages(part.pdfDataUrl, range, { quality: 'high' });
-        const sourceLabel = joinSourceLabel(fileName, formatPageRangeLabel(range));
+        const images: string[] = [];
+        for (const p of activePagesInRange) {
+          const pageImages = await convertPdfToImages(part.pdfDataUrl, { start: p, end: p }, { quality: 'high' });
+          images.push(...pageImages);
+        }
+
+        const sourceLabel = joinSourceLabel(fileName, formatPageRangeLabel(activeRange));
         recoveryParts.push({
           ...part,
           inlineData: undefined,
@@ -1264,7 +1351,7 @@ export const generateQuestions = async (
             fileName,
             sourceLabel,
             mode: 'pdfVision',
-            pageRange: range,
+            pageRange: activeRange,
             boundaryRisk: part.boundaryRisk || part.trace?.boundaryRisk,
             expectedQuestionNumbers: part.expectedQuestionEvidence?.numbers || part.trace?.expectedQuestionNumbers,
             snippet: buildSourceSnippet(rangeText),
@@ -1951,7 +2038,9 @@ export const generateQuestions = async (
           ? executeWithUserRotation(
               extractionModel,
               async (currentKey, activeModel, attemptContext) => {
-                  const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
+                  const isRescueOrRetry = isRescueMode || isTargetedRetryBatch || part.partialRecovery || part.deferredRecovery;
+                  const instructionToUse = isRescueOrRetry ? SYSTEM_INSTRUCTION_RESCUE : SYSTEM_INSTRUCTION_EXTRACT;
+                  const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${instructionToUse}` : instructionToUse;
 
                   const messages = [
                     { role: "system", content: (isAdvancedMode || forceJsonRepair) ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction },
@@ -1977,11 +2066,14 @@ export const generateQuestions = async (
               async (currentKey, activeModel, attemptContext) => {
                   if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
                   const aiInstance = createGoogleGenAIClient(runtimeSettings, currentKey);
-                  const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${SYSTEM_INSTRUCTION_EXTRACT}` : SYSTEM_INSTRUCTION_EXTRACT;
+                  const isRescueOrRetry = isRescueMode || isTargetedRetryBatch || part.partialRecovery || part.deferredRecovery;
+                  const instructionToUse = isRescueOrRetry ? SYSTEM_INSTRUCTION_RESCUE : SYSTEM_INSTRUCTION_EXTRACT;
+                  const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${instructionToUse}` : instructionToUse;
                   // Cache key bao gồm cả modelName để tránh dùng cache của model cũ khi fallback
                   const cacheSessionKey = `${hashApiKey(currentKey)}_${activeModel}`;
-                  const hasInlineVisionInput = Boolean(part.inlineData) || (Array.isArray(part.inlineDataParts) && part.inlineDataParts.length > 0);
-                  if (!part.text && !hasInlineVisionInput && !sessionCache[cacheSessionKey]) {
+                   const hasInlineVisionInput = Boolean(part.inlineData) || (Array.isArray(part.inlineDataParts) && part.inlineDataParts.length > 0);
+                  const enableCaching = runtimeSettings.enableContextCaching === true;
+                  if (!part.text && !hasInlineVisionInput && !sessionCache[cacheSessionKey] && enableCaching) {
                     sessionCache[cacheSessionKey] = (async () => {
                       try {
                         return await getOrSetContextCache(aiInstance, files, activeModel, finalInstruction, currentKey, {
@@ -1990,7 +2082,7 @@ export const generateQuestions = async (
                       } catch { return null; }
                     })();
                   }
-                  const kCacheName = part.text || hasInlineVisionInput ? null : await sessionCache[cacheSessionKey];
+                  const kCacheName = part.text || hasInlineVisionInput || !enableCaching ? null : await sessionCache[cacheSessionKey];
                   const activeProfile = getModelTokenProfile(runtimeSettings.provider, activeModel);
                   const config = getModelConfig(currentKey, (isAdvancedMode || forceJsonRepair) ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction, questionSchema, activeModel, kCacheName || undefined, activeProfile.safeOutputBudget, {
                     timeoutMs: attemptContext.timeoutMs,

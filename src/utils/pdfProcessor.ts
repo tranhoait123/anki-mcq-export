@@ -678,7 +678,10 @@ export const analyzePdfBoundaryRisk = (
     const answerKeyOnNextPage = nextLines.slice(0, 5).some(isAnswerKeyLine);
     const currentOptionsAfterQuestion = lastQuestionIndex >= 0 ? countOptionLinesAfter(currentLines, lastQuestionIndex) : 0;
     const trailingQuestion = lastQuestionIndex >= 0 && lastQuestionIndex >= Math.floor(currentLines.length * 0.55);
-    const trailingQuestionWithoutOptions = trailingQuestion && currentOptionsAfterQuestion < 2;
+    const lastQuestionLine = lastQuestionIndex >= 0 ? currentLines[lastQuestionIndex] : '';
+    const hasSameLineOptions = SAME_LINE_OPTIONS_PATTERN.test(lastQuestionLine) || 
+        currentLines.slice(lastQuestionIndex + 1).some(line => SAME_LINE_OPTIONS_PATTERN.test(line));
+    const trailingQuestionWithoutOptions = trailingQuestion && currentOptionsAfterQuestion < 2 && !hasSameLineOptions;
     const currentTail = currentLines.slice(Math.max(0, currentLines.length - 8));
     const previousTail = previousLines.slice(Math.max(0, previousLines.length - 8));
     const sharedCaseBoundary = hasSharedCaseHint(currentTail) || (hasSharedCaseHint(previousTail) && (firstQuestionIndexNext >= 0 || startsWithOptions));
@@ -837,12 +840,41 @@ export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChun
 
     // Re-chunk merged vision ranges with overlap so page-boundary clinical stems
     // stay visible with the questions that continue on the next page.
+    // Dynamically adjust boundaries if a high/medium boundary risk is detected.
     const finalVisionRanges: PdfPageRange[] = [];
     for (const merged of mergedVisionRanges) {
-        const step = Math.max(1, pagesPerChunk - overlap);
-        for (let start = merged.start; start <= merged.end; start += step) {
-            finalVisionRanges.push({ start, end: Math.min(merged.end, start + pagesPerChunk - 1) });
-            if (start + pagesPerChunk - 1 >= merged.end) break;
+        let start = merged.start;
+        while (start <= merged.end) {
+            let candidateEnd = Math.min(merged.end, start + pagesPerChunk - 1);
+            
+            // If the candidate chunk doesn't cover the entire merged vision segment,
+            // check for question stem / clinical context boundary risks on the trailing edge.
+            if (candidateEnd < merged.end) {
+                const currentPageObj = pages[candidateEnd - 1];
+                const nextPageObj = pages[candidateEnd];
+                const previousPageObj = pages[candidateEnd - 2];
+                
+                if (currentPageObj && nextPageObj) {
+                    const risk = analyzePdfBoundaryRisk(currentPageObj, nextPageObj, previousPageObj);
+                    const hasSplitRisk = risk.reasons.some((reason) =>
+                        reason === 'trailing_question_without_options' ||
+                        reason === 'next_page_starts_with_options' ||
+                        reason === 'split_options' ||
+                        reason === 'continuation_without_marker'
+                    );
+                    if (hasSplitRisk && candidateEnd > start) {
+                        candidateEnd = candidateEnd - 1;
+                    }
+                }
+            }
+            
+            finalVisionRanges.push({ start, end: candidateEnd });
+            
+            const nextStart = Math.max(start + 1, candidateEnd + 1 - overlap);
+            if (nextStart > merged.end || candidateEnd >= merged.end) {
+                break;
+            }
+            start = nextStart;
         }
     }
     const boundarySafeVisionRanges = expandRangesForBoundaryRisk(finalVisionRanges, pages, pagesPerChunk);

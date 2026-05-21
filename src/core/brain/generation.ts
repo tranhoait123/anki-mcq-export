@@ -617,7 +617,7 @@ export const generateQuestions = async (
             if (onProgress) onProgress(`PDF hybrid: ${pdfTextAnalysis.textBatches.length} batch text, ${visionRanges.length} batch Vision.`, 0);
             if (isOpenAICompatibleRuntime(runtimeSettings)) {
               for (const range of visionRanges) {
-                const images = await convertPdfToImages(pdfDataUrl, range);
+                const images = await convertPdfToImages(pdfDataUrl, range, { quality: runtimeSettings.pdfVisionQuality ?? 'high' });
                 const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(range));
                 const rangePages = pdfTextAnalysis.pages.slice(range.start - 1, range.end);
                 const rangeText = rangePages.map((page) => page.text).join('\n\n');
@@ -694,7 +694,7 @@ export const generateQuestions = async (
           const legacyRanges = getPdfPageRanges(await getPdfPageCount(rawBase64), visionPagesPerChunk, 1);
           if (isOpenAICompatibleRuntime(runtimeSettings)) {
             for (const range of legacyRanges) {
-              const images = await convertPdfToImages(pdfDataUrl, range);
+              const images = await convertPdfToImages(pdfDataUrl, range, { quality: runtimeSettings.pdfVisionQuality ?? 'high' });
               const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(range));
               allParts.push({
                 inlineDataParts: images.map((imageBase64) => ({

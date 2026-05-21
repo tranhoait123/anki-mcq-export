@@ -640,4 +640,50 @@ ${'Nội dung bổ sung đủ dài.\n'.repeat(8)}
     
     expect(analysis.textBatches.some(batch => batch.pageRange.start === 1 && batch.pageRange.end === 4)).toBe(true);
   });
+
+  it('dynamically shrinks vision chunks when a boundary risk is detected on the candidate end page', () => {
+    const page1 = scorePdfTextPage(cleanMcqPage(3), 1);
+    const page2 = scorePdfTextPage(`
+Câu 1: Câu hỏi trắc nghiệm bình thường ở đầu trang.
+A. Lựa chọn A
+B. Lựa chọn B
+C. Lựa chọn C
+D. Lựa chọn D
+Câu 2: Câu hỏi trắc nghiệm khác.
+A. Lựa chọn A
+B. Lựa chọn B
+C. Lựa chọn C
+D. Lựa chọn D
+Câu 3: Câu hỏi bị cắt đôi ở cuối trang này và tiếp tục ở trang sau.
+`, 2);
+    const page3 = scorePdfTextPage(`
+A. Lựa chọn A của câu 3
+B. Lựa chọn B của câu 3
+C. Lựa chọn C của câu 3
+D. Lựa chọn D của câu 3
+Câu 4: Câu hỏi tiếp theo.
+A. Lựa chọn A
+B. Lựa chọn B
+C. Lựa chọn C
+D. Lựa chọn D
+`, 3);
+
+    const pages = [
+      { ...page1, quality: 'suspect' as const },
+      { ...page2, quality: 'suspect' as const },
+      { ...page3, quality: 'suspect' as const },
+    ];
+
+    const analysis = buildPdfTextAnalysisFromPages(pages, 2, 1);
+
+    expect(analysis.visionPageRanges).toContainEqual(expect.objectContaining({
+      start: 1,
+      end: 1,
+    }));
+    expect(analysis.visionPageRanges).toContainEqual(expect.objectContaining({
+      start: 2,
+      end: 3,
+    }));
+  });
 });
+

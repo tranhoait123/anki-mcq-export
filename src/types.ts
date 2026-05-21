@@ -282,6 +282,7 @@ export interface AppSettings {
   autoGroupClinicalCases?: boolean;
   googleRpmLimiterEnabled?: boolean;
   googleRpmLimitPerMinute?: number;
+  pdfVisionQuality?: 'standard' | 'high';
 }
 
 export interface ProjectSettingsSummary {
@@ -298,6 +299,7 @@ export interface ProjectSettingsSummary {
   autoGroupClinicalCases?: boolean;
   googleRpmLimiterEnabled?: boolean;
   googleRpmLimitPerMinute?: number;
+  pdfVisionQuality?: AppSettings['pdfVisionQuality'];
   hasCustomPrompt: boolean;
 }
 

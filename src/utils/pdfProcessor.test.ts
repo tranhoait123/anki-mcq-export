@@ -107,6 +107,20 @@ A. Một    B. Hai    C. Ba    D. Bốn
     expect(page.tableRisk).toBe(true);
   });
 
+  it('scores legacy VNI/Telex/scrambled font text layers as suspect', () => {
+    const scrambledPage = `
+Câu 1: Ch6ng ta c6 th6 th6y r6ng
+A. m6 t6ng th6
+B. d6 ch6
+C. ¤nh ngh3a
+D. t6ng quan
+Giải thích và đáp án với ký tự ¤ đặc trưng.
+`;
+    const page = scorePdfTextPage(scrambledPage, 1);
+    expect(page.quality).toBe('suspect');
+    expect(page.reason).toContain('Text layer bị lỗi font legacy');
+  });
+
   it('routes table-risk PDF pages to vision so rescue can split them if coverage is low', () => {
     const page = scorePdfTextPage(`
 Câu 1: Chọn đáp án đúng A. Một B. Hai C. Ba D. Bốn
@@ -684,6 +698,23 @@ D. Lựa chọn D
       start: 2,
       end: 3,
     }));
+  });
+
+  it('exempts common clinical codes with numbers (SPO2, CO2, O2) from VNI encoding corruption check to avoid false positives', () => {
+    const cleanClinicalPage = `
+Câu 1: Một bệnh nhân nam 65 tuổi có tiền sử COPD nặng nhập viện vì suy hô hấp cấp.
+Khám lâm sàng thấy bệnh nhân thở nhanh nông, nhịp thở 28 lần/phút.
+Xét nghiệm khí máu động mạch lúc nhập viện (thở khí trời): pH 7.28, PaCO2 62 mmHg, PaO2 50 mmHg, HCO3 28 mEq/L.
+Đo SPO2 liên tục tại giường dao động quanh mức 82%-85%. Bệnh nhân được chỉ định thở oxy dòng thấp.
+A. Thở oxy dòng thấp đích SPO2 88-92%
+B. Thở oxy mask không thở lại 15L/phút
+C. Đặt nội khí quản thở máy xâm lấn
+D. Thở máy không xâm lấn BiPAP
+Đáp án đúng là A. Giải thích chi tiết về mục tiêu đích oxy ở bệnh nhân đợt cấp COPD có giữ CO2.
+`;
+    const page = scorePdfTextPage(cleanClinicalPage, 1);
+    expect(page.quality).toBe('goodText'); // Should not be marked as suspect due to false VNI detection
+    expect(page.reason).not.toContain('Text layer bị lỗi font legacy');
   });
 });
 

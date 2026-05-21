@@ -27,7 +27,7 @@ export const generateCSVData = (mcqs: MCQ[]) => {
   const headers = ['Question', 'A', 'B', 'C', 'D', 'E', 'CorrectAnswer', 'ExplanationHTML', 'Source'];
   const rows = mcqs.map((m, idx) => {
     try {
-      const esc = (t: string) => `"${(t || '').replace(/"/g, '""')}"`;
+      const esc = (t: string) => `"${(t || '').replace(/\r\n/g, ' ').replace(/\r/g, ' ').replace(/\n/g, ' ').replace(/"/g, '""')}"`;
 
       const cleanQ = cleanText(m.question || 'Nội dung trống', 'question');
       const formattedQ = formatRichText(cleanQ);

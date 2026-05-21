@@ -101,6 +101,18 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
 OUTPUT FORMAT: JSON Object with "questions" array.
 `;
 
+/**
+ * Lightweight addendum appended to SYSTEM_INSTRUCTION_EXTRACT during retry/rescue.
+ * This preserves 100% of the medical professor expertise while adding rescue-specific notes.
+ */
+export const RESCUE_ADDENDUM = `
+⚠️ CHẾ ĐỘ RESCUE/RETRY: Đây là lần trích xuất bổ sung cho các câu hỏi còn thiếu hoặc bị lỗi.
+- TUYỆT ĐỐI không trả lại các câu hỏi đã trích xuất thành công trước đó (tránh trùng lặp).
+- Vẫn áp dụng TOÀN BỘ quy trình pháp y, sửa lỗi OCR, và xử lý case lâm sàng như trên.
+- Nếu không có câu hỏi thiếu, trả về {"questions": []}.
+`;
+
+/** @deprecated Use SYSTEM_INSTRUCTION_EXTRACT + RESCUE_ADDENDUM instead */
 export const SYSTEM_INSTRUCTION_RESCUE = `
 Bạn là một giáo sư y khoa kiêm chuyên gia trích xuất MCQ.
 Nhiệm vụ: Chỉ trích xuất NỐT các câu hỏi trắc nghiệm còn thiếu/bị lỗi từ tài liệu được cung cấp dưới đây.

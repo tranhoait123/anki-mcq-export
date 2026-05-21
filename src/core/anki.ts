@@ -53,11 +53,12 @@ const extractSimpleHtmlTables = (text: string): { text: string; tables: string[]
 
 export const formatRichText = (text: any): string => {
   if (typeof text !== 'string') return "";
-  const extractedTables = extractSimpleHtmlTables(text);
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const extractedTables = extractSimpleHtmlTables(normalized);
   let html = escapeHtml(extractedTables.text);
   
   if (html.includes('|')) {
-    html = html.replace(/((?:\|[^\n]+\| *(?:\r?\n|$))+)/g, (match) => {
+    html = html.replace(/((?:\|[^\n]+\| *(?:\n|$))+)/g, (match) => {
       const rows = match.trim().split('\n');
       let tableHtml = '<table>';
       let isHeader = true;
@@ -84,7 +85,7 @@ export const formatRichText = (text: any): string => {
   html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
   html = html.replace(/\*(.*?)\*/g, '<i>$1</i>');
   html = html.replace(/\n(?!(<\/tr>|<\/td>|<\/table>|<table|<\/th>|<blockquote|<\/blockquote>))/gi, '<br>');
-  return html;
+  return html.replace(/\r/g, '').replace(/\n/g, ' ');
 };
 
 export const buildAnkiHtml = (exp: Explanation, difficulty: string, depth: string) => {

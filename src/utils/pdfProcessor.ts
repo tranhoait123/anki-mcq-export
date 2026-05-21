@@ -309,9 +309,27 @@ export const scorePdfTextPage = (text: string, pageNumber = 1): PdfTextPage => {
     let quality: PdfPageQuality = 'suspect';
     let reason = 'Text layer thiếu marker MCQ rõ ràng.';
 
+    // Check for VNI/Telex or legacy font encoding corruption
+    const hasVniSymbols = cleanText.includes('¤');
+    const vniWordPattern = /\b[a-zA-Zà-ỹÀ-Ỹ\u00C0-\u017F]+[1-9]+[a-zA-Zà-ỹÀ-Ỹ\u00C0-\u017F]*\b/gu;
+    const rawVniMatches = cleanText.match(vniWordPattern) || [];
+    const commonClinicalExemptions = new Set(['spo2', 'paco2', 'pao2', 'co2', 'o2', 'fio2', 'hba1c', 't1', 't2', 't3', 't4', 'b12', 'hco3']);
+    const vniScrambledWordCount = rawVniMatches.filter((word) => {
+        const lower = word.toLowerCase();
+        if (commonClinicalExemptions.has(lower)) return false;
+        // Exempt uppercase abbreviations (e.g. SPO2, CO2, O2, PaCO2 where letters are uppercase)
+        const lettersOnly = word.replace(/[0-9]+/g, '');
+        if (lettersOnly && lettersOnly === lettersOnly.toUpperCase()) return false;
+        return true;
+    }).length;
+    const hasEncodingCorruption = hasVniSymbols || vniScrambledWordCount >= 3;
+
     if (charCount < 120) {
         quality = 'scanOrEmpty';
         reason = 'Text layer quá ít, nhiều khả năng là scan hoặc ảnh.';
+    } else if (hasEncodingCorruption) {
+        quality = 'suspect';
+        reason = 'Text layer bị lỗi font legacy (VNI/Telex hoặc ký tự ¤/t6ng).';
     } else if (tableRisk) {
         reason = 'Text layer có dấu hiệu bảng/cột lựa chọn cùng dòng.';
     } else if (charCount >= 450 && weirdCharRatio <= 0.08 && lineCount >= 6 && avgLineLength >= 18 && (mcqMarkerCount >= 1 || optionMarkerCount >= 3)) {

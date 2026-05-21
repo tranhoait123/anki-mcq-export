@@ -70,7 +70,7 @@ import {
   partsRequireVision,
   waitWithController,
 } from './generationHelpers';
-import { SYSTEM_INSTRUCTION_EXTRACT, SYSTEM_INSTRUCTION_RESCUE } from './prompts';
+import { SYSTEM_INSTRUCTION_EXTRACT, SYSTEM_INSTRUCTION_RESCUE, RESCUE_ADDENDUM } from './prompts';
 import { measureSync } from '../../utils/performance';
 import { buildMCQFingerprint } from '../../utils/dedupe';
 import { parseJsonFromModelText } from './parsing';
@@ -2040,8 +2040,8 @@ export const generateQuestions = async (
               extractionModel,
               async (currentKey, activeModel, attemptContext) => {
                   const isRescueOrRetry = isRescueMode || isTargetedRetryBatch || part.partialRecovery || part.deferredRecovery;
-                  const instructionToUse = isRescueOrRetry ? SYSTEM_INSTRUCTION_RESCUE : SYSTEM_INSTRUCTION_EXTRACT;
-                  const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${instructionToUse}` : instructionToUse;
+                  const baseInstruction = isRescueOrRetry ? `${SYSTEM_INSTRUCTION_EXTRACT}\n${RESCUE_ADDENDUM}` : SYSTEM_INSTRUCTION_EXTRACT;
+                  const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${baseInstruction}` : baseInstruction;
 
                   const messages = [
                     { role: "system", content: (isAdvancedMode || forceJsonRepair) ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction },
@@ -2068,8 +2068,8 @@ export const generateQuestions = async (
                   if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
                   const aiInstance = createGoogleGenAIClient(runtimeSettings, currentKey);
                   const isRescueOrRetry = isRescueMode || isTargetedRetryBatch || part.partialRecovery || part.deferredRecovery;
-                  const instructionToUse = isRescueOrRetry ? SYSTEM_INSTRUCTION_RESCUE : SYSTEM_INSTRUCTION_EXTRACT;
-                  const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${instructionToUse}` : instructionToUse;
+                  const baseInstruction = isRescueOrRetry ? `${SYSTEM_INSTRUCTION_EXTRACT}\n${RESCUE_ADDENDUM}` : SYSTEM_INSTRUCTION_EXTRACT;
+                  const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${baseInstruction}` : baseInstruction;
                   // Cache key bao gồm cả modelName để tránh dùng cache của model cũ khi fallback
                   const cacheSessionKey = `${hashApiKey(currentKey)}_${activeModel}`;
                    const hasInlineVisionInput = Boolean(part.inlineData) || (Array.isArray(part.inlineDataParts) && part.inlineDataParts.length > 0);

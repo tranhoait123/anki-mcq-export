@@ -1310,6 +1310,15 @@ export const generateQuestions = async (
     const verifyPdfVisionCoverageWithAi = async (part: any, localAssessment: PdfVisionCoverageAssessment): Promise<PdfVisionCoverageAssessment> => {
       if (part?.sourceMode !== 'pdfVision' || localAssessment.validCoveredCount <= 0) return localAssessment;
 
+      if ((part as any).aiVerifierCalled) {
+        return {
+          ...localAssessment,
+          status: 'unverified',
+          confidence: localAssessment.confidence === 'exact' ? 'exact' : 'none',
+          reason: 'Bỏ qua AI verifier (đã gọi 1 lần tối đa để tiết kiệm token).',
+        };
+      }
+
       const sourceLabel = getTrustedSourceLabel(part);
       const existingNumbers = localAssessment.coveredQuestionNumbers.length > 0
         ? localAssessment.coveredQuestionNumbers.join(', ')
@@ -1374,7 +1383,9 @@ export const generateQuestions = async (
               getGoogleRequestRateLimitOptions(runtimeSettings)
             )
         );
-        return evaluatePdfVisionCoverage(part, allQuestions, verifierResult);
+        const result = evaluatePdfVisionCoverage(part, allQuestions, verifierResult);
+        (part as any).aiVerifierCalled = true;
+        return result;
       } catch (error) {
         console.warn(`Batch ${sourceLabel}: Coverage verifier failed; keeping conservative retry path.`, error);
         return {
@@ -1450,6 +1461,9 @@ export const generateQuestions = async (
       );
 
       const tailAddedQuestionCount = Math.max(0, allQuestions.length - beforeTailQuestionCount);
+      if (tailAddedQuestionCount > 0) {
+        (part as any).aiVerifierCalled = false;
+      }
       const postTailAssessment = tailAddedQuestionCount > 0
         ? await evaluatePdfVisionCoverageGate(part)
         : preTailAssessment;
@@ -1810,6 +1824,7 @@ export const generateQuestions = async (
             part.pdfDataUrl &&
             getPdfVisionRangePageCount(part.trace?.pageRange) > 1
           ) {
+            (part as any).tailRecoveryAttempted = true;
             const recoveryParts = await buildPdfVisionRecoveryParts(part, rawNewQs, 1, 1, 'tailFirst');
             if (recoveryParts.length > 0) {
               console.info(`Batch ${batchLabel}: PDF Vision partial không có expected count; thử tail rescue 1 range cuối để tìm câu bị cắt mà không ép đủ số lượng.`);
@@ -1817,6 +1832,7 @@ export const generateQuestions = async (
               const recoveryPartLimit = getImmediateRecoveryPartLimit(unknownTailPolicy);
               const { immediateParts, deferredParts } = splitRecoveryPartsForImmediateRun(recoveryParts, recoveryPartLimit);
 
+              const beforeRecoveryCount = allQuestions.length;
               if (immediateParts.length > 0) {
                 await runPartsWithLimit(
                   immediateParts,
@@ -1842,6 +1858,9 @@ export const generateQuestions = async (
                 });
               }
 
+              if (allQuestions.length > beforeRecoveryCount) {
+                (part as any).aiVerifierCalled = false;
+              }
               const afterTailAssessment = await evaluatePdfVisionCoverageGate(part);
               if (afterTailAssessment.status === 'complete') {
                 clearBatchFailure(topLevelBatchNumber, batchLabel, 'partial');
@@ -1887,6 +1906,7 @@ export const generateQuestions = async (
             const missingAdvisoryNumbers = advisoryExpectedNumbers.filter((questionNumber: number) => !recoveredNumbers.has(questionNumber));
             if (missingAdvisoryNumbers.length > 0) {
               const beforeRecoveryCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
+              (part as any).tailRecoveryAttempted = true;
               const recoveryParts = await buildPdfVisionRecoveryParts(part, rawNewQs, missingAdvisoryNumbers.length, Math.max(1, recoveryPolicy.maxRecoveryRequests || 1), 'tailFirst');
               if (recoveryParts.length > 0) {
                 console.info(`Batch ${batchLabel}: PDF Vision advisory markers còn thiếu câu ${missingAdvisoryNumbers.join(', ')}; chạy targeted boundary rescue.`);
@@ -2390,6 +2410,9 @@ export const generateQuestions = async (
           const actuallyRecovered = Math.max(0, afterDeferredCount - beforeDeferredCount);
 
           if (actuallyRecovered > 0) {
+            if (item.parts[0]) {
+              (item.parts[0] as any).aiVerifierCalled = false;
+            }
             const assessment = item.parts[0]?.sourceMode === 'pdfVision'
               ? await evaluatePdfVisionCoverageGate(item.parts[0])
               : null;
@@ -2453,9 +2476,14 @@ export const generateQuestions = async (
           const coverageAssessment = await evaluatePdfVisionCoverageGate(part);
           const skippedByCoverage = await maybeSkipPdfVisionRetryByCoverage(part, partIndex, String(partIndex + 1), 'rescue', coverageAssessment);
           if (skippedByCoverage) continue;
-          if (shouldPreferTailFirstPdfVisionRetry(part, coverageAssessment, recoveryPolicy.expectedCountReliable)) {
+          if (
+            shouldPreferTailFirstPdfVisionRetry(part, coverageAssessment, recoveryPolicy.expectedCountReliable) &&
+            !(part as any).tailRecoveryAttempted
+          ) {
             const handledByTailProbe = await runTailFirstPdfVisionProbe(part, partIndex, String(partIndex + 1), coverageAssessment);
             if (handledByTailProbe) continue;
+          } else if ((part as any).tailRecoveryAttempted) {
+            console.info(`Batch ${partIndex + 1}: Bypassing duplicate tail recovery probe (already attempted in main phase).`);
           }
         }
         const p = processBatch(part, partIndex);

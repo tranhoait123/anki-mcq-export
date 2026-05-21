@@ -539,6 +539,71 @@ export const createStreamingQuestionBuffer = (): StreamingQuestionBuffer => {
   return { append, drain };
 };
 
+export const detectIfTextIsTruncated = (text: string): boolean => {
+  if (!text) return true;
+
+  // Clean the text from code blocks if present
+  let cleanText = text;
+  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch) {
+    cleanText = codeBlockMatch[1];
+  }
+
+  // Find where the questions array starts
+  const questionsKeyIndex = cleanText.indexOf('"questions"');
+  if (questionsKeyIndex < 0) {
+    // If there is no "questions" key at all, it's either not JSON or extremely truncated/malformed
+    return true;
+  }
+
+  const arrayStart = cleanText.indexOf('[', questionsKeyIndex);
+  if (arrayStart < 0) {
+    return true;
+  }
+
+  const subText = cleanText.substring(arrayStart);
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  let arrayClosed = false;
+
+  for (let i = 0; i < subText.length; i++) {
+    const char = subText[i];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+
+    if (char === '[') {
+      stack.push(']');
+    } else if (char === '{') {
+      stack.push('}');
+    } else if (char === ']' || char === '}') {
+      if (stack.length > 0 && stack[stack.length - 1] === char) {
+        stack.pop();
+        if (stack.length === 0) {
+          // The outermost array '[' has been closed with matching ']'
+          arrayClosed = true;
+          break;
+        }
+      }
+    }
+  }
+
+  // If the array is not closed, it is definitely truncated.
+  return !arrayClosed;
+};
+
 interface ParseQuestionsOptions {
   allowEmpty?: boolean;
   enforceExpectedCount?: boolean;
@@ -578,9 +643,13 @@ export const parseQuestionsFromModelText = (
   } catch (error) {
     const salvaged = salvageCompleteQuestionsFromJson(text);
     if (salvaged.length > 0) {
-      (salvaged as any).__salvagedPartial = true;
+      const isTruncated = expectedQuestions > 0
+        ? salvaged.length < expectedQuestions
+        : detectIfTextIsTruncated(text);
+
+      (salvaged as any).__salvagedPartial = isTruncated;
       (salvaged as any).__missingCount = enforceExpectedCount && expectedQuestions > 0 ? Math.max(0, expectedQuestions - salvaged.length) : 0;
-      console.info(`🧩 Salvaged ${salvaged.length}${expectedQuestions > 0 ? `/${expectedQuestions}` : ''} complete questions from malformed JSON in batch ${batchIndex + 1}.`);
+      console.info(`🧩 Salvaged ${salvaged.length}${expectedQuestions > 0 ? `/${expectedQuestions}` : ''} complete questions from malformed JSON in batch ${batchIndex + 1}. Truncated = ${isTruncated}`);
       return salvaged;
     }
     const message = error instanceof Error ? error.message : String(error);

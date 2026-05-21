@@ -863,17 +863,19 @@ export const generateQuestions = async (
     const inferredCompletedBatchIndices = shouldInferCompletedBatchIndices
       ? inferCompletedBatchIndicesFromExistingQuestions(allParts, options.existingQuestions || [])
       : [];
-    const skippedBatchSet = new Set([
-      ...(options.completedBatchIndices || []),
-      ...inferredCompletedBatchIndices,
-    ]);
     const deprioritizedBatchSet = new Set<number>(
       (options.deprioritizedBatchIndices || [])
         .filter((batchNumber) => Number.isFinite(batchNumber) && batchNumber > 0)
         .map((batchNumber) => Math.floor(batchNumber))
     );
+    const skippedBatchSet = new Set(
+      [
+        ...(options.completedBatchIndices || []),
+        ...inferredCompletedBatchIndices,
+      ].filter((batchNumber) => !deprioritizedBatchSet.has(batchNumber))
+    );
     const inferredOnlyBatchIndices = inferredCompletedBatchIndices.filter(
-      index => !(options.completedBatchIndices || []).includes(index)
+      index => !(options.completedBatchIndices || []).includes(index) && !deprioritizedBatchSet.has(index)
     );
     if (inferredOnlyBatchIndices.length > 0) {
       console.warn(`↩️ Resume: inferred ${inferredOnlyBatchIndices.length} already-restored batch(es) from saved SOURCE_LABEL snapshots. Skipping re-scan: ${inferredOnlyBatchIndices.join(', ')}`);
@@ -2499,7 +2501,7 @@ export const generateQuestions = async (
     };
 
     const processablePartIndexes = getProcessablePartIndexes();
-    const shouldDeprioritizeResumeRetries = options.resumeMode && !(retryIndices && retryIndices.length > 0);
+    const shouldDeprioritizeResumeRetries = (options.resumeMode || deprioritizedBatchSet.size > 0) && !(retryIndices && retryIndices.length > 0);
     const lateResumePartIndexes = shouldDeprioritizeResumeRetries
       ? processablePartIndexes.filter(partIndex => deprioritizedBatchSet.has(partIndex + 1))
       : [];

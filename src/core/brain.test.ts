@@ -1221,6 +1221,59 @@ describe('Core Logic', () => {
     expect(seenRequests[1]).toContain('failed-old.txt');
   });
 
+  it('does not skip a failed batch if it is in deprioritizedBatchIndices even if inferred as completed, running it at the end', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const seenRequests: string[] = [];
+    const fetchMock = vi.fn(async (_url, init: any) => {
+      seenRequests.push(JSON.stringify(JSON.parse(init.body).messages));
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: '{"questions":[]}' } }],
+      }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    // We pass existing questions that make it look like batch 2 (index 1) is completed.
+    // e.g. batch 2 has expected questions count of 1 and we have 1 existing question.
+    // But since batch 2 is in deprioritizedBatchIndices, it should NOT be skipped!
+    await generateQuestions(
+      [
+        { id: 'done', name: 'done.txt', type: 'text/plain', content: 'Batch 1 complete.' },
+        { id: 'failed', name: 'failed-but-inferred-done.txt', type: 'text/plain', content: '[PDF_TEXT_MCQ_COUNT: 1]\nBatch 2 failed/partial.' },
+        { id: 'fresh', name: 'fresh-next.txt', type: 'text/plain', content: 'Batch 3 fresh.' },
+      ],
+      { ...baseSettings, adaptiveBatching: false, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      false,
+      {
+        resumeMode: true,
+        completedBatchIndices: [1],
+        deprioritizedBatchIndices: [2],
+        existingQuestions: [
+          {
+            id: 'q1',
+            question: 'Q1',
+            options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+            correctAnswer: 'A',
+            explanation: { core: 'A đúng.', evidence: '', analysis: '', warning: '' },
+            source: 'failed-but-inferred-done.txt'
+          } as any
+        ]
+      }
+    );
+
+    // We completed batch 1.
+    // Batch 2 has 1 question in existing questions, which might look "completed" under inference.
+    // But since it is in deprioritizedBatchIndices, we force it to be processed (not skipped).
+    // So it should call fetch for batch 3 (fresh) first, then batch 2 (failed).
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(seenRequests[0]).toContain('fresh-next.txt');
+    expect(seenRequests[1]).toContain('failed-but-inferred-done.txt');
+  });
+
   it('runs targeted rescue retry indices sequentially even when app concurrency is high', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     let inFlight = 0;

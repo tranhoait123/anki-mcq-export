@@ -1252,8 +1252,9 @@ export const generateQuestions = async (
         });
 
         let count = 0;
-        for (const q of candidateQuestions) {
-          const qRange = q.trace?.pageRange!;
+        for (const q of candidateQuestions as any[]) {
+          const qRange = q.trace?.pageRange;
+          if (!qRange) continue;
           if (qRange.start === qRange.end) {
             if (qRange.start === p) {
               count++;

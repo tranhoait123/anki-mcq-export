@@ -1391,6 +1391,7 @@ export const generateQuestions = async (
     const evaluatePdfVisionCoverageGate = async (part: any, allowAiVerifier = shouldUseAiCoverageVerifier()): Promise<PdfVisionCoverageAssessment> => {
       const localAssessment = evaluatePdfVisionCoverage(part, allQuestions);
       if (localAssessment.status === 'complete') return localAssessment;
+      if (localAssessment.confidence === 'exact' || localAssessment.confidence === 'high') return localAssessment;
       if (!allowAiVerifier || part?.sourceMode !== 'pdfVision' || localAssessment.validCoveredCount <= 0) return localAssessment;
       return verifyPdfVisionCoverageWithAi(part, localAssessment);
     };
@@ -1499,7 +1500,7 @@ export const generateQuestions = async (
 
         // 2. Adaptive Splitting cho dữ liệu văn bản thuần (Text-only)
         const canAttemptSubdivision = depth < retryProfile.maxDepth;
-        if (adaptiveBatching && canAttemptSubdivision && part.text && currentScale <= 0.5 && part.text.length > (retryProfile.splitThresholdChars * 2)) {
+        if (adaptiveBatching && canAttemptSubdivision && part.text && part.sourceMode !== 'pdfVision' && currentScale <= 0.5 && part.text.length > (retryProfile.splitThresholdChars * 2)) {
            const splitPartsCount = currentScale <= 0.25 ? 4 : 2;
            const chunks = splitTextIntoNaturalParts(part.text, splitPartsCount, retryProfile.splitThresholdChars);
            if (chunks.length > 1) {
@@ -2139,7 +2140,7 @@ export const generateQuestions = async (
         const nativeParts = part.nativeMcqBatch && canAttemptSubdivision && canUseRecoverySubdivision && shouldSplitForError(errorKind)
           ? getNativePartBatches(part.text || '', adaptiveBatching && forceJsonRepair ? 2 : retryProfile.targetSplitParts)
           : [];
-        const canSplitText = canAttemptSubdivision && canUseRecoverySubdivision && part.text && part.text.length > retryProfile.splitThresholdChars && shouldSplitForError(errorKind);
+        const canSplitText = canAttemptSubdivision && canUseRecoverySubdivision && part.text && part.sourceMode !== 'pdfVision' && part.text.length > retryProfile.splitThresholdChars && shouldSplitForError(errorKind);
         if (
           isKeyConservationActive() &&
           batchDecision.cause !== 'requestTooLarge' &&

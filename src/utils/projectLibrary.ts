@@ -64,6 +64,7 @@ export const buildSettingsSummary = (settings: AppSettings) => ({
   provider: settings.provider,
   model: settings.model,
   shopAIKeyEndpoint: settings.provider === 'shopaikey' ? settings.shopAIKeyEndpoint : undefined,
+  shopAIKeyOpenAIRoute: settings.provider === 'shopaikey' ? settings.shopAIKeyOpenAIRoute : undefined,
   skipAnalysis: settings.skipAnalysis,
   concurrencyLimit: settings.concurrencyLimit,
   adaptiveBatching: settings.adaptiveBatching,

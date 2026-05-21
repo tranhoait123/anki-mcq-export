@@ -13,6 +13,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   apiKey: '',
   shopAIKeyKey: '',
   shopAIKeyEndpoint: 'direct',
+  shopAIKeyOpenAIRoute: 'chat',
   provider: 'google',
   model: 'gemini-3.1-flash-lite-preview',
   customPrompt: '',
@@ -177,6 +178,9 @@ export const normalizePersistedSettings = (settings: LegacyPersistedSettings): A
   if (persistedSettings.shopAIKeyKey === undefined) persistedSettings.shopAIKeyKey = '';
   if (persistedSettings.shopAIKeyEndpoint !== 'api' && persistedSettings.shopAIKeyEndpoint !== 'direct') {
     persistedSettings.shopAIKeyEndpoint = 'direct';
+  }
+  if (persistedSettings.shopAIKeyOpenAIRoute !== 'responses' && persistedSettings.shopAIKeyOpenAIRoute !== 'chat') {
+    persistedSettings.shopAIKeyOpenAIRoute = 'chat';
   }
   if (persistedSettings.openRouterKey === undefined) persistedSettings.openRouterKey = '';
   if (persistedSettings.skipAnalysis === undefined) persistedSettings.skipAnalysis = true;

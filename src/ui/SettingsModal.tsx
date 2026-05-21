@@ -4,7 +4,7 @@ import { AppSettings } from '../types';
 import { db } from '../core/db';
 import { toast } from 'sonner';
 import { validateShopAIKeyConnection } from '../core/brain';
-import { AIProvider, coerceModelForProvider, getModelGroups, getShopAIKeyVerifiedModelGroups, isShopAIKeyDeepSeekModel } from '../utils/models';
+import { AIProvider, coerceModelForProvider, getModelGroups, getShopAIKeyVerifiedModelGroups, isShopAIKeyClaudeModel, isShopAIKeyDeepSeekModel, isShopAIKeyOpenAIModel } from '../utils/models';
 import { ConfirmDialogOptions } from '../hooks/useConfirmDialog';
 import type { ShopAIKeyValidationResult } from '../core/brain/openAiProvider';
 import { GOOGLE_RPM_PRESETS, normalizeGoogleRpmLimit } from '../utils/rateLimitSettings';
@@ -81,7 +81,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
 
     const handleShopAIKeyCheck = async () => {
         setIsCheckingShopAIKey(true);
-        const result = await validateShopAIKeyConnection(settings.shopAIKeyKey, settings.model, settings.shopAIKeyEndpoint);
+        const result = await validateShopAIKeyConnection(settings.shopAIKeyKey, settings.model, settings.shopAIKeyEndpoint, settings.shopAIKeyOpenAIRoute);
         setShopAIKeyValidation(result);
         setVerifiedShopAIKeyModels(result.models);
         setIsCheckingShopAIKey(false);
@@ -198,6 +198,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                 : settings.provider === 'shopaikey'
                                     ? isShopAIKeyDeepSeekModel(settings.model)
                                         ? 'DeepSeek qua ShopAIKey dùng Cheap API: app gọi trực tiếp bằng text/OCR; nếu tài liệu chỉ có ảnh/PDF scan, app sẽ báo lỗi thay vì tự đổi model.'
+                                        : isShopAIKeyClaudeModel(settings.model)
+                                            ? 'Claude qua ShopAIKey sẽ gọi đúng Claude Messages API theo spec provider.'
                                         : 'Dùng key ShopAIKey dạng Bearer token; nên kiểm tra model trước khi quét.'
                                     : 'Truy cập hàng loạt model đỉnh nhất như Claude 3.7, GPT-4o, DeepSeek.'}
                         </p>
@@ -373,6 +375,43 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                         * KHUYÊN DÙNG: 1-2 luồng (Key FREE) hoặc 4-8 luồng (Key PRO). Tránh để quá cao dễ bị Google chặn IP (429).
                                     </p>
                                 </div>
+
+                                {/* ShopAIKey OpenAI Route */}
+                                {settings.provider === 'shopaikey' && isShopAIKeyOpenAIModel(settings.model) && (
+                                    <div className="space-y-3 border-t border-slate-100 dark:border-slate-800/50 pt-5">
+                                        <label className="text-sm font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                                            <Network size={16} className="text-indigo-500" />
+                                            ShopAIKey OpenAI Route
+                                        </label>
+                                        <div className="grid grid-cols-2 p-1.5 gap-1.5 bg-gray-100/80 dark:bg-slate-800 rounded-2xl border dark:border-slate-700">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setShopAIKeyValidation(null);
+                                                    setSettings({ ...settings, shopAIKeyOpenAIRoute: 'chat' });
+                                                }}
+                                                className={`min-h-12 py-2 px-2 rounded-xl text-xs font-bold leading-tight transition-all duration-300 ${(settings.shopAIKeyOpenAIRoute || 'chat') === 'chat' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md ring-1 ring-black/5' : 'text-gray-500 dark:text-gray-400 hover:bg-white/50 dark:hover:bg-slate-700/50'}`}
+                                            >
+                                                <span className="block">Chat Completions</span>
+                                                <span className="block opacity-70 text-[10px] mt-0.5">/v1/chat/completions</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setShopAIKeyValidation(null);
+                                                    setSettings({ ...settings, shopAIKeyOpenAIRoute: 'responses' });
+                                                }}
+                                                className={`min-h-12 py-2 px-2 rounded-xl text-xs font-bold leading-tight transition-all duration-300 ${settings.shopAIKeyOpenAIRoute === 'responses' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md ring-1 ring-black/5' : 'text-gray-500 dark:text-gray-400 hover:bg-white/50 dark:hover:bg-slate-700/50'}`}
+                                            >
+                                                <span className="block">Responses API</span>
+                                                <span className="block opacity-70 text-[10px] mt-0.5">/v1/responses</span>
+                                            </button>
+                                        </div>
+                                        <p className="text-[10px] text-slate-500 italic leading-relaxed px-1">
+                                            * Mặc định Chat Completions để giữ ổn định. Responses API dành cho model OpenAI-compatible đời mới khi muốn thử route mới của ShopAIKey.
+                                        </p>
+                                    </div>
+                                )}
 
                                 {/* Google RPM Guard */}
                                 <div className="space-y-3 border-t border-slate-100 dark:border-slate-800/50 pt-5">

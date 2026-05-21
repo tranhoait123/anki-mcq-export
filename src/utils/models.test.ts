@@ -11,6 +11,7 @@ import {
   isVisionCapableModel,
   isLegacyGeminiModel,
   isModelAllowedForProvider,
+  isShopAIKeyClaudeModel,
   isShopAIKeyDeepSeekModel,
   isShopAIKeyGeminiModel,
   isShopAIKeyOpenAIModel,
@@ -63,7 +64,7 @@ describe('AI model registry', () => {
     expect(values).toContain('qwen/qwen3.6-plus');
   });
 
-  it('keeps ShopAIKey OpenAI-compatible and Gemini models without Claude entries', () => {
+  it('keeps ShopAIKey OpenAI-compatible, Gemini, and Claude model families', () => {
     const values = getModelValues('shopaikey');
 
     expect(values).toContain('o3-pro');
@@ -83,9 +84,11 @@ describe('AI model registry', () => {
     expect(values).toContain('gpt-5.4-nano');
     expect(values).toContain('gpt-5-nano');
     expect(values).toContain('deepseek-reasoner');
+    expect(values).toContain('claude-opus-4-7');
+    expect(values).toContain('claude-sonnet-4-6');
+    expect(values).toContain('claude-haiku-4-5-20251001');
     expect(values).not.toContain('openai/gpt-5.4-mini');
     expect(values).not.toContain('anthropic/claude-sonnet-4.6');
-    expect(values.some(value => value.toLowerCase().includes('claude'))).toBe(false);
   });
 
   it('renders newest groups first for every provider', () => {
@@ -155,17 +158,21 @@ describe('AI model registry', () => {
     expect(normalizeModelForProvider('shopaikey', 'openai/gpt-5.5')).toBe('gpt-5.5');
     expect(normalizeModelForProvider('shopaikey', 'openai/gpt-5-nano')).toBe('gpt-5-nano');
     expect(normalizeModelForProvider('shopaikey', 'google/gemini-3.1-pro-preview')).toBe('gemini-3.1-pro-preview');
-    expect(normalizeModelForProvider('shopaikey', 'anthropic/claude-opus-4.7')).toBe('anthropic/claude-opus-4.7');
+    expect(normalizeModelForProvider('shopaikey', 'anthropic/claude-opus-4.7')).toBe('claude-opus-4-7');
+    expect(normalizeModelForProvider('shopaikey', 'anthropic/claude-sonnet-4.6')).toBe('claude-sonnet-4-6');
     expect(normalizeModelForProvider('shopaikey', 'deepseek/deepseek-reasoner')).toBe('deepseek-reasoner');
     expect(normalizeModelForProvider('shopaikey', 'deepseek/deepseek-v4-pro')).toBe('deepseek-v4-pro');
     expect(normalizeModelForProvider('shopaikey', 'qwen/qwen3.6-35b-a3b')).toBe('qwen3.6-35b-a3b');
     expect(normalizeModelForProvider('openrouter', 'openai/gpt-5.4-mini')).toBe('openai/gpt-5.4-mini');
   });
 
-  it('detects ShopAIKey Gemini vs OpenAI-compatible runtime families', () => {
+  it('detects ShopAIKey Gemini, Claude, and OpenAI-compatible runtime families', () => {
     expect(isShopAIKeyGeminiModel('gemini-3.1-flash-lite-preview')).toBe(true);
     expect(isShopAIKeyGeminiModel('google/gemini-3.1-pro-preview')).toBe(true);
     expect(isShopAIKeyGeminiModel('gpt-5-nano')).toBe(false);
+    expect(isShopAIKeyClaudeModel('claude-sonnet-4-6')).toBe(true);
+    expect(isShopAIKeyClaudeModel('anthropic/claude-opus-4.7')).toBe(true);
+    expect(isShopAIKeyOpenAIModel('claude-sonnet-4-6')).toBe(false);
     expect(isShopAIKeyOpenAIModel('gpt-5-nano')).toBe(true);
     expect(isShopAIKeyOpenAIModel('openai/gpt-5.4-mini')).toBe(true);
     expect(isShopAIKeyOpenAIModel('deepseek-v4-pro')).toBe(true);
@@ -174,6 +181,7 @@ describe('AI model registry', () => {
     expect(isShopAIKeyOpenAIModel('MiniMax-M2.7')).toBe(true);
     expect(isShopAIKeyOpenAIModel('mimo-v2.5-pro')).toBe(true);
     expect(isShopAIKeyOpenAIResponsesModel('gemini-3.1-flash-lite-preview')).toBe(false);
+    expect(isShopAIKeyOpenAIResponsesModel('claude-sonnet-4-6')).toBe(false);
   });
 
   it('builds ShopAIKey model groups only from verified API model ids', () => {

@@ -61,6 +61,14 @@ export const MODEL_GROUPS: Record<AIProvider, ModelGroup[]> = {
       ],
     },
     {
+      label: 'Claude qua ShopAIKey',
+      options: [
+        { value: 'claude-opus-4-7', label: 'Claude Opus 4.7 (ShopAIKey)' },
+        { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (ShopAIKey)' },
+        { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (ShopAIKey)' },
+      ],
+    },
+    {
       label: 'Gemini qua ShopAIKey',
       options: [
         { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview (ShopAIKey - PDF/ảnh + suy luận sâu)' },
@@ -212,6 +220,13 @@ const SHOPAIKEY_MODEL_ALIASES: Record<string, string> = {
   'google/gemini-2.5-flash': 'gemini-2.5-flash',
   'openai/o3-pro': 'o3-pro',
   'openai/o3-mini': 'o3-mini',
+  'anthropic/claude-opus-4.7': 'claude-opus-4-7',
+  'anthropic/claude-opus-4-7': 'claude-opus-4-7',
+  'anthropic/claude-sonnet-4.6': 'claude-sonnet-4-6',
+  'anthropic/claude-sonnet-4-6': 'claude-sonnet-4-6',
+  'anthropic/claude-haiku-4.5': 'claude-haiku-4-5-20251001',
+  'anthropic/claude-haiku-4-5': 'claude-haiku-4-5-20251001',
+  'anthropic/claude-haiku-4-5-20251001': 'claude-haiku-4-5-20251001',
   'deepseek/deepseek-v3.2': 'deepseek-v3.2',
   'deepseek/deepseek-reasoner': 'deepseek-reasoner',
   'deepseek/deepseek-v4-pro': 'deepseek-v4-pro',
@@ -236,8 +251,13 @@ export const isShopAIKeyGeminiModel = (model: string): boolean => {
   return normalized.startsWith('gemini-');
 };
 
+export const isShopAIKeyClaudeModel = (model: string): boolean => {
+  const normalized = normalizeModelForProvider('shopaikey', model || '').toLowerCase();
+  return normalized.startsWith('claude-');
+};
+
 export const isShopAIKeyOpenAIModel = (model: string): boolean =>
-  Boolean(normalizeModelForProvider('shopaikey', model || '')) && !isShopAIKeyGeminiModel(model);
+  Boolean(normalizeModelForProvider('shopaikey', model || '')) && !isShopAIKeyGeminiModel(model) && !isShopAIKeyClaudeModel(model);
 
 export const isShopAIKeyOpenAIResponsesModel = isShopAIKeyOpenAIModel;
 

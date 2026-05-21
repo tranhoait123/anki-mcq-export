@@ -82,6 +82,7 @@ describe('project library helpers', () => {
       provider: 'google',
       model: 'gemini-3.1-flash-lite-preview',
       shopAIKeyEndpoint: undefined,
+      shopAIKeyOpenAIRoute: undefined,
       skipAnalysis: true,
       concurrencyLimit: 2,
       adaptiveBatching: true,

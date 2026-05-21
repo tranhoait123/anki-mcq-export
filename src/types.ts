@@ -267,6 +267,7 @@ export interface AppSettings {
   apiKey: string;
   shopAIKeyKey: string;
   shopAIKeyEndpoint?: 'direct' | 'api';
+  shopAIKeyOpenAIRoute?: 'chat' | 'responses';
   openRouterKey?: string;
   provider: 'google' | 'shopaikey' | 'openrouter';
   model: string;
@@ -287,6 +288,7 @@ export interface ProjectSettingsSummary {
   provider: AppSettings['provider'];
   model: string;
   shopAIKeyEndpoint?: AppSettings['shopAIKeyEndpoint'];
+  shopAIKeyOpenAIRoute?: AppSettings['shopAIKeyOpenAIRoute'];
   skipAnalysis?: boolean;
   concurrencyLimit?: number;
   adaptiveBatching?: boolean;

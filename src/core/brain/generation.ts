@@ -2440,7 +2440,7 @@ export const generateQuestions = async (
     };
 
     const runTopLevelPartIndexes = async (partIndexes: number[], limitOverride?: number) => {
-      const activePromises: Promise<void>[] = [];
+      const activePromises = new Set<Promise<void>>();
       for (const partIndex of partIndexes) {
         await controller?.waitIfPaused();
         const part = allParts[partIndex];
@@ -2458,13 +2458,15 @@ export const generateQuestions = async (
           }
         }
         const p = processBatch(part, partIndex);
-        activePromises.push(p);
-        while (activePromises.length >= Math.max(1, limitOverride || getConcurrencyLimit())) {
-          const finishedIndex = await Promise.race(activePromises.map((p, idx) => p.then(() => idx)));
-          activePromises.splice(finishedIndex, 1);
+        activePromises.add(p);
+        void p.then(() => {
+          activePromises.delete(p);
+        });
+        while (activePromises.size >= Math.max(1, limitOverride || getConcurrencyLimit())) {
+          await Promise.race(Array.from(activePromises));
         }
       }
-      await Promise.all(activePromises);
+      await Promise.all(Array.from(activePromises));
     };
 
     const processablePartIndexes = getProcessablePartIndexes();

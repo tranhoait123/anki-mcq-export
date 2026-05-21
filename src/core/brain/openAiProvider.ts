@@ -1,5 +1,11 @@
 import { AppSettings, UploadedFile } from '../../types';
-import { getModelTokenProfile, isShopAIKeyDeepSeekModel, isShopAIKeyGeminiModel, normalizeModelForProvider } from '../../utils/models';
+import {
+  getModelTokenProfile,
+  isShopAIKeyClaudeModel,
+  isShopAIKeyDeepSeekModel,
+  isShopAIKeyGeminiModel,
+  normalizeModelForProvider,
+} from '../../utils/models';
 import { getFileTextContent } from './batching';
 import { getShopAIKeyGoogleBaseUrl } from './googleProvider';
 import { createProviderApiError, translateErrorForUser } from './providerErrors';
@@ -10,7 +16,7 @@ export interface ProviderRequestConfig {
   url: string;
   providerName: string;
   model: string;
-  endpointKind: 'chat';
+  endpointKind: 'chat' | 'responses' | 'claude';
   apiKey: string;
   headers: Record<string, string>;
   body: Record<string, any>;
@@ -43,6 +49,9 @@ export const isOpenAICompatibleProvider = (provider: AppSettings['provider']): p
 export const isShopAIKeyGeminiRuntime = (settings: Pick<AppSettings, 'provider' | 'model'>): boolean =>
   settings.provider === 'shopaikey' && isShopAIKeyGeminiModel(settings.model);
 
+export const isShopAIKeyClaudeRuntime = (settings: Pick<AppSettings, 'provider' | 'model'>): boolean =>
+  settings.provider === 'shopaikey' && isShopAIKeyClaudeModel(settings.model);
+
 export const isOpenAICompatibleRuntime = (settings: Pick<AppSettings, 'provider' | 'model'>): settings is Pick<AppSettings, 'provider' | 'model'> & { provider: OpenAICompatibleProvider } =>
   settings.provider === 'openrouter' || (settings.provider === 'shopaikey' && !isShopAIKeyGeminiRuntime(settings));
 
@@ -61,6 +70,8 @@ export const getShopAIKeyOpenAIBaseUrl = (settings: Pick<AppSettings, 'shopAIKey
 
 const buildProviderUrl = (settings: AppSettings): string => {
   if (settings.provider === 'shopaikey') {
+    if (isShopAIKeyClaudeRuntime(settings)) return `${getShopAIKeyOpenAIBaseUrl(settings)}/messages`;
+    if (settings.shopAIKeyOpenAIRoute === 'responses') return `${getShopAIKeyOpenAIBaseUrl(settings)}/responses`;
     return `${getShopAIKeyOpenAIBaseUrl(settings)}/chat/completions`;
   }
   return OPENROUTER_CHAT_COMPLETIONS_URL;
@@ -100,6 +111,27 @@ const contentContainsImageUrl = (content: any): boolean => {
 const messagesContainImageUrl = (messages: any[]): boolean =>
   messages.some(message => contentContainsImageUrl(message?.content));
 
+const textFromContent = (content: any): string => {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map(part => {
+        if (typeof part === 'string') return part;
+        if (part?.type === 'text') return part.text || '';
+        return part?.text || part?.content || '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  return '';
+};
+
+const normalizeDataUrl = (url: string): { mediaType: string; data: string } | null => {
+  const match = String(url || '').match(/^data:([^;,]+);base64,(.+)$/);
+  if (!match) return null;
+  return { mediaType: match[1], data: match[2] };
+};
+
 const buildChatRequestBody = (
   settings: AppSettings,
   modelName: string,
@@ -121,6 +153,90 @@ const buildChatRequestBody = (
   return body;
 };
 
+const buildResponsesRequestBody = (
+  settings: AppSettings,
+  modelName: string,
+  model: string,
+  messages: any[],
+  includeResponseFormat: boolean
+): Record<string, any> => {
+  const instructionMessages = messages.filter(message => message.role === 'system' || message.role === 'developer');
+  const inputMessages = messages.filter(message => message.role !== 'system' && message.role !== 'developer');
+  const instructions = [
+    ...instructionMessages.map(message => textFromContent(message.content)).filter(Boolean),
+    ...(includeResponseFormat ? [JSON_MODE_FALLBACK_INSTRUCTION] : []),
+  ].join('\n\n');
+
+  const body: Record<string, any> = {
+    model,
+    input: inputMessages.length > 0 ? inputMessages : messages,
+    temperature: 0.1,
+    max_output_tokens: getModelTokenProfile(settings.provider, modelName).safeOutputBudget,
+  };
+  if (instructions) body.instructions = instructions;
+  return body;
+};
+
+const toClaudeContent = (content: any): any[] | string => {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return String(content || '');
+  return content.map(part => {
+    if (typeof part === 'string') return { type: 'text', text: part };
+    if (part?.type === 'image_url' || part?.image_url) {
+      const url = part?.image_url?.url || part?.url || '';
+      const dataUrl = normalizeDataUrl(url);
+      if (dataUrl) {
+        return {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: dataUrl.mediaType,
+            data: dataUrl.data,
+          },
+        };
+      }
+      return {
+        type: 'image',
+        source: {
+          type: 'url',
+          url,
+        },
+      };
+    }
+    return { type: 'text', text: part?.text || part?.content || '' };
+  }).filter(part => part.type !== 'text' || part.text);
+};
+
+const buildClaudeRequestBody = (
+  settings: AppSettings,
+  modelName: string,
+  model: string,
+  messages: any[],
+  includeResponseFormat: boolean
+): Record<string, any> => {
+  const systemText = [
+    ...messages
+      .filter(message => message.role === 'system' || message.role === 'developer')
+      .map(message => textFromContent(message.content))
+      .filter(Boolean),
+    ...(includeResponseFormat ? [JSON_MODE_FALLBACK_INSTRUCTION] : []),
+  ].join('\n\n');
+  const claudeMessages = messages
+    .filter(message => message.role === 'user' || message.role === 'assistant')
+    .map(message => ({
+      role: message.role,
+      content: toClaudeContent(message.content),
+    }));
+
+  return {
+    model,
+    messages: claudeMessages.length > 0 ? claudeMessages : [{ role: 'user', content: 'ping' }],
+    ...(systemText ? { system: systemText } : {}),
+    max_tokens: getModelTokenProfile(settings.provider, modelName).safeOutputBudget,
+    temperature: 0.1,
+  };
+};
+
 export const buildOpenAICompatibleProviderRequest = (
   settings: AppSettings,
   modelName: string,
@@ -137,8 +253,16 @@ export const buildOpenAICompatibleProviderRequest = (
   if (settings.provider === 'shopaikey' && isShopAIKeyDeepSeekModel(model) && messagesContainImageUrl(messages)) {
     throw new Error(`SHOPAIKEY_DEEPSEEK_VISION_GROUP_UNSUPPORTED: DeepSeek ShopAIKey nằm trong group Cheap API nên app không gửi image_url/PDF scan thô để tránh gateway route sang group Gemini. Hãy dùng file text/OCR hoặc chọn model vision khác. | model=${model}`);
   }
-  const endpointKind = 'chat';
-  const body = buildChatRequestBody(settings, modelName, model, messages, includeResponseFormat);
+  const endpointKind: ProviderRequestConfig['endpointKind'] = settings.provider === 'shopaikey' && isShopAIKeyClaudeModel(model)
+    ? 'claude'
+    : settings.provider === 'shopaikey' && settings.shopAIKeyOpenAIRoute === 'responses'
+      ? 'responses'
+      : 'chat';
+  const body = endpointKind === 'claude'
+    ? buildClaudeRequestBody(settings, modelName, model, messages, includeResponseFormat)
+    : endpointKind === 'responses'
+      ? buildResponsesRequestBody(settings, modelName, model, messages, includeResponseFormat)
+      : buildChatRequestBody(settings, modelName, model, messages, includeResponseFormat);
 
   return {
     url: buildProviderUrl(settings),
@@ -168,6 +292,44 @@ const buildShopAIKeyGeminiProbeBody = (): Record<string, any> => ({
     temperature: 0,
   },
 });
+
+const buildShopAIKeyResponsesProbeBody = (model: string): Record<string, any> => ({
+  model,
+  input: 'ping',
+  max_output_tokens: 8,
+  temperature: 0,
+});
+
+const buildShopAIKeyClaudeProbeBody = (model: string): Record<string, any> => ({
+  model,
+  messages: [{ role: 'user', content: 'ping' }],
+  max_tokens: 8,
+  temperature: 0,
+});
+
+const getShopAIKeyProbeKind = (
+  model: string,
+  route: AppSettings['shopAIKeyOpenAIRoute']
+): ProviderRequestConfig['endpointKind'] | 'gemini' => {
+  if (isShopAIKeyGeminiModel(model)) return 'gemini';
+  if (isShopAIKeyClaudeModel(model)) return 'claude';
+  return route === 'responses' ? 'responses' : 'chat';
+};
+
+const buildShopAIKeyProbeRequest = (
+  model: string,
+  endpoint: AppSettings['shopAIKeyEndpoint'],
+  route: AppSettings['shopAIKeyOpenAIRoute']
+): { url: string; body: Record<string, any>; kind: ProviderRequestConfig['endpointKind'] | 'gemini' } => {
+  const kind = getShopAIKeyProbeKind(model, route);
+  if (kind === 'gemini') {
+    return { kind, url: buildShopAIKeyGeminiProbeUrl(model, endpoint), body: buildShopAIKeyGeminiProbeBody() };
+  }
+  const baseUrl = getShopAIKeyOpenAIBaseUrl({ shopAIKeyEndpoint: endpoint });
+  if (kind === 'claude') return { kind, url: `${baseUrl}/messages`, body: buildShopAIKeyClaudeProbeBody(model) };
+  if (kind === 'responses') return { kind, url: `${baseUrl}/responses`, body: buildShopAIKeyResponsesProbeBody(model) };
+  return { kind, url: `${baseUrl}/chat/completions`, body: buildShopAIKeyChatProbeBody(model) };
+};
 
 const hasNoAvailableChannelSignal = (error: Error): boolean =>
   error.message.toLowerCase().includes('no available channel');
@@ -209,7 +371,8 @@ const getShopAIKeyValidationErrorMessage = (status: number, detail: string): str
 export const validateShopAIKeyConnection = async (
   apiKey: string,
   selectedModel: string,
-  endpoint: AppSettings['shopAIKeyEndpoint'] = 'direct'
+  endpoint: AppSettings['shopAIKeyEndpoint'] = 'direct',
+  openAIRoute: AppSettings['shopAIKeyOpenAIRoute'] = 'chat'
 ): Promise<ShopAIKeyValidationResult> => {
   const token = apiKey.trim();
   const normalizedSelectedModel = normalizeModelForProvider('shopaikey', selectedModel || '');
@@ -247,11 +410,11 @@ export const validateShopAIKeyConnection = async (
 
     const data = await response.json();
     const listedModels = extractShopAIKeyModelIds(data);
-    const isGeminiModel = isShopAIKeyGeminiModel(normalizedSelectedModel);
-    const models = isGeminiModel && normalizedSelectedModel && !listedModels.includes(normalizedSelectedModel)
+    const probeKind = getShopAIKeyProbeKind(normalizedSelectedModel, openAIRoute);
+    const models = probeKind === 'gemini' && normalizedSelectedModel && !listedModels.includes(normalizedSelectedModel)
       ? [...listedModels, normalizedSelectedModel].sort((a, b) => a.localeCompare(b))
       : listedModels;
-    const selectedModelAvailable = Boolean(normalizedSelectedModel && (listedModels.includes(normalizedSelectedModel) || isGeminiModel));
+    const selectedModelAvailable = Boolean(normalizedSelectedModel && (listedModels.includes(normalizedSelectedModel) || probeKind === 'gemini'));
 
     if (!selectedModelAvailable) {
       return {
@@ -263,10 +426,9 @@ export const validateShopAIKeyConnection = async (
       };
     }
 
+    const probeRequest = buildShopAIKeyProbeRequest(normalizedSelectedModel, endpoint, openAIRoute);
     const probeResponse = await fetch(
-      isGeminiModel
-        ? buildShopAIKeyGeminiProbeUrl(normalizedSelectedModel, endpoint)
-        : `${openAIBaseUrl}/chat/completions`,
+      probeRequest.url,
       {
       method: 'POST',
       headers: {
@@ -274,23 +436,22 @@ export const validateShopAIKeyConnection = async (
         Accept: 'application/json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(isGeminiModel
-        ? buildShopAIKeyGeminiProbeBody()
-        : buildShopAIKeyChatProbeBody(normalizedSelectedModel)),
+      body: JSON.stringify(probeRequest.body),
       }
     );
 
     if (!probeResponse.ok) {
       const error = await createProviderApiError('ShopAIKey', probeResponse, normalizedSelectedModel);
-      if (endpoint === 'api' && !isGeminiModel && hasNoAvailableChannelSignal(error)) {
-        const directProbeResponse = await fetch(`${SHOPAIKEY_OPENAI_DIRECT_BASE_URL}/chat/completions`, {
+      if (endpoint === 'api' && hasNoAvailableChannelSignal(error)) {
+        const directProbeRequest = buildShopAIKeyProbeRequest(normalizedSelectedModel, 'direct', openAIRoute);
+        const directProbeResponse = await fetch(directProbeRequest.url, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: 'application/json',
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(buildShopAIKeyChatProbeBody(normalizedSelectedModel)),
+          body: JSON.stringify(directProbeRequest.body),
         });
         if (directProbeResponse.ok) {
           return {
@@ -318,7 +479,7 @@ export const validateShopAIKeyConnection = async (
       models,
       selectedModel: normalizedSelectedModel,
       selectedModelAvailable,
-      message: `ShopAIKey kết nối OK (${endpoint === 'api' ? 'official api' : 'direct backup'}). Model "${normalizedSelectedModel}" phản hồi ${isGeminiModel ? 'Google GenAI' : 'OpenAI Chat Completions'} OK.`,
+      message: `ShopAIKey kết nối OK (${endpoint === 'api' ? 'official api' : 'direct backup'}). Model "${normalizedSelectedModel}" phản hồi ${probeKind === 'gemini' ? 'Google GenAI' : probeKind === 'claude' ? 'Claude Messages' : probeKind === 'responses' ? 'OpenAI Responses' : 'OpenAI Chat Completions'} OK.`,
     };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -380,10 +541,17 @@ export const extractProviderMessageContent = (data: any): string => {
 };
 
 const getProviderFinishReason = (data: any): string =>
-  String(data?.choices?.[0]?.finish_reason ?? data?.choices?.[0]?.finishReason ?? data?.finish_reason ?? '').toLowerCase();
+  String(
+    data?.choices?.[0]?.finish_reason ??
+    data?.choices?.[0]?.finishReason ??
+    data?.finish_reason ??
+    data?.stop_reason ??
+    data?.status ??
+    ''
+  ).toLowerCase();
 
 const isTruncatedFinishReason = (finishReason: string): boolean =>
-  finishReason === 'length' || finishReason === 'max_tokens' || finishReason === 'max_output_tokens';
+  finishReason === 'length' || finishReason === 'max_tokens' || finishReason === 'max_output_tokens' || finishReason === 'incomplete';
 
 export const callOpenAICompatibleProvider = async (
   settings: AppSettings,

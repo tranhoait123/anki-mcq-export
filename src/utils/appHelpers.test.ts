@@ -143,11 +143,21 @@ describe('app helpers', () => {
       provider: 'shopaikey',
       model: 'gpt-5.4-mini',
     }).shopAIKeyEndpoint).toBe('direct');
+    expect(normalizePersistedSettings({
+      provider: 'shopaikey',
+      model: 'gpt-5.4-mini',
+    }).shopAIKeyOpenAIRoute).toBe('chat');
 
     expect(normalizePersistedSettings({
       provider: 'shopaikey',
       model: 'gpt-5.4-mini',
       shopAIKeyEndpoint: 'api',
+      shopAIKeyOpenAIRoute: 'responses',
     }).shopAIKeyEndpoint).toBe('api');
+    expect(normalizePersistedSettings({
+      provider: 'shopaikey',
+      model: 'gpt-5.4-mini',
+      shopAIKeyOpenAIRoute: 'responses',
+    }).shopAIKeyOpenAIRoute).toBe('responses');
   });
 });

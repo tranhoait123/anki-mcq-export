@@ -74,6 +74,55 @@ describe('OpenAI-compatible provider vision payloads', () => {
     expect(officialRequest.url).toBe('https://api.shopaikey.com/v1/chat/completions');
   });
 
+  it('builds ShopAIKey OpenAI-compatible requests for the Responses API route', () => {
+    const request = buildOpenAICompatibleProviderRequest(
+      { ...shopAIKeySettings, shopAIKeyOpenAIRoute: 'responses' },
+      'openai/gpt-5.4-mini',
+      [
+        { role: 'system', content: 'Return JSON.' },
+        { role: 'user', content: 'Scan this.' },
+      ]
+    );
+
+    expect(request.url).toBe('https://direct.shopaikey.com/v1/responses');
+    expect(request.endpointKind).toBe('responses');
+    expect(request.body.model).toBe('gpt-5.4-mini');
+    expect(request.body.input).toEqual([{ role: 'user', content: 'Scan this.' }]);
+    expect(request.body.instructions).toContain('Return JSON.');
+    expect(request.body.instructions).toContain('Endpoint hiện tại không hỗ trợ response_format');
+    expect(request.body.max_output_tokens).toBe(65536);
+    expect(request.body.response_format).toBeUndefined();
+  });
+
+  it('builds ShopAIKey Claude Messages requests with system text and image payloads', () => {
+    const request = buildOpenAICompatibleProviderRequest(
+      { ...shopAIKeySettings, model: 'anthropic/claude-sonnet-4.6' },
+      'anthropic/claude-sonnet-4.6',
+      [
+        { role: 'system', content: 'Return JSON.' },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Mô tả ảnh.' },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,abc123' } },
+          ],
+        },
+      ]
+    );
+
+    expect(request.url).toBe('https://direct.shopaikey.com/v1/messages');
+    expect(request.endpointKind).toBe('claude');
+    expect(request.body.model).toBe('claude-sonnet-4-6');
+    expect(request.body.system).toContain('Return JSON.');
+    expect(request.body.system).toContain('Endpoint hiện tại không hỗ trợ response_format');
+    expect(request.body.messages[0].role).toBe('user');
+    expect(request.body.messages[0].content).toEqual([
+      { type: 'text', text: 'Mô tả ảnh.' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc123' } },
+    ]);
+    expect(request.body.max_tokens).toBeGreaterThan(0);
+  });
+
   it('uses the active rotated key override for OpenAI-compatible provider attempts', () => {
     const request = buildOpenAICompatibleProviderRequest(
       { ...shopAIKeySettings, shopAIKeyKey: 'key-one,key-two' },
@@ -147,6 +196,41 @@ describe('OpenAI-compatible provider vision payloads', () => {
     expect(secondBody.model).toBe('gpt-5.4-mini');
     expect(secondBody.response_format).toBeUndefined();
     expect(secondBody.messages[0].content).toContain('Endpoint hiện tại không hỗ trợ response_format');
+  });
+
+  it('calls ShopAIKey Responses API and parses output content text', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      output: [
+        { content: [{ type: 'output_text', text: '{"questions":[]}' }] },
+      ],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callOpenAICompatibleProvider(
+      { ...shopAIKeySettings, shopAIKeyOpenAIRoute: 'responses' },
+      'gpt-5.4-mini',
+      [{ role: 'user', content: 'Scan this.' }]
+    );
+
+    expect(result).toBe('{"questions":[]}');
+    expect(fetchMock.mock.calls[0][0]).toBe('https://direct.shopaikey.com/v1/responses');
+  });
+
+  it('calls ShopAIKey Claude Messages and parses content text', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      content: [{ type: 'text', text: '{"questions":[]}' }],
+      stop_reason: 'end_turn',
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callOpenAICompatibleProvider(
+      { ...shopAIKeySettings, model: 'claude-sonnet-4-6' },
+      'claude-sonnet-4-6',
+      [{ role: 'user', content: 'Scan this.' }]
+    );
+
+    expect(result).toBe('{"questions":[]}');
+    expect(fetchMock.mock.calls[0][0]).toBe('https://direct.shopaikey.com/v1/messages');
   });
 
   it('passes external abort signals through provider fetch calls', async () => {
@@ -227,6 +311,51 @@ describe('OpenAI-compatible provider vision payloads', () => {
     expect(result.message).toContain('official api');
     expect(fetchMock.mock.calls[0][0]).toBe('https://api.shopaikey.com/v1/models');
     expect(fetchMock.mock.calls[1][0]).toBe('https://api.shopaikey.com/v1/chat/completions');
+  });
+
+  it('validates ShopAIKey OpenAI-compatible models through /v1/responses when selected', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        object: 'list',
+        data: [{ id: 'gpt-5.4-mini' }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        output: [{ content: [{ text: 'pong' }] }],
+      }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await validateShopAIKeyConnection('shop-key', 'gpt-5.4-mini', 'direct', 'responses');
+
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain('OpenAI Responses');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://direct.shopaikey.com/v1/responses');
+    const probeBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(probeBody).toMatchObject({ model: 'gpt-5.4-mini', input: 'ping', max_output_tokens: 8 });
+  });
+
+  it('validates ShopAIKey Claude models through /v1/messages', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        object: 'list',
+        data: [{ id: 'claude-sonnet-4-6' }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        content: [{ type: 'text', text: 'pong' }],
+      }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await validateShopAIKeyConnection('shop-key', 'anthropic/claude-sonnet-4.6');
+
+    expect(result.ok).toBe(true);
+    expect(result.selectedModel).toBe('claude-sonnet-4-6');
+    expect(result.message).toContain('Claude Messages');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://direct.shopaikey.com/v1/messages');
+    const probeBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(probeBody).toMatchObject({
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: 'ping' }],
+      max_tokens: 8,
+    });
   });
 
   it('validates ShopAIKey Gemini models through the native Google GenAI endpoint', async () => {

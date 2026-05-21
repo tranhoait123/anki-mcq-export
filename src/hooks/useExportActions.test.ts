@@ -34,4 +34,41 @@ describe('export actions helpers', () => {
     expect(csv).toContain('"B"');
     expect(csv).toContain('"demo.txt"');
   });
+
+  it('safely escapes special characters, quotes, and newlines in CSV export to prevent row fracturing', () => {
+    const dirtyMcq: MCQ = {
+      id: 'q2',
+      question: 'Câu 2: Đây là câu hỏi "có dấu nháy kép" và\ncó xuống dòng, kèm dấu phẩy, ở đây.',
+      options: [
+        'A. Lựa chọn "A" có nháy',
+        'B. Lựa chọn B\ncó xuống dòng',
+        'C. Lựa chọn C',
+        'D. Lựa chọn D'
+      ],
+      correctAnswer: 'A',
+      explanation: {
+        core: 'Giải thích có "nháy kép" và\nxuống dòng nhiều lần.',
+        evidence: 'Bằng chứng',
+        analysis: 'Phân tích',
+        warning: ''
+      },
+      source: 'test,file.txt',
+      difficulty: 'Easy',
+      depthAnalysis: 'Nhận biết'
+    };
+
+    const csv = generateCSVData([dirtyMcq]);
+    // The CSV will contain the header row and the data row. 
+    // Since all internal newlines are replaced with spaces in generateCSVData/formatRichText,
+    // the output split by \n should have exactly 2 main rows (+ maybe 1 trailing empty element).
+    const lines = csv.split('\n').filter(Boolean);
+    expect(lines.length).toBe(2);
+
+    // Verify correct double-quote escaping in headers and content
+    expect(csv).toContain('&quot;có dấu nháy kép&quot;');
+    expect(csv).toContain('"Đây là câu hỏi &quot;có dấu nháy kép&quot; và<br>có xuống dòng, kèm dấu phẩy, ở đây."');
+    expect(csv).toContain('&quot;A&quot;');
+    expect(csv).toContain('"Lựa chọn &quot;A&quot; có nháy"');
+    expect(csv).toContain('"test,file.txt"');
+  });
 });

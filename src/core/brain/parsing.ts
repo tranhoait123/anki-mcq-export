@@ -67,13 +67,18 @@ const extractJson = (text: string): string => {
       if (lastComma !== -1) {
         let fixed = result.substring(0, lastComma);
         let rb = 0, rbr = 0;
+        let inStr = false, esc = false;
         for (const c of fixed) {
+          if (esc) { esc = false; continue; }
+          if (c === '\\' && inStr) { esc = true; continue; }
+          if (c === '"') { inStr = !inStr; continue; }
+          if (inStr) continue;
           if (c === '{') rb++; else if (c === '}') rb--;
           if (c === '[') rbr++; else if (c === ']') rbr--;
         }
         while (rb > 0) { fixed += '}'; rb--; }
         while (rbr > 0) { fixed += ']'; rbr--; }
-        return fixed + ']';
+        return fixed;
       }
     }
     return result;

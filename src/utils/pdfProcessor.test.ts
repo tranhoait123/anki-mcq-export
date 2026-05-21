@@ -716,5 +716,22 @@ D. Thở máy không xâm lấn BiPAP
     expect(page.quality).toBe('goodText'); // Should not be marked as suspect due to false VNI detection
     expect(page.reason).not.toContain('Text layer bị lỗi font legacy');
   });
+
+  it('exempts mathematical variables without vowels (x1, z3) from VNI encoding corruption check to avoid false positives', () => {
+    const mathPage = `
+Câu 1: Cho ba biến số thực x1, y2, z3 thỏa mãn phương trình tuyến tính đa biến phức tạp trong không gian nhiều chiều.
+Tính giá trị của biểu thức tổng quát x1 + y2 + z3 khi hệ số chuẩn của hệ phương trình tuyến tính được cho là hoàn hảo và không đổi.
+Giả sử rằng tất cả các giá trị của x1, y2, và z3 đều là các số thực dương và hệ thức này được áp dụng trực tiếp vào các mô hình tối ưu hóa tuyến tính cổ điển.
+Hãy xác định giá trị thích hợp nhất dưới đây cho biểu thức này.
+A. Giá trị của biểu thức là 15
+B. Giá trị của biểu thức là 20
+C. Giá trị của biểu thức là 25
+D. Giá trị của biểu thức là 30
+Đáp án đúng là A. Giải thích chi tiết: Khi thay thế các hệ số tối ưu vào phương trình, ta dễ dàng thu được nghiệm x1=5, y2=5, z3=5. Do đó tổng là 15.
+`;
+    const page = scorePdfTextPage(mathPage, 1);
+    expect(page.quality).toBe('goodText');
+    expect(page.reason).not.toContain('Text layer bị lỗi font legacy');
+  });
 });
 

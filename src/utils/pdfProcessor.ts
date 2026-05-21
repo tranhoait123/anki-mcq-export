@@ -320,6 +320,11 @@ export const scorePdfTextPage = (text: string, pageNumber = 1): PdfTextPage => {
         // Exempt uppercase abbreviations (e.g. SPO2, CO2, O2, PaCO2 where letters are uppercase)
         const lettersOnly = word.replace(/[0-9]+/g, '');
         if (lettersOnly && lettersOnly === lettersOnly.toUpperCase()) return false;
+        // Single letter variables (e.g., x1, y2, z3, a1) are almost always math/clinical variables, not VNI words
+        if (lettersOnly.length <= 1) return false;
+        // Vietnamese syllable/VNI corrupted word MUST contain at least one vowel
+        const hasVowels = /[aeiouyàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹ]/i.test(word);
+        if (!hasVowels) return false;
         return true;
     }).length;
     const hasEncodingCorruption = hasVniSymbols || vniScrambledWordCount >= 3;

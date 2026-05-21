@@ -122,9 +122,11 @@ const isCompleteQuestionObject = (value: any): boolean =>
   Boolean(
     value &&
     typeof value.question === 'string' &&
+    value.question.trim().length > 0 &&
     Array.isArray(value.options) &&
     value.options.length >= 2 &&
-    typeof value.correctAnswer === 'string'
+    typeof value.correctAnswer === 'string' &&
+    value.correctAnswer.trim().length > 0
   );
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E'];

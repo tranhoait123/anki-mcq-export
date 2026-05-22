@@ -1589,7 +1589,7 @@ describe('Core Logic', () => {
       safeOutputBudget: 24576,
       maxQuestionsPerBatch: 20,
       visionPagesPerBatch: 3,
-    })).toBe(10);
+    })).toBe(5);
   });
 
   it('adds Google maxOutputTokens without dropping schema or cached content', () => {

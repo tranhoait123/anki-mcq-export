@@ -446,8 +446,8 @@ D. Bốn
     const page = scorePdfTextPage(cleanMcqPage(40), 1);
     const analysis = buildPdfTextAnalysisFromPages([page], 3, 1);
 
-    expect(analysis.textBatches).toHaveLength(4);
-    expect(analysis.textBatches.every((batch) => batch.expectedQuestions === 10)).toBe(true);
+    expect(analysis.textBatches).toHaveLength(8);
+    expect(analysis.textBatches.every((batch) => batch.expectedQuestions === 5)).toBe(true);
     expect(analysis.textBatches[0].text.length).toBeLessThan(15000);
   });
 

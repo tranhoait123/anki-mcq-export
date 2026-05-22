@@ -634,7 +634,7 @@ export const getNativeMcqBlocks = (nativeText: string): string[] => {
 export const buildNativeMcqBatchText = (blocks: string[]): string =>
   `[DOCX_NATIVE_BATCH_COUNT: ${blocks.length}]\n\n${blocks.join('\n\n')}`;
 
-export const splitNativeMcqTextIntoBatches = (nativeText: string, batchSize = 10): string[] => {
+export const splitNativeMcqTextIntoBatches = (nativeText: string, batchSize = 5): string[] => {
   const blocks = getNativeMcqBlocks(nativeText);
   if (blocks.length === 0) return [];
 

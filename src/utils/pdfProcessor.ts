@@ -507,7 +507,7 @@ const normalizeBlockFingerprint = (block: string): string =>
         .trim()
         .toLowerCase();
 
-const chunkBlocks = (blocks: string[], batchSize = 10): string[][] => {
+const chunkBlocks = (blocks: string[], batchSize = 5): string[][] => {
     const chunks: string[][] = [];
     const safeBatchSize = Math.max(1, Math.floor(batchSize));
     for (let i = 0; i < blocks.length; i += safeBatchSize) chunks.push(blocks.slice(i, i + safeBatchSize));
@@ -798,7 +798,7 @@ const expandRangesForBoundaryRisk = (
     });
 };
 
-export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChunk = 3, overlap = 1, structuredBatchSize = 10, autoGroupClinicalCases = true): PdfTextAnalysis => {
+export const buildPdfTextAnalysisFromPages = (pages: PdfTextPage[], pagesPerChunk = 3, overlap = 1, structuredBatchSize = 5, autoGroupClinicalCases = true): PdfTextAnalysis => {
     const pageCount = pages.length;
     let ranges = buildPageRanges(pageCount, pagesPerChunk, overlap);
 
@@ -931,7 +931,7 @@ const analyzePdfTextLayerUncached = async (
     base64OrUrl: string,
     pagesPerChunk = 3,
     overlap = 1,
-    structuredBatchSize = 10,
+    structuredBatchSize = 5,
     autoGroupClinicalCases = true
 ): Promise<PdfTextAnalysis> => {
     const pdf = await openPdf(base64OrUrl);
@@ -992,7 +992,7 @@ export const analyzePdfTextLayer = async (
     base64OrUrl: string,
     pagesPerChunk = 3,
     overlap = 1,
-    structuredBatchSize = 10,
+    structuredBatchSize = 5,
     autoGroupClinicalCases = true
 ): Promise<PdfTextAnalysis> => {
     const baseHash = await hashStringSha256(base64OrUrl);

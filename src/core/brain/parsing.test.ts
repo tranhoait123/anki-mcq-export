@@ -86,6 +86,8 @@ describe('extractQuestionNumberFromText', () => {
   it('bypasses [TÌNH HUỐNG] and [CÂU HỎI] wrappers', () => {
     expect(extractQuestionNumberFromText('[TÌNH HUỐNG]\nCase 5.2 — Hình ảnh siêu âm')).toBe(5);
     expect(extractQuestionNumberFromText('[CÂU HỎI]\nCâu 47. Xét nghiệm cần thực hiện?')).toBe(47);
+    expect(extractQuestionNumberFromText('[TÌNH HUỐNG]\nCase 1: Bệnh nhân nam 60 tuổi...\n\n[CÂU HỎI]\nCâu 5: Chẩn đoán nào phù hợp?')).toBe(5);
+    expect(extractQuestionNumberFromText('[TÌNH HUỐNG]\nTinh huong 3: Bệnh nhi...\n\n[CAU HOI]\nCâu 12 - Điều trị tiếp theo?')).toBe(12);
   });
 });
 

@@ -238,6 +238,69 @@ describe('batch retry strategy', () => {
     }
   });
 
+  it('keeps generic case headings (e.g. Case 1, Tình huống 2) and their questions intact in the same part', () => {
+    const text = [
+      'Câu 1: Câu hỏi bình thường không liên quan.',
+      'A. Option A.',
+      'B. Option B.',
+      'Case 1: Bệnh nhân nam 60 tuổi vào viện vì đau thắt ngực cấp tính sau xương ức.',
+      'Câu 2: Chẩn đoán nào phù hợp?',
+      'A. Nhồi máu cơ tim.',
+      'B. Phình động mạch chủ.',
+      'Câu 3: Xét nghiệm nào cần làm ngay?',
+      'A. Điện tâm đồ.',
+      'B. Men tim.',
+      'Tình huống 2: Bệnh nhi 5 tuổi nhập viện vì sốt cao co giật.',
+      'Câu 4: Cần ưu tiên xử trí gì?',
+      'A. Cắt cơn co giật bằng Diazepam.',
+      'B. Hạ sốt bằng Paracetamol.',
+      'Câu 5: Nguyên nhân thường gặp là gì?',
+      'A. Sốt cao co giật đơn thuần.',
+      'B. Viêm màng não.',
+    ].join('\n\n');
+
+    const parts = splitTextIntoNaturalParts(text, 2, 80);
+    expect(parts.length).toBe(2);
+
+    // Kiểm tra xem Case 1 và các câu hỏi đi kèm (Câu 2, Câu 3) có được bảo vệ và giữ trọn vẹn trong một phần không
+    const part1HasCase1 = parts[0].includes('Case 1:');
+    const part1HasQ2 = parts[0].includes('Câu 2:');
+    const part1HasQ3 = parts[0].includes('Câu 3:');
+    const part2HasCase1 = parts[1].includes('Case 1:');
+    const part2HasQ2 = parts[1].includes('Câu 2:');
+    const part2HasQ3 = parts[1].includes('Câu 3:');
+
+    if (part1HasCase1) {
+      expect(part1HasQ2).toBe(true);
+      expect(part1HasQ3).toBe(true);
+      expect(part2HasCase1).toBe(false);
+    } else {
+      expect(part2HasCase1).toBe(true);
+      expect(part2HasQ2).toBe(true);
+      expect(part2HasQ3).toBe(true);
+      expect(part1HasCase1).toBe(false);
+    }
+
+    // Kiểm tra xem Tình huống 2 và các câu hỏi đi kèm (Câu 4, Câu 5) có nằm trọn vẹn trong một phần không
+    const part1HasCase2 = parts[0].includes('Tình huống 2:');
+    const part1HasQ4 = parts[0].includes('Câu 4:');
+    const part1HasQ5 = parts[0].includes('Câu 5:');
+    const part2HasCase2 = parts[1].includes('Tình huống 2:');
+    const part2HasQ4 = parts[1].includes('Câu 4:');
+    const part2HasQ5 = parts[1].includes('Câu 5:');
+
+    if (part1HasCase2) {
+      expect(part1HasQ4).toBe(true);
+      expect(part1HasQ5).toBe(true);
+      expect(part2HasCase2).toBe(false);
+    } else {
+      expect(part2HasCase2).toBe(true);
+      expect(part2HasQ4).toBe(true);
+      expect(part2HasQ5).toBe(true);
+      expect(part1HasCase2).toBe(false);
+    }
+  });
+
   it('estimates Markdown MCQ count accurately using estimateMarkdownQuestions', () => {
     const textWithLabels = `
 # Chương 1

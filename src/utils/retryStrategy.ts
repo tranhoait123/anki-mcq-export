@@ -398,7 +398,40 @@ export const detectClinicalProtectedRanges = (text: string): ProtectedRange[] =>
     ranges.push({ start: startIdx, end: endIdx });
   }
 
-  // 3. Nhận diện các khối trích dẫn Markdown (Blockquotes bắt đầu bằng >) làm vùng bảo vệ bệnh án lâm sàng
+  // 3. Nhận diện các Case lâm sàng chung có dạng số thứ tự: "Case 1:", "Tình huống 2:", "Ca bệnh 3:" hoặc "Ca 4:"
+  const genericCaseRegex = /(?:^|\n)\s*(?:case|tình\s*huống|tinh\s*huong|ca\s*bệnh|ca\s*benh|ca)\s*(\d+(?:\.\d+)?)\s*[:.)-]/gi;
+  let genericMatch;
+  genericCaseRegex.lastIndex = 0;
+  while ((genericMatch = genericCaseRegex.exec(text)) !== null) {
+    const startIdx = genericMatch.index;
+    if (ranges.some(r => startIdx >= r.start && startIdx <= r.end)) continue;
+    
+    // Tìm Case tiếp theo để đặt giới hạn trên (limitIdx) nhằm tránh lấn sang Case khác
+    const nextCasePattern = /(?:^|\n)\s*(?:case|tình\s*huống|tinh\s*huong|ca\s*bệnh|ca\s*benh|ca)\s*\d+(?:\.\d+)?\s*[:.)-]/gi;
+    nextCasePattern.lastIndex = startIdx + genericMatch[0].length;
+    const nextCaseMatch = nextCasePattern.exec(text);
+    const limitIdx = nextCaseMatch ? nextCaseMatch.index : text.length;
+    
+    // Tìm tối đa 4 câu hỏi tiếp theo nằm trong phạm vi của Case này
+    const qPattern = /(?:^|\n|\s)(?:câu|cau|question|q)\s*\d+\s*[:.)-]/gi;
+    qPattern.lastIndex = startIdx;
+    
+    let endIdx = limitIdx;
+    let qMatchesCount = 0;
+    let qMatch;
+    while ((qMatch = qPattern.exec(text)) !== null) {
+      if (qMatch.index >= limitIdx) break;
+      qMatchesCount++;
+      if (qMatchesCount === 4) {
+        endIdx = qMatch.index;
+        break;
+      }
+    }
+    
+    ranges.push({ start: startIdx, end: endIdx });
+  }
+
+  // 4. Nhận diện các khối trích dẫn Markdown (Blockquotes bắt đầu bằng >) làm vùng bảo vệ bệnh án lâm sàng
   const markdownBlockquoteRegex = /(?:^|\n)(?:>[^\n]*\n?)+/g;
   markdownBlockquoteRegex.lastIndex = 0;
   while ((match = markdownBlockquoteRegex.exec(text)) !== null) {

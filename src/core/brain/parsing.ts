@@ -324,7 +324,16 @@ export const cleanQuestionText = (text: string): string => {
 export const extractQuestionNumberFromText = (text: string = ''): number | null => {
   if (!text || typeof text !== 'string') return null;
   // Bỏ qua nhãn [TÌNH HUỐNG] hoặc [CÂU HỎI] ở đầu để tìm đúng số thứ tự câu hỏi bên trong
-  const cleanText = text.replace(/^\[\s*(tình\s*huống|tinh\s*huong|câu\s*hỏi|cau\s*hoi)\s*\]\s*/i, '').trim();
+  const cauHoiIndex = text.search(/\[\s*(câu\s*hỏi|cau\s*hoi)\s*\]/i);
+  let cleanText = text;
+  if (cauHoiIndex !== -1) {
+    const afterCauHoi = text.slice(cauHoiIndex).replace(/^\[\s*(câu\s*hỏi|cau\s*hoi)\s*\]\s*/i, '').trim();
+    if (afterCauHoi) {
+      cleanText = afterCauHoi;
+    }
+  } else {
+    cleanText = text.replace(/^\[\s*(tình\s*huống|tinh\s*huong|câu\s*hỏi|cau\s*hoi)\s*\]\s*/i, '').trim();
+  }
   const match = cleanText.match(/^\s*(?:[\s*_*\[\(<]*)(?:(?:c[âa]u(?:\s*(?:h[ỏo]i|s[ốo]|th[ứu]))?|question(?:\s*no\.?)?|q|case)\s*)?(\d{1,4})(?:\.\d{1,3})?[a-zA-Z]?\s*[:.)\-\u2013\u2014\u2212–—]/i);
   return match ? Number(match[1]) : null;
 };

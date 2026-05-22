@@ -202,6 +202,9 @@ export interface UploadedFile {
   pdfTextBatchCount?: number;
   pdfVisionBatchCount?: number;
   pdfNotice?: string;
+  isMarkdown?: boolean;
+  markdownMcqCount?: number;
+  markdownNotice?: string;
   size?: number; // Added to fix lint error
   isProcessing?: boolean;
   progress?: number;

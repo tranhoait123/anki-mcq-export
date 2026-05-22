@@ -8,6 +8,7 @@ import {
   shouldSplitForError,
   splitTextIntoNaturalParts,
 } from './retryStrategy';
+import { estimateMarkdownQuestions } from '../ui/FileUploader';
 
 describe('batch retry strategy', () => {
   it('classifies JSON and empty responses as split-worthy errors', () => {
@@ -193,4 +194,96 @@ describe('batch retry strategy', () => {
     expect(rescue).toBeLessThan(normal);
     expect(rescue).toBeLessThanOrEqual(getRetryProfile('rescue').backoffCapMs);
   });
+  it('prioritizes Markdown headers and horizontal rules as split boundaries', () => {
+    const text = [
+      'Câu 1: Câu hỏi khởi đầu.',
+      'A. Lựa chọn A.',
+      'B. Lựa chọn B.',
+      '---',
+      '# Tiêu đề Markdown lớn',
+      'Nội dung phần 2 rất dài cần được thảo luận chi tiết để đảm bảo hệ thống chia đúng.',
+      'Một đoạn văn khác bổ sung thêm thông tin cho phần 2 để tăng độ dài ký tự.',
+    ].join('\n\n');
+
+    const parts = splitTextIntoNaturalParts(text, 2, 50);
+    expect(parts.length).toBe(2);
+    expect(parts[0]).toContain('---');
+    expect(parts[1]).toContain('# Tiêu đề Markdown lớn');
+  });
+
+  it('protects Markdown blockquotes as clinical protected ranges', () => {
+    const text = [
+      'Câu 1: Câu hỏi thứ nhất.',
+      'A. Lựa chọn A.',
+      `> Tình huống lâm sàng đặc biệt trong blockquote:
+> Bệnh nhân nam 45 tuổi nhập viện vì cơn hen phế quản cấp tính.
+> Tiền sử có dị ứng với aspirin và hen phế quản từ nhỏ.`,
+      'Câu 2: Câu hỏi dựa trên blockquote trên.',
+      'A. Lựa chọn A.',
+      'B. Lựa chọn B.',
+    ].join('\n\n');
+
+    const parts = splitTextIntoNaturalParts(text, 2, 25);
+    expect(parts.length).toBe(2);
+
+    const part1HasBQStart = parts[0].includes('> Tình huống lâm sàng');
+    const part1HasBQEnd = parts[0].includes('> Tiền sử có dị ứng');
+    const part2HasBQStart = parts[1].includes('> Tình huống lâm sàng');
+    const part2HasBQEnd = parts[1].includes('> Tiền sử có dị ứng');
+
+    if (part1HasBQStart) {
+      expect(part1HasBQEnd).toBe(true);
+    } else if (part2HasBQStart) {
+      expect(part2HasBQEnd).toBe(true);
+    }
+  });
+
+  it('estimates Markdown MCQ count accurately using estimateMarkdownQuestions', () => {
+    const textWithLabels = `
+# Chương 1
+Câu 1: Triệu chứng chính của viêm ruột thừa cấp là gì?
+A. Đau hố chậu phải
+B. Sốt cao kèm rét run
+C. Nôn mửa liên tục
+D. Tiêu chảy cấp
+
+Cau 2. Dấu hiệu thực thể quan trọng nhất là?
+A. Điểm Mac-Burney ấn đau
+B. Phản ứng thành bụng hố chậu phải
+C. Dấu hiệu Blumberg dương tính
+D. Tất cả đều đúng
+    `;
+    expect(estimateMarkdownQuestions(textWithLabels)).toBe(2);
+
+    const textWithOptionsOnly = `
+- Triệu chứng của bệnh mạch vành:
+A. Đau thắt ngực khi gắng sức
+B. Đau đầu âm ỉ
+C. Tê bì tay chân
+D. Khó thở khi nằm
+
+- Xử trí ban đầu nhồi máu cơ tim:
+A. Cho ngậm Nitroglycerin dưới lưỡi
+B. Cho uống paracetamol
+C. Cho tập thể dục nhẹ
+D. Cho uống nhiều nước ấm
+    `;
+    expect(estimateMarkdownQuestions(textWithOptionsOnly)).toBe(2);
+
+    const textWithChecklists = `
+Câu hỏi 1
+- [ ] Lựa chọn A
+- [ ] Lựa chọn B
+- [ ] Lựa chọn C
+- [ ] Lựa chọn D
+
+Câu hỏi 2
+- [ ] Lựa chọn A
+- [ ] Lựa chọn B
+- [ ] Lựa chọn C
+- [ ] Lựa chọn D
+    `;
+    expect(estimateMarkdownQuestions(textWithChecklists)).toBe(2);
+  });
 });
+

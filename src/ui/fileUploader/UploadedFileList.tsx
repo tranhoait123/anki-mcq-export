@@ -1,6 +1,6 @@
-import { FileText, Image as ImageIcon, Loader2, X } from 'lucide-react';
+import { FileText, Image as ImageIcon, Loader2, X, FileCode } from 'lucide-react';
 import { UploadedFile } from '../../types';
-import { getDocxModeBadge, getPdfModeBadge } from './fileBadges';
+import { getDocxModeBadge, getPdfModeBadge, getMarkdownModeBadge } from './fileBadges';
 
 interface UploadedFileListProps {
   files: UploadedFile[];
@@ -17,12 +17,25 @@ const UploadedFileList: React.FC<UploadedFileListProps> = ({ files, onRemoveFile
         {files.map((file, idx) => {
           const docxModeBadge = getDocxModeBadge(file);
           const pdfModeBadge = getPdfModeBadge(file);
+          const markdownModeBadge = getMarkdownModeBadge(file);
 
           return (
             <li key={idx} className="flex items-center justify-between rounded-lg bg-gray-50 p-2 transition hover:bg-gray-100 dark:bg-slate-800 dark:hover:bg-slate-700">
               <div className="flex items-center space-x-3 overflow-hidden flex-1">
-                <div className={`p-2 rounded ${file.isProcessing ? 'bg-amber-100 text-amber-600 dark:bg-amber-900 dark:text-amber-100' : 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-100'}`}>
-                  {file.isProcessing ? <Loader2 size={18} className="animate-spin" /> : <FileText size={18} />}
+                <div className={`p-2 rounded transition-all duration-300 ${
+                  file.isProcessing 
+                    ? 'bg-amber-100 text-amber-600 dark:bg-amber-900 dark:text-amber-100' 
+                    : file.isMarkdown
+                      ? 'bg-purple-100 text-purple-600 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shadow-sm'
+                      : 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-100'
+                }`}>
+                  {file.isProcessing ? (
+                    <Loader2 size={18} className="animate-spin" />
+                  ) : file.isMarkdown ? (
+                    <FileCode size={18} />
+                  ) : (
+                    <FileText size={18} />
+                  )}
                 </div>
                 <div className="flex flex-col min-w-0 flex-1">
                   <span className="text-sm font-medium truncate text-gray-700 dark:text-slate-200">{file.name}</span>
@@ -54,6 +67,14 @@ const UploadedFileList: React.FC<UploadedFileListProps> = ({ files, onRemoveFile
                           title={file.pdfNotice}
                         >
                           {pdfModeBadge.text}
+                        </span>
+                      )}
+                      {markdownModeBadge && (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${markdownModeBadge.className}`}
+                          title={file.markdownNotice}
+                        >
+                          {markdownModeBadge.text}
                         </span>
                       )}
                     </div>

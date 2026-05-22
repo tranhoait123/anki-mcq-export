@@ -374,7 +374,7 @@ export const detectClinicalProtectedRanges = (text: string): ProtectedRange[] =>
   }
   
   // 2. Nhận diện các tình huống lâm sàng không ghi rõ câu nhưng có từ khóa "Tình huống lâm sàng" hoặc "Ca lâm sàng"
-  const clinicalKeywordRegex = /(?:tình\s*huống\s*lâm\s*sàng|tinh\s*huong\s*lam\s*sang|ca\s*lâm\s*sàng|ca\s*lam\s*sang|case\s*lâm\s*sàng|clinical\s*case)/gi;
+  const clinicalKeywordRegex = /(?:tình\s*huống\s*lâm\s*sàng|tinh\s*huong\s*lam\s*sang|ca\s*lâm\s*sàng|ca\s*lam\s*sàng|case\s*lâm\s*sàng|clinical\s*case)/gi;
   clinicalKeywordRegex.lastIndex = 0;
   while ((match = clinicalKeywordRegex.exec(text)) !== null) {
     const startIdx = match.index;
@@ -397,6 +397,16 @@ export const detectClinicalProtectedRanges = (text: string): ProtectedRange[] =>
     
     ranges.push({ start: startIdx, end: endIdx });
   }
+
+  // 3. Nhận diện các khối trích dẫn Markdown (Blockquotes bắt đầu bằng >) làm vùng bảo vệ bệnh án lâm sàng
+  const markdownBlockquoteRegex = /(?:^|\n)(?:>[^\n]*\n?)+/g;
+  markdownBlockquoteRegex.lastIndex = 0;
+  while ((match = markdownBlockquoteRegex.exec(text)) !== null) {
+    const startIdx = match.index;
+    const endIdx = startIdx + match[0].length;
+    if (ranges.some(r => startIdx >= r.start && startIdx <= r.end)) continue;
+    ranges.push({ start: startIdx, end: endIdx });
+  }
   
   return ranges;
 };
@@ -409,22 +419,25 @@ const nearestNaturalBoundary = (
   protectedRanges: ProtectedRange[] = []
 ): number => {
   const preferredPatterns = [
-    /\n\s*(?:câu|cau|question|q)\s*\d+\s*[:.)-]/gi, // Ưu tiên hàng đầu: Khớp ranh giới bắt đầu Câu hỏi trắc nghiệm để tránh xé đôi câu
-    /\n\s*\d+\s*[:.)-]/g,                           // Khớp với số thứ tự đầu dòng như "12."
-    /\n\s*\n/g,                                     // Ngắt đoạn văn lớn
-    /\n/g,                                          // Xuống dòng thường
-    /[.!?。！？]\s+/g,                               // Kết thúc câu đơn
-    /[,;:]\s+/g,
-    /\s+/g
+    { re: /\n\s*(?:câu|cau|question|q)\s*\d+\s*[:.)-]/gi, before: true }, // Ưu tiên hàng đầu: Khớp ranh giới bắt đầu Câu hỏi trắc nghiệm để tránh xé đôi câu
+    { re: /\n\s*#+\s+.+/g, before: true },                                // Tiêu đề Markdown (#, ##, ###, v.v.)
+    { re: /\n\s*---+\s*\n/g, before: false },                             // Đường kẻ ngang Markdown
+    { re: /\n\s*\d+\s*[:.)-]/g, before: true },                            // Khớp với số thứ tự đầu dòng như "12."
+    { re: /\n\s*\n/g, before: false },                                      // Ngắt đoạn văn lớn
+    { re: /\n/g, before: false },                                           // Xuống dòng thường
+    { re: /[.!?。！？]\s+/g, before: false },                                // Kết thúc câu đơn
+    { re: /[,;:]\s+/g, before: false },
+    { re: /\s+/g, before: false }
   ];
   let best = -1;
   let bestDistance = Number.POSITIVE_INFINITY;
 
-  for (const pattern of preferredPatterns) {
+  for (const item of preferredPatterns) {
+    const pattern = item.re;
     pattern.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(text)) !== null) {
-      const pos = match.index + match[0].length;
+      const pos = item.before ? match.index : match.index + match[0].length;
       if (pos <= min || pos >= max) continue;
       const distance = Math.abs(pos - target);
       if (distance < bestDistance) {

@@ -14,6 +14,31 @@ import UploadDropZone from './fileUploader/UploadDropZone';
 import UploadedFileList from './fileUploader/UploadedFileList';
 import { prepareDocxUpload } from './fileUploader/docxUploadPreparation';
 
+export const estimateMarkdownQuestions = (text: string): number => {
+  if (!text) return 0;
+  // 1. Đếm số câu hỏi trực tiếp dựa trên nhãn bắt đầu dòng: "Câu 1:", "Q2."
+  const questionMatches = text.match(/^(?:câu|cau|question|q|case)\s*\d+/gim) || [];
+  if (questionMatches.length > 0) {
+    return questionMatches.length;
+  }
+
+  // 2. Fallback: Nếu không dùng nhãn "Câu X", đếm số phương án lựa chọn (A, B, C, D) chia cho 4
+  const optionMatches = text.match(/^\s*[A-D][.:)-]\s+/gim) || [];
+  if (optionMatches.length > 0) {
+    return Math.max(1, Math.round(optionMatches.length / 4));
+  }
+
+  // 3. Fallback 2: Đếm số check-list trắc nghiệm dạng Markdown "- [ ]"
+  const checklistMatches = text.match(/^\s*-\s+\[\s*\]\s+/gm) || [];
+  if (checklistMatches.length > 0) {
+    return Math.max(1, Math.round(checklistMatches.length / 4));
+  }
+
+  // 4. Nếu không khớp gì cả, ước tính theo số đoạn văn có độ dài vừa phải chia cho 5
+  const blocks = text.split(/\n\s*\n/).filter(b => b.trim().length > 30);
+  return Math.max(0, Math.round(blocks.length / 5));
+};
+
 interface FileUploaderProps {
   files: UploadedFile[];
   setFiles: React.Dispatch<React.SetStateAction<UploadedFile[]>>;
@@ -129,6 +154,16 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
           updateFileProgress(file.name, progress);
 
           await yieldToMain();
+        }
+
+        const isMd = file.name.toLowerCase().endsWith('.md') || file.type === 'text/markdown';
+        if (isMd) {
+          const mcqCount = estimateMarkdownQuestions(content);
+          fileEnhancements = {
+            isMarkdown: true,
+            markdownMcqCount: mcqCount,
+            markdownNotice: `Markdown: Phát hiện ước tính khoảng ${mcqCount} câu trắc nghiệm.`,
+          };
         }
       }
 

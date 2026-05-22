@@ -2845,4 +2845,81 @@ D. Bốn
 
     vi.unstubAllGlobals();
   });
+
+  it('does not omit the parent batch from failedBatches and skippedBatchSet if a sub-batch fails completely during natural subdivision', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const makeQuestionPayload = (question: string) => ({
+      question,
+      options: ['A. Một', 'B. Hai', 'C. Ba', 'D. Bốn'],
+      correctAnswer: 'A',
+      explanation: {
+        core: 'A đúng.',
+        evidence: '',
+        analysis: '',
+        warning: '',
+      },
+      source: 'model-source',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    });
+    const providerResponse = (questions: any[]) => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ questions }) } }],
+    }), { status: 200 });
+
+    const formatErrorResponse = new Response(JSON.stringify({
+      error: { message: 'ai_format_error: Invalid JSON output structure' },
+    }), { status: 400 });
+
+    const tooLargeErrorResponse = new Response(JSON.stringify({
+      error: { message: 'context length exceeded; request too large' },
+    }), { status: 413 });
+
+    // Mock fetch for our natural subdivision split flow:
+    // 1. Parent batch (attempt 1): fails with 413 request too large -> Triggers immediate split (bypassing deferred/rescue restrictions)
+    // 2. Sub-batch 1 (first half of split text): succeeds and returns 1 question
+    // 3. Sub-batch 2 (second half of split text, attempt 1): fails with format error
+    // 4. Sub-batch 2 (attempt 2): fails with format error
+    // 5. Sub-batch 2 (attempt 3): fails with format error -> exhausting minAttempts (3) at depth 1
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(tooLargeErrorResponse)
+      .mockResolvedValueOnce(providerResponse([
+        makeQuestionPayload('1. Alpha stem?'),
+      ]))
+      .mockResolvedValueOnce(formatErrorResponse)
+      .mockResolvedValueOnce(formatErrorResponse)
+      .mockResolvedValueOnce(formatErrorResponse);
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    // Construct a DOCX native batch text with 2 blocks (MCQ 1 and MCQ 2) each > 3000 chars to satisfy split threshold
+    const block1 = `<<<MCQ 1>>>\nQuestion: Câu 1. Một câu hỏi dài để test và trích xuất trơn tru.\nA. Một\nB. Hai\nC. Ba\nD. Bốn\nCorrect Answer: A\n` + ' '.repeat(3400);
+    const block2 = `<<<MCQ 2>>>\nQuestion: Câu 2. Câu hỏi thứ hai cũng rất dài và đầy đủ.\nA. Một\nB. Hai\nC. Ba\nD. Bốn\nCorrect Answer: A\n` + ' '.repeat(3400);
+    const nativeText = `[DOCX_NATIVE_MCQ_COUNT: 2]\n\n${block1}\n\n${block2}`;
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-subdivision-fail',
+        name: 'test_subdivision_fail.docx',
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        content: '',
+        nativeText: nativeText,
+      }],
+      { ...baseSettings, adaptiveBatching: true, concurrencyLimit: 1 },
+      0,
+      undefined,
+      0,
+      undefined,
+      undefined,
+      true, // isAdvancedMode = true, which selects 'rescue' profile with maxDepth = 1
+      { retryProfile: 'rescue' }
+    );
+
+    // Verify that the sub-batch failure successfully records the top-level batch (index 1) in failedBatches
+    // and that it does not get added to the successful/completed batch snapshots
+    expect(result.failedBatches).toContain(1);
+    expect(result.questions.map(q => q.question)).toEqual(['Alpha stem?']);
+    expect(result.failedBatchDetails.some(detail => detail.index === 1 && detail.stage === 'split')).toBe(true);
+
+    vi.unstubAllGlobals();
+  });
 });

@@ -2345,6 +2345,8 @@ export const generateQuestions = async (
         console.error(`❌ Batch ${batchLabel} FAILED after all retries & sub-batching (${errorKind}):`, e);
         if (depth === 0 || part.deferredRecovery) {
           recordBatchFailure(topLevelIndex, batchLabel, e, part.deferredRecovery ? 'deferred' : (isRescueMode ? 'rescue' : 'normal'));
+        } else {
+          recordBatchFailure(topLevelIndex, batchLabel, e, 'split');
         }
         if (onProgress) {
           const detail = describeBatchError(e, retryProfile.name);

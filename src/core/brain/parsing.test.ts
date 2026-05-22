@@ -1,5 +1,4 @@
-import { describe, it, expect } from 'vitest';
-import { cleanQuestionText, createStreamingQuestionBuffer } from './parsing';
+import { cleanQuestionText, extractQuestionNumberFromText, createStreamingQuestionBuffer } from './parsing';
 
 describe('cleanQuestionText', () => {
   it('strips standard Vietnamese question prefixes', () => {
@@ -60,9 +59,33 @@ describe('cleanQuestionText', () => {
     expect(cleanQuestionText('1.2.3. Nội dung')).toBe('Nội dung');
   });
 
+  it('handles Case title prefix stripping and preservation under vignette wrappers', () => {
+    expect(cleanQuestionText('Case 5.2 — Hình ảnh siêu âm')).toBe('Hình ảnh siêu âm');
+    expect(cleanQuestionText('[TÌNH HUỐNG]\nCase 5.2 — Hình ảnh siêu âm')).toBe('[TÌNH HUỐNG]\nCase 5.2 — Hình ảnh siêu âm');
+  });
+
   it('returns original string if stripping makes it empty', () => {
     expect(cleanQuestionText('Câu 1:')).toBe('Câu 1:');
     expect(cleanQuestionText('1.')).toBe('1.');
+  });
+});
+
+describe('extractQuestionNumberFromText', () => {
+  it('extracts number from standard prefixes', () => {
+    expect(extractQuestionNumberFromText('Câu 1: Nội dung')).toBe(1);
+    expect(extractQuestionNumberFromText('Question 123. What is...')).toBe(123);
+    expect(extractQuestionNumberFromText('Q 42) Hello')).toBe(42);
+  });
+
+  it('extracts number from Case prefixes and wide dashes', () => {
+    expect(extractQuestionNumberFromText('Case 5.3 — Gợi ý thai trứng')).toBe(5);
+    expect(extractQuestionNumberFromText('Case 5.2 — Hình ảnh siêu âm')).toBe(5);
+    expect(extractQuestionNumberFromText('Case 12 – Title')).toBe(12);
+  });
+
+  it('bypasses [TÌNH HUỐNG] and [CÂU HỎI] wrappers', () => {
+    expect(extractQuestionNumberFromText('[TÌNH HUỐNG]\nCase 5.2 — Hình ảnh siêu âm')).toBe(5);
+    expect(extractQuestionNumberFromText('[CÂU HỎI]\nCâu 47. Xét nghiệm cần thực hiện?')).toBe(47);
   });
 });
 

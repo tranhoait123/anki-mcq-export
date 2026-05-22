@@ -310,10 +310,10 @@ export const cleanQuestionText = (text: string): string => {
   let cleaned = text.trim();
   
   // Trích xuất tiền tố câu hỏi (Question Prefix) - PHIÊN BẢN THÔNG MINH TỐI ĐA (Absolute Smartest)
-  // 1. Chấp nhận các chữ đệm: "Câu số 1", "Câu thứ 1", "Question No 1", "Bài tập 1"
+  // 1. Chấp nhận các chữ đệm: "Câu số 1", "Câu thứ 1", "Question No 1", "Bài tập 1", "Case 1"
   // 2. Chấp nhận số phân cấp (Hierarchical): "Câu 1.1", "1.2.3."
   // 3. Xử lý Markdown, Tags, Ngoặc kép, và bảo vệ số thập phân an toàn tuyệt đối.
-  const prefixRegex = /^(?:[\s*_*\[\(<]*)(?:(?:(?:c[âa]u(?:\s*(?:h[ỏo]i|s[ốo]|th[ứu]))?|question(?:\s*no\.?)?|q|b[àa]i(?:\s*t[ậa]p)?)\s*(?:\d{1,3}(?:\.\d{1,3})*[a-zA-Z]?|[IVX]{1,8})(?:\s*[([<][^\])>]+[\])>])?\s*[:.)-]?)|(?:(?:\d{1,3}(?:\.\d{1,3})*[a-zA-Z]?|[IVX]{1,8})(?:\s*[([<][^\])>]+[\])>])?\s*(?:[:)-]|\.(?=[\s*_*\]\)>]))))(?:[\s*_*\]\)>]*)\s*/i;
+  const prefixRegex = /^(?:[\s*_*\[\(<]*)(?:(?:(?:c[âa]u(?:\s*(?:h[ỏo]i|s[ốo]|th[ứu]))?|question(?:\s*no\.?)?|q|case|b[àa]i(?:\s*t[ậa]p)?)\s*(?:\d{1,3}(?:\.\d{1,3})*[a-zA-Z]?|[IVX]{1,8})(?:\s*[([<][^\])>]+[\])>])?\s*[:.)\-\u2013\u2014\u2212–—]?)|(?:(?:\d{1,3}(?:\.\d{1,3})*[a-zA-Z]?|[IVX]{1,8})(?:\s*[([<][^\])>]+[\])>])?\s*(?:[:)\-\u2013\u2014\u2212–—]|\.(?=[\s*_*\]\)>]))))(?:[\s*_*\]\)>]*)\s*/i;
   
   const stripped = cleaned.replace(prefixRegex, '');
   
@@ -323,7 +323,9 @@ export const cleanQuestionText = (text: string): string => {
 
 export const extractQuestionNumberFromText = (text: string = ''): number | null => {
   if (!text || typeof text !== 'string') return null;
-  const match = text.match(/^\s*(?:[\s*_*\[\(<]*)(?:(?:c[âa]u(?:\s*(?:h[ỏo]i|s[ốo]|th[ứu]))?|question(?:\s*no\.?)?|q)\s*)?(\d{1,4})(?:\.\d{1,3})?[a-zA-Z]?\s*[:.)-]/i);
+  // Bỏ qua nhãn [TÌNH HUỐNG] hoặc [CÂU HỎI] ở đầu để tìm đúng số thứ tự câu hỏi bên trong
+  const cleanText = text.replace(/^\[\s*(tình\s*huống|tinh\s*huong|câu\s*hỏi|cau\s*hoi)\s*\]\s*/i, '').trim();
+  const match = cleanText.match(/^\s*(?:[\s*_*\[\(<]*)(?:(?:c[âa]u(?:\s*(?:h[ỏo]i|s[ốo]|th[ứu]))?|question(?:\s*no\.?)?|q|case)\s*)?(\d{1,4})(?:\.\d{1,3})?[a-zA-Z]?\s*[:.)\-\u2013\u2014\u2212–—]/i);
   return match ? Number(match[1]) : null;
 };
 

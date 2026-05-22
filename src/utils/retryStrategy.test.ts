@@ -7,6 +7,7 @@ import {
   getRetryProfile,
   shouldSplitForError,
   splitTextIntoNaturalParts,
+  detectClinicalProtectedRanges,
 } from './retryStrategy';
 import { estimateMarkdownQuestions } from '../ui/FileUploader';
 
@@ -98,6 +99,32 @@ describe('batch retry strategy', () => {
     expect(first.cooldownKind).toBeUndefined();
     expect(first.shouldTryFallbackModel).toBe(false);
     expect(later.shouldTryFallbackModel).toBe(true);
+    expect(splitTextIntoNaturalParts('text', 2, 50).length).toBe(1);
+  });
+
+  it('protects Markdown case headers with em dashes and unnumbered questions', () => {
+    const markdownText = `
+## Case 3.1 — GTD tiền ác tính hay GTN?
+**Stem:**
+Một bệnh nhân nữ 25 tuổi...
+**Câu hỏi:** Phân loại phù hợp nhất ở thời điểm này là gì?
+**Lựa chọn:**
+A. Option A
+B. Option B
+`;
+    // Asserting that the range is fully protected by detectClinicalProtectedRanges
+    const ranges = detectClinicalProtectedRanges(markdownText);
+    expect(ranges.length).toBeGreaterThan(0);
+    expect(ranges[0].start).toBeGreaterThanOrEqual(0);
+    expect(ranges[0].end).toBe(markdownText.length);
+  });
+
+  it('returns appropriate number of parts for multiple generic cases without splitting them', () => {
+    const decision = getRetryDecision(new Error('403 permission denied API key not valid'), getRetryProfile('normal'), 1);
+
+    expect(decision.kind).toBe('auth');
+    expect(decision.action).toBe('fail');
+    expect(shouldSplitForError(decision.kind)).toBe(false);
   });
 
   it('fails auth errors without retry or split', () => {

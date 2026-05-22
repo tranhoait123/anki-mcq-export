@@ -399,7 +399,7 @@ export const detectClinicalProtectedRanges = (text: string): ProtectedRange[] =>
   }
 
   // 3. Nhận diện các Case lâm sàng chung có dạng số thứ tự: "Case 1:", "Tình huống 2:", "Ca bệnh 3:" hoặc "Ca 4:"
-  const genericCaseRegex = /(?:^|\n)\s*(?:case|tình\s*huống|tinh\s*huong|ca\s*bệnh|ca\s*benh|ca)\s*(\d+(?:\.\d+)?)\s*[:.)-]/gi;
+  const genericCaseRegex = /(?:^|\n)\s*(?:#+\s*)?(?:case|tình\s*huống|tinh\s*huong|ca\s*bệnh|ca\s*benh|ca)\s*(\d+(?:\.\d+)?)\s*[:.)\-\u2013\u2014\u2212–—]/gi;
   let genericMatch;
   genericCaseRegex.lastIndex = 0;
   while ((genericMatch = genericCaseRegex.exec(text)) !== null) {
@@ -407,13 +407,13 @@ export const detectClinicalProtectedRanges = (text: string): ProtectedRange[] =>
     if (ranges.some(r => startIdx >= r.start && startIdx <= r.end)) continue;
     
     // Tìm Case tiếp theo để đặt giới hạn trên (limitIdx) nhằm tránh lấn sang Case khác
-    const nextCasePattern = /(?:^|\n)\s*(?:case|tình\s*huống|tinh\s*huong|ca\s*bệnh|ca\s*benh|ca)\s*\d+(?:\.\d+)?\s*[:.)-]/gi;
+    const nextCasePattern = /(?:^|\n)\s*(?:#+\s*)?(?:case|tình\s*huống|tinh\s*huong|ca\s*bệnh|ca\s*benh|ca)\s*\d+(?:\.\d+)?\s*[:.)\-\u2013\u2014\u2212–—]/gi;
     nextCasePattern.lastIndex = startIdx + genericMatch[0].length;
     const nextCaseMatch = nextCasePattern.exec(text);
     const limitIdx = nextCaseMatch ? nextCaseMatch.index : text.length;
     
     // Tìm tối đa 4 câu hỏi tiếp theo nằm trong phạm vi của Case này
-    const qPattern = /(?:^|\n|\s)(?:câu|cau|question|q)\s*\d+\s*[:.)-]/gi;
+    const qPattern = /(?:^|\n|\s)(?:\*+\s*)?(?:câu|cau|question|q)(?:\s*(?:hỏi|số|thu|thứ))?\s*(?:\d+)?\s*(?:\*+\s*)?[:.)\-\u2013\u2014\u2212–—]/gi;
     qPattern.lastIndex = startIdx;
     
     let endIdx = limitIdx;

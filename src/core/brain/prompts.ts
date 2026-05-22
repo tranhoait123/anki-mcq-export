@@ -51,22 +51,17 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
    - **Ghép nối (Matching)**: Chuyển thành dạng "Ghép cột 1-?, 2-?..." (A,B,C,D là các phương án ghép).
    - **Điền khuyết (Fill-in)**: Chuyển thành "Chọn từ phù hợp điền vào chỗ trống...".
    - **Tình huống lâm sàng (Case Study / Clinical Vignette)**:
-       + Đây là quy tắc **QUAN TRỌNG NHẤT VÀ BẮT BUỘC TUÂN THỦ 100%**:
-       + Bất kể tình huống lâm sàng dùng chung cho nhiều câu hỏi (VD: "Dữ kiện sau cho câu 10, 11, 12") hay chỉ là một câu hỏi đơn lẻ có cấu trúc bệnh cảnh/case lâm sàng (VD: có tiêu đề "Case X.Y...", phần "Stem:", "Câu hỏi:", "Lựa chọn:"):
-       + **BẮT BUỘC (MANDATORY)**: Phải chép lại NGUYÊN VĂN toàn bộ phần tiêu đề Case (VD: "Case 5.2 — Hình ảnh siêu âm thai trứng hoàn toàn"), phần bệnh cảnh dẫn nhập (VD: "Stem: Nữ 20 tuổi trễ kinh...") vào trường "question" của câu hỏi theo cấu trúc chuẩn bên dưới.
-       + **TUYỆT ĐỐI CẤM**: Không được lược bỏ phần tiêu đề Case, không được lược bỏ phần Stem (bệnh cảnh lâm sàng), không được chỉ lấy câu hỏi ngắn ngủn kiểu "Kết luận phù hợp nhất là gì?" hay "Chẩn đoán hình ảnh phù hợp nhất là gì?". Thẻ Anki KHÔNG ĐƯỢC THIẾU NGỮ CẢNH LÂM SÀNG!
-       + Nếu tình huống bị chia cắt bởi dấu ngắt trang, dòng kẻ, hoặc thông tin nhiễu của trang (VD: "— 5. Cận lâm sàng 2" nằm giữa Stem và nội dung bệnh cảnh), bạn phải thông minh bỏ qua phần nhiễu đó và ghép nối liền mạch nội dung bệnh cảnh y khoa để phục hồi nguyên vẹn.
-       + **CẤU TRÚC BẮT BUỘC TRONG TRƯỜNG "question"**:
-         [TÌNH HUỐNG]
-         {Nội dung tiêu đề Case + Bệnh cảnh/Stem dẫn nhập nguyên văn}
+      + Đây là quy tắc **QUAN TRỌNG NHẤT**: Khi một tình huống lâm sàng dùng chung cho nhiều câu hỏi (VD: "Dữ kiện sau cho câu 10, 11, 12"):
+      + Audit bắt buộc các marker item-set/shared-vignette: "Tình huống cho câu 11-12-13-14", "Tình huống lâm sàng sau dùng cho...", "Dữ kiện sau áp dụng cho...", "Bệnh cảnh sau...", "Case for questions 11, 12, 13, and 14", "Vignette for questions...", "Item set...".
+      + **BẮT BUỘC (MANDATORY)**: Chép lại NGUYÊN VĂN (Word-by-word) đoạn dẫn tình huống vào trường "question" của **TỪNG** câu hỏi thành phần.
+      + **TUYỆT ĐỐI CẤM**: Không được dùng tham chiếu ngắn gọn như "Như trên...", "Câu hỏi tiếp theo...". Mỗi thẻ Anki phải đứng độc lập.
+      + Nếu tình huống nằm cuối trang trước và câu hỏi nằm đầu trang sau, vẫn phải ghép nguyên văn đoạn tình huống đó vào từng câu trong range.
+      + **CẤU TRÚC BẮT BUỘC**:
+        [TÌNH HUỐNG]
+        {Nội dung tình huống nguyên văn}
 
-         [CÂU HỎI]
-         {Câu hỏi cụ thể / Yêu cầu cụ thể của câu hỏi đó}
-
-- 💡 **TỰ GIẢI ĐỀ KHI ĐÁP ÁN COLLAPSED / BỊ ẨN (SELF-SOLVING)**:
-  + Nếu tài liệu chứa các dòng ghi chú như "▼ 🎯 ĐÁP ÁN & RATIONALE — Click để xem" hoặc đáp án bị che khuất/không hiển thị trực tiếp trên ảnh chụp:
-  + Bạn **BẮT BUỘC** phải vận dụng toàn bộ kiến thức lâm sàng uyên bác của một Giáo sư Y khoa đầu ngành để tự giải đề, xác định đáp án đúng chính xác nhất và tự biên soạn phần biện luận (explanation) chi tiết cho từng trường (core, evidence, analysis, warning).
-  + Tuyệt đối không được bỏ trống trường "correctAnswer" hay ghi các câu vô nghĩa như "Click để xem".
+        [CÂU HỎI]
+        {Câu hỏi riêng lẻ}
 
 🩺 **BIỆN LUẬN MCQ (FORMAT BẮT BUỘC, ƯU TIÊN NGẮN GỌN)**:
 1. **core** (🎯 ĐÁP ÁN CỐT LÕI): Nêu đáp án đúng + lý do cực ngắn, đi thẳng vào bản chất.

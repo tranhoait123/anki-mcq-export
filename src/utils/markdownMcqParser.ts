@@ -22,6 +22,8 @@
  *   - Multiple option formats: A. / A) / A: / (A) / - A. / * B.
  *   - Answer detection via ✅/✓/✔, bold, blockquote, or explicit answer lines
  *   - Shared clinical vignettes / case contexts
+ *   - Inline options (multiple options per line, e.g. A. option A  B. option B)
+ *   - Fallback Question-Marker mode (when option parsing fails, groups all lines under question)
  */
 
 import {
@@ -100,9 +102,9 @@ const MD_HEADER_QUESTION_RE = new RegExp(
 /**
  * Option line – captures the letter (A–E) and the option body text.
  * Handles formats: `A. text`, `A) text`, `A: text`, `(A) text`,
- * `- A. text`, `* B. text`
+ * `- A. text`, `* B. text`, `+ C. text`, `A - text`
  */
-const OPTION_LINE_RE = /^(?:[-*]\s+)?(?:\(([A-Ea-e])\)|([A-Ea-e]))\s*[.:)]\s+(.+)/;
+const OPTION_LINE_RE = /^(?:[-*+]\s+)?(?:\(([A-Ea-e])\)|([A-Ea-e]))\s*[\.:)-]\s*(.*)/;
 
 /**
  * Answer detection — explicit answer line after options.
@@ -147,11 +149,14 @@ const stripMarkdown = (text: string): string =>
 const normalizeWhitespace = (value: string): string =>
   value.replace(/\s+/g, ' ').trim();
 
+const cleanOptionText = (text: string): string =>
+  text.replace(ANSWER_SYMBOL_RE, '').trim();
+
 // ---------------------------------------------------------------------------
 // Line-level helpers
 // ---------------------------------------------------------------------------
 
-/** Try to parse a line as an option. Returns null if it doesn't match. */
+/** Try to parse a line as a standard single option. Returns null if it doesn't match. */
 const parseOptionLine = (raw: string): ParsedOption | null => {
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -160,8 +165,8 @@ const parseOptionLine = (raw: string): ParsedOption | null => {
   let isAnswer = ANSWER_SYMBOL_RE.test(trimmed);
   let line = isAnswer ? trimmed.replace(ANSWER_SYMBOL_RE, '').trim() : trimmed;
 
-  // Strip leading markdown list markers (- / *)
-  line = line.replace(/^[-*]\s+/, '');
+  // Strip leading markdown list markers (- / * / +)
+  line = line.replace(/^[-*+]\s+/, '');
 
   const match = line.match(OPTION_LINE_RE) || raw.trim().match(OPTION_LINE_RE);
   if (!match) return null;
@@ -179,14 +184,112 @@ const parseOptionLine = (raw: string): ParsedOption | null => {
   return { letter, text, isAnswer };
 };
 
+/**
+ * Try to parse a line as inline options (multiple options on a single line).
+ * Matches e.g. "A. Option A   B. Option B".
+ */
+const parseInlineOptions = (text: string): ParsedOption[] => {
+  const sourceText = text.trim();
+  if (!sourceText) return [];
+
+  const markers: { letter: string; markerStart: number; contentStart: number; symbolMarked: boolean }[] = [];
+  // Regex to find option letters like A., B), (C) inline.
+  // We use same pattern as docx but also match checkmark symbols.
+  const pattern = /(?:^|[\n\r;|]|\s{2,}|\s+)([✅✓✔]\s*)?\(?([A-Ea-e])\)?\s*[\.:)-]\s*/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(sourceText)) !== null) {
+    markers.push({
+      letter: match[2].toUpperCase(),
+      markerStart: match.index + match[0].search(/[✅✓✔]|\(?[A-Ea-e]\)?/i),
+      contentStart: match.index + match[0].length,
+      symbolMarked: Boolean(match[1]),
+    });
+  }
+
+  if (markers.length < 2) return [];
+
+  return markers
+    .map((marker, index) => {
+      const end = markers[index + 1]?.markerStart ?? sourceText.length;
+      const rawOptionText = sourceText.slice(marker.contentStart, end).trim();
+      
+      let isAnswer = marker.symbolMarked;
+      let textContent = stripMarkdown(rawOptionText);
+      
+      // Detect bold-wrapped option text as an answer marker
+      const boldMatch = rawOptionText.match(BOLD_RE);
+      if (boldMatch) {
+        isAnswer = true;
+        textContent = (boldMatch[1] || boldMatch[2]).trim();
+      }
+      
+      return {
+        letter: marker.letter,
+        text: cleanOptionText(textContent),
+        isAnswer,
+      };
+    })
+    .filter((option) => option.text);
+};
+
 /** Check whether the next few lines after a given index contain options (at least 2 distinct option letters). */
 const hasOptionsAhead = (lines: string[], startIndex: number, maxLookahead = 8): boolean => {
   const foundLetters = new Set<string>();
   for (let i = startIndex; i < Math.min(startIndex + maxLookahead, lines.length); i++) {
     const opt = parseOptionLine(lines[i]);
-    if (opt) foundLetters.add(opt.letter);
+    if (opt) {
+      foundLetters.add(opt.letter);
+    } else {
+      const inlineOpts = parseInlineOptions(lines[i]);
+      if (inlineOpts.length >= 2) {
+        inlineOpts.forEach(o => foundLetters.add(o.letter));
+      }
+    }
     // Relaxed requirement: at least 2 distinct options (e.g. A and B) to detect MCQ structure
     if (foundLetters.size >= 2) {
+      return true;
+    }
+  }
+  return false;
+};
+
+// ---------------------------------------------------------------------------
+// Answer key section detection (trailing answer key block)
+// ---------------------------------------------------------------------------
+
+const ANSWER_KEY_SECTION_RE = /^(?:đáp\s*án|dap\s*an|bảng\s*đáp\s*án|bang\s*dap\s*an|answer\s*key|answers?|key)\b/i;
+const ANSWER_KEY_PAIR_RE = /(?:^|[\s,;|]+)(?:câu|cau|question|q)?\s*(\d{1,3})\s*(?:[.:)\-]\s*)?([A-Ea-e])(?:\b|$)/gi;
+
+const extractAnswerKeyPairs = (text: string): Map<number, string> => {
+  const map = new Map<number, string>();
+  ANSWER_KEY_PAIR_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = ANSWER_KEY_PAIR_RE.exec(text)) !== null) {
+    const num = Number(m[1]);
+    const letter = m[2].toUpperCase();
+    if (num > 0 && OPTION_LETTERS.includes(letter)) {
+      map.set(num, letter);
+    }
+  }
+  return map;
+};
+
+/**
+ * Detects if a line is a purely trailing answer key or answer listing,
+ * preventing it from being matched as a false-positive question boundary.
+ */
+const isAnswerKeyLine = (text: string): boolean => {
+  // If the line starts with a known answer key section header
+  if (ANSWER_KEY_SECTION_RE.test(text)) return true;
+  
+  // Or if it matches an answer key line like "Đáp án: A"
+  if (ANSWER_KEY_RE.test(text)) return true;
+
+  // Check if it's a short line containing answer key pairs
+  const pairs = extractAnswerKeyPairs(text);
+  if (pairs.size > 0) {
+    const clean = text.replace(/(?:câu|cau|question|q)?\s*\d+\s*(?:[:.)\-]\s*)?[A-Ea-e]\b/gi, '').trim();
+    if (clean.length < 15) {
       return true;
     }
   }
@@ -198,6 +301,9 @@ const isQuestionBoundary = (line: string, allLines: string[], lineIndex: number)
   const cleanLine = stripMarkdown(line);
   const trimmed = cleanLine.trim();
   if (!trimmed) return false;
+
+  // Exclude answer key lines/headers
+  if (isAnswerKeyLine(trimmed)) return false;
 
   // 1. Explicit question labels (checked on clean line)
   if (QUESTION_LABEL_RE.test(trimmed)) return true;
@@ -219,13 +325,6 @@ const extractAnswerFromLine = (line: string): string => {
   const match = cleanLine.match(ANSWER_KEY_RE);
   return match ? (match[1] || '').toUpperCase() : '';
 };
-
-// ---------------------------------------------------------------------------
-// Answer key section detection (trailing answer key block)
-// ---------------------------------------------------------------------------
-
-const ANSWER_KEY_SECTION_RE = /^(?:đáp\s*án|dap\s*an|bảng\s*đáp\s*án|bang\s*dap\s*an|answer\s*key|answers?|key)\b/i;
-const ANSWER_KEY_PAIR_RE = /(?:^|[\s,;|]+)(?:câu|cau|question|q)?\s*(\d{1,3})\s*(?:[.:)\-]\s*)?([A-Ea-e])(?:\b|$)/gi;
 
 /** Extract a trailing answer-key map: question number → letter. */
 const extractTrailingAnswerKeyMap = (lines: string[]): Map<number, string> => {
@@ -258,20 +357,6 @@ const extractTrailingAnswerKeyMap = (lines: string[]): Map<number, string> => {
   return answers;
 };
 
-const extractAnswerKeyPairs = (text: string): Map<number, string> => {
-  const map = new Map<number, string>();
-  ANSWER_KEY_PAIR_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = ANSWER_KEY_PAIR_RE.exec(text)) !== null) {
-    const num = Number(m[1]);
-    const letter = m[2].toUpperCase();
-    if (num > 0 && OPTION_LETTERS.includes(letter)) {
-      map.set(num, letter);
-    }
-  }
-  return map;
-};
-
 // ---------------------------------------------------------------------------
 // Question number extraction
 // ---------------------------------------------------------------------------
@@ -281,6 +366,44 @@ const extractQuestionNumber = (text: string): number | null => {
     text.match(/(?:câu|cau|question|q)\s*(?:số\s*)?(\d{1,3})/i) ||
     text.match(/(\d{1,3})\s*[.:)-]/);
   return m ? Number(m[1]) : null;
+};
+
+// ---------------------------------------------------------------------------
+// Question Marker Structured Text (Fallback Mode)
+// ---------------------------------------------------------------------------
+
+export const buildQuestionMarkerStructuredText = (lines: string[], boundaries: number[]): string => {
+  if (boundaries.length === 0) return '';
+
+  const blocks: string[][] = [];
+  for (let bi = 0; bi < boundaries.length; bi++) {
+    const startLine = boundaries[bi];
+    const endLine = bi + 1 < boundaries.length ? boundaries[bi + 1] : lines.length;
+    const blockLines: string[] = [];
+    for (let li = startLine; li < endLine; li++) {
+      const trimmed = lines[li].trim();
+      if (trimmed) {
+        blockLines.push(stripMarkdown(trimmed));
+      }
+    }
+    if (blockLines.length > 0) {
+      blocks.push(blockLines);
+    }
+  }
+
+  if (blocks.length === 0) return '';
+
+  const structuredBlocks = blocks.map((block, index) => {
+    const [question, ...rest] = block;
+    const lines = [`<<<MCQ ${index + 1}>>>`, `Question: ${question}`];
+    if (rest.length > 0) {
+      lines.push('Answer/Notes:');
+      lines.push(...rest);
+    }
+    return lines.join('\n');
+  });
+
+  return `[MARKDOWN_MCQ_COUNT: ${structuredBlocks.length}]\n\n${structuredBlocks.join('\n\n')}`;
 };
 
 // ---------------------------------------------------------------------------
@@ -340,7 +463,18 @@ export const parseMarkdownMcqs = (markdownText: string): MarkdownMcqParseResult 
       // Skip empty lines
       if (!trimmed) continue;
 
-      // Try parsing as an option
+      // Try inline options first (since multiple options on same line won't match parseOptionLine)
+      const inlineOpts = parseInlineOptions(trimmed);
+      if (inlineOpts.length >= 2) {
+        collectingOptions = true;
+        options.push(...inlineOpts);
+        for (const opt of inlineOpts) {
+          if (opt.isAnswer) correctAnswer = opt.letter;
+        }
+        continue;
+      }
+
+      // Try parsing as a standard single option
       const opt = parseOptionLine(trimmed);
       if (opt) {
         collectingOptions = true;
@@ -380,6 +514,17 @@ export const parseMarkdownMcqs = (markdownText: string): MarkdownMcqParseResult 
     if (questionLines.length > 0 && options.length >= 2) {
       rawMcqs.push({ questionLines, options, correctAnswer });
     }
+  }
+
+  // Fallback comparison logic matching docxNative
+  const questionMarkerText = buildQuestionMarkerStructuredText(lines, boundaries);
+  const questionMarkerCount = boundaries.length;
+
+  if (questionMarkerCount > rawMcqs.length) {
+    return {
+      structuredText: questionMarkerText,
+      mcqCount: questionMarkerCount,
+    };
   }
 
   if (rawMcqs.length === 0) {

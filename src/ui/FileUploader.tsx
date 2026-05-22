@@ -16,14 +16,14 @@ import { prepareDocxUpload } from './fileUploader/docxUploadPreparation';
 
 export const estimateMarkdownQuestions = (text: string): number => {
   if (!text) return 0;
-  // 1. Đếm số câu hỏi trực tiếp dựa trên nhãn bắt đầu dòng: "Câu 1:", "Q2."
-  const questionMatches = text.match(/^(?:câu|cau|question|q|case)\s*\d+/gim) || [];
+  // 1. Đếm số câu hỏi trực tiếp dựa trên nhãn bắt đầu dòng: "Câu 1:", "Q2.", hoặc trong thẻ Markdown "## Q031", "**Câu 2**"
+  const questionMatches = text.match(/^(?:\s*#+\s*|\s*\*+\s*)*(?:câu|cau|question|q|case)\s*(?:hỏi|số|thu|thứ)?\s*\d+/gim) || [];
   if (questionMatches.length > 0) {
     return questionMatches.length;
   }
 
-  // 2. Fallback: Nếu không dùng nhãn "Câu X", đếm số phương án lựa chọn (A, B, C, D) chia cho 4
-  const optionMatches = text.match(/^\s*[A-D][.:)-]\s+/gim) || [];
+  // 2. Fallback: Nếu không dùng nhãn "Câu X", đếm số phương án lựa chọn (A, B, C, D) chia cho 4. Hỗ trợ markdown list "- A."
+  const optionMatches = text.match(/^\s*(?:-\s*|\*\s*)?[A-D][.:)-]\s+/gim) || [];
   if (optionMatches.length > 0) {
     return Math.max(1, Math.round(optionMatches.length / 4));
   }

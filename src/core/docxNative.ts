@@ -625,7 +625,7 @@ export const getNativeMcqBlocks = (nativeText: string): string[] => {
 
   return text
     .slice(firstMarkerIndex)
-    .replace(/^\[(?:DOCX_NATIVE|PDF_TEXT)_(?:MCQ|BATCH)_COUNT:\s*\d+\]\s*/i, '')
+    .replace(/^\[(?:DOCX_NATIVE|PDF_TEXT|MARKDOWN)_(?:MCQ|BATCH)_COUNT:\s*\d+\]\s*/i, '')
     .split(/(?=^<<<MCQ\s+\d+>>>$)/gm)
     .map((block) => block.trim())
     .filter(Boolean);

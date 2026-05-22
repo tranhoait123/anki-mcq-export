@@ -30,7 +30,7 @@ const UploadDropZone: React.FC<UploadDropZoneProps> = ({
       id="fileInput"
       data-testid="file-input"
       multiple
-      accept=".pdf,.txt,.md,.docx,.png,.jpg,.jpeg,.webp,.heic"
+      accept=".pdf,.txt,.md,.csv,.docx,.png,.jpg,.jpeg,.webp,.heic"
       className="hidden"
       onChange={onInputChange}
     />
@@ -41,7 +41,7 @@ const UploadDropZone: React.FC<UploadDropZoneProps> = ({
       <p className="text-base font-black uppercase leading-tight tracking-tighter text-slate-800 dark:text-white">Kéo thả hoặc nhấn để tải tài liệu</p>
       <p className="mb-3 mt-1 text-center text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">Tài liệu tải lên phải có nội dung trắc nghiệm</p>
       <p className="inline-block rounded-full border border-slate-100 bg-slate-200/50 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-        Hỗ trợ: PDF / Ảnh / Word (Tối đa 50MB/file)
+        Hỗ trợ: PDF / Ảnh / Word / MD / CSV (Tối đa 50MB/file)
       </p>
     </div>
   </div>

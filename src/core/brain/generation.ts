@@ -748,12 +748,16 @@ export const generateQuestions = async (
           docxBatches.forEach((text, batchIndex) => {
             const sourceLabel = joinSourceLabel(file.name, `Nhóm ${batchIndex + 1}`);
             const expectedQuestions = getNativeBatchExpectedCount(text);
+            const docTypeLabel = file.isMarkdown ? 'MARKDOWN STRUCTURED' : `DOCX ${file.nativeText?.trim() ? 'NATIVE' : 'STRUCTURED'}`;
+            const traceMode = file.isMarkdown ? 'text' as const : 'docxText' as const;
+            const evidenceDesc = file.isMarkdown ? 'Markdown structured batch đã được tách thành block MCQ.' : 'DOCX native/structured batch đã được tách thành block MCQ.';
             allParts.push({
-              text: `[TÀI LIỆU DOCX ${file.nativeText?.trim() ? 'NATIVE' : 'STRUCTURED'}: "${file.name}" (Nhóm ${batchIndex + 1}/${docxBatches.length})]\n\n${text}`,
+              text: `[TÀI LIỆU ${docTypeLabel}: "${file.name}" (Nhóm ${batchIndex + 1}/${docxBatches.length})]\n\n${text}`,
               nativeMcqBatch: true,
+              structuredMcqBatch: true,
               sourceLabel,
-              trace: buildTrace(file, sourceLabel, 'docxText', { batchIndex: batchIndex + 1 }, text),
-              expectedQuestionEvidence: buildStructuredExpectedEvidence(expectedQuestions, 'DOCX native/structured batch đã được tách thành block MCQ.'),
+              trace: buildTrace(file, sourceLabel, traceMode, { batchIndex: batchIndex + 1 }, text),
+              expectedQuestionEvidence: buildStructuredExpectedEvidence(expectedQuestions, evidenceDesc),
               expectedQuestionsReliable: true,
               expectedQuestions,
             });
@@ -776,22 +780,28 @@ export const generateQuestions = async (
           docxBatches.forEach((text, batchIndex) => {
             const sourceLabel = joinSourceLabel(file.name, `Nhóm ${batchIndex + 1}`);
             const expectedQuestions = getNativeBatchExpectedCount(text);
+            const docTypeLabel = file.isMarkdown ? 'MARKDOWN STRUCTURED' : `DOCX ${file.nativeText?.trim() ? 'NATIVE' : 'STRUCTURED'}`;
+            const traceMode = file.isMarkdown ? 'text' as const : 'docxText' as const;
+            const evidenceDesc = file.isMarkdown ? 'Markdown structured batch đã được tách thành block MCQ.' : 'DOCX native/structured batch đã được tách thành block MCQ.';
             allParts.push({
-              text: `[TÀI LIỆU DOCX ${file.nativeText?.trim() ? 'NATIVE' : 'STRUCTURED'}: "${file.name}" (Nhóm ${batchIndex + 1}/${docxBatches.length})]\n\n${text}`,
+              text: `[TÀI LIỆU ${docTypeLabel}: "${file.name}" (Nhóm ${batchIndex + 1}/${docxBatches.length})]\n\n${text}`,
               nativeMcqBatch: true,
+              structuredMcqBatch: true,
               sourceLabel,
-              trace: buildTrace(file, sourceLabel, 'docxText', { batchIndex: batchIndex + 1 }, text),
-              expectedQuestionEvidence: buildStructuredExpectedEvidence(expectedQuestions, 'DOCX native/structured batch đã được tách thành block MCQ.'),
+              trace: buildTrace(file, sourceLabel, traceMode, { batchIndex: batchIndex + 1 }, text),
+              expectedQuestionEvidence: buildStructuredExpectedEvidence(expectedQuestions, evidenceDesc),
               expectedQuestionsReliable: true,
               expectedQuestions,
             });
           });
         } else {
           const sourceLabel = file.name;
+          const fallbackLabel = file.isMarkdown ? 'Markdown structured fallback' : 'DOCX structured fallback';
+          const traceMode = file.isMarkdown ? 'text' as const : 'docxText' as const;
           allParts.push({
-            text: `[TÀI LIỆU: "${file.name}" (DOCX structured fallback)]\n\n${docxMcqText}`,
+            text: `[TÀI LIỆU: "${file.name}" (${fallbackLabel})]\n\n${docxMcqText}`,
             sourceLabel,
-            trace: buildTrace(file, sourceLabel, 'docxText', undefined, docxMcqText),
+            trace: buildTrace(file, sourceLabel, traceMode, undefined, docxMcqText),
           });
         }
       } else {

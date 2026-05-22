@@ -32,7 +32,7 @@ const normalizeSourceLabel = (value: string = ''): string =>
   value.replace(/\s+/g, ' ').trim().toLowerCase();
 
 export const getNativeBatchExpectedCount = (text: string): number => {
-  const match = String(text || '').match(/^\[(?:DOCX_NATIVE|PDF_TEXT)_(?:BATCH|MCQ)_COUNT:\s*(\d+)\]/i);
+  const match = String(text || '').match(/^\[(?:DOCX_NATIVE|PDF_TEXT|MARKDOWN)_(?:BATCH|MCQ)_COUNT:\s*(\d+)\]/i);
   return match ? Number(match[1]) || 0 : 0;
 };
 

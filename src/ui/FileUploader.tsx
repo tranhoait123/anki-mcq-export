@@ -13,6 +13,7 @@ import { measureAsync, yieldToMain } from '../utils/performance';
 import UploadDropZone from './fileUploader/UploadDropZone';
 import UploadedFileList from './fileUploader/UploadedFileList';
 import { prepareDocxUpload } from './fileUploader/docxUploadPreparation';
+import { parseMarkdownMcqs } from '../utils/markdownMcqParser';
 
 export const estimateMarkdownQuestions = (text: string): number => {
   if (!text) return 0;
@@ -158,11 +159,20 @@ const FileUploader: React.FC<FileUploaderProps> = ({ files, setFiles }) => {
 
         const isMd = file.name.toLowerCase().endsWith('.md') || file.type === 'text/markdown';
         if (isMd) {
-          const mcqCount = estimateMarkdownQuestions(content);
+          const parseResult = parseMarkdownMcqs(content);
+          const mcqCount = parseResult.mcqCount;
           fileEnhancements = {
             isMarkdown: true,
             markdownMcqCount: mcqCount,
-            markdownNotice: `Markdown: Phát hiện ước tính khoảng ${mcqCount} câu trắc nghiệm.`,
+            markdownNotice: mcqCount > 0
+              ? `Markdown: Phát hiện chính xác ${mcqCount} câu trắc nghiệm (structured).`
+              : `Markdown: Không phát hiện câu trắc nghiệm có cấu trúc.`,
+            ...(mcqCount > 0 ? {
+              nativeText: parseResult.structuredText,
+              structuredText: parseResult.structuredText,
+              nativeMcqCount: mcqCount,
+              structuredMcqCount: mcqCount,
+            } : {}),
           };
         }
       }

@@ -1,6 +1,7 @@
 import { FileText } from 'lucide-react';
 import { SourceTrace, UploadedFile } from '../types';
 import { isDocxFile } from '../utils/appHelpers';
+import { parseMarkdownToHtml } from '../utils/markdownParser';
 
 interface SourcePreviewPanelProps {
   file: UploadedFile;
@@ -24,7 +25,7 @@ const SourcePreviewPanel: React.FC<SourcePreviewPanelProps> = ({ file, previewTr
         {previewTrace?.sourceLabel && previewTrace.fileName === file.name ? previewTrace.sourceLabel : file.name}
       </span>
     </div>
-    <div className={`min-h-0 flex-1 overflow-auto bg-slate-500/10 p-3 ${isDocxFile(file) ? '' : 'flex items-center justify-center'}`}>
+    <div className={`min-h-0 flex-1 overflow-auto bg-slate-500/10 p-3 ${isDocxFile(file) || file.isMarkdown || file.name.toLowerCase().endsWith('.md') ? '' : 'flex items-center justify-center'}`}>
       {previewUrl && file.type === 'application/pdf' ? (
         <iframe
           key={iframeSrc || previewUrl}
@@ -43,10 +44,15 @@ const SourcePreviewPanel: React.FC<SourcePreviewPanelProps> = ({ file, previewTr
           className="docx-preview mx-auto min-h-full w-full max-w-4xl rounded-xl bg-white px-10 py-8 text-slate-900 shadow-sm dark:bg-slate-950 dark:text-slate-100"
           dangerouslySetInnerHTML={{ __html: file.content }}
         />
+      ) : (file.isMarkdown || file.name.toLowerCase().endsWith('.md')) && file.content ? (
+        <article
+          className="markdown-preview mx-auto min-h-full w-full max-w-4xl rounded-xl bg-white px-10 py-8 text-slate-900 shadow-sm dark:bg-slate-950 dark:text-slate-100 overflow-auto space-y-2"
+          dangerouslySetInnerHTML={{ __html: parseMarkdownToHtml(file.content) }}
+        />
       ) : (
         <div className="text-center text-slate-500">
           <p>Chưa có bản xem trước cho định dạng này.</p>
-          <p className="text-xs mt-2 opacity-70">Hỗ trợ xem trước PDF, hình ảnh và Word DOCX.</p>
+          <p className="text-xs mt-2 opacity-70">Hỗ trợ xem trước PDF, hình ảnh, Word DOCX và Markdown.</p>
         </div>
       )}
     </div>

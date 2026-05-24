@@ -940,5 +940,16 @@ D. Kế hoạch đa tầng: (1) giảm BMI < 30 trước mang thai; (2) aspirin 
     expect(result.structuredText).toContain('<<<MCQ 30>>>');
     expect(result.structuredText).toContain('✅ D. Kế hoạch đa tầng');
   });
+
+  it('parses question with inline options on the same line correctly preserving question text', () => {
+    const text = 'Một nữ 23 tuổi đau cổ chân sau khi tiếp đất bằng bàn chân gập lòng và xoay vào trong khi đang chơi bóng chuyền. Khám: ấn đau trước mắt cá ngoài, anterior drawer test (+). Cơ chế tổn thương phù hợp nhất cho vị trí dây chằng bị tổn thương ở bệnh nhân này là gì? A. Gập mu (dorsiflexion) + xoay trong bàn chân B. Gập lòng (plantarflexion) + xoay trong bàn chân (inversion) C. Gập lòng + xoay ngoài bàn chân (eversion) D. Gập mu + xoay ngoài bàn chân + dạng';
+    const result = parseMarkdownMcqs(text);
+    expect(result.mcqCount).toBe(1);
+    expect(result.structuredText).toContain('Question: Một nữ 23 tuổi đau cổ chân sau khi tiếp đất bằng bàn chân gập lòng và xoay vào trong khi đang chơi bóng chuyền. Khám: ấn đau trước mắt cá ngoài, anterior drawer test (+). Cơ chế tổn thương phù hợp nhất cho vị trí dây chằng bị tổn thương ở bệnh nhân này là gì?');
+    expect(result.structuredText).toContain('A. Gập mu (dorsiflexion) + xoay trong bàn chân');
+    expect(result.structuredText).toContain('B. Gập lòng (plantarflexion) + xoay trong bàn chân (inversion)');
+    expect(result.structuredText).toContain('C. Gập lòng + xoay ngoài bàn chân (eversion)');
+    expect(result.structuredText).toContain('D. Gập mu + xoay ngoài bàn chân + dạng');
+  });
 });
 

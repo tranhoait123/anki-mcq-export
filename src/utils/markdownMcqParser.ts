@@ -184,13 +184,9 @@ const parseOptionLine = (raw: string): ParsedOption | null => {
   return { letter, text, isAnswer };
 };
 
-/**
- * Try to parse a line as inline options (multiple options on a single line).
- * Matches e.g. "A. Option A   B. Option B".
- */
-const parseInlineOptions = (text: string): ParsedOption[] => {
+const parseInlineOptions = (text: string): { options: ParsedOption[], precedingText: string } => {
   const sourceText = text.trim();
-  if (!sourceText) return [];
+  if (!sourceText) return { options: [], precedingText: '' };
 
   const markers: { letter: string; markerStart: number; contentStart: number; symbolMarked: boolean }[] = [];
   // Regex to find option letters like A., B), (C) inline.
@@ -206,9 +202,11 @@ const parseInlineOptions = (text: string): ParsedOption[] => {
     });
   }
 
-  if (markers.length < 2) return [];
+  if (markers.length < 2) return { options: [], precedingText: sourceText };
 
-  return markers
+  const precedingText = sourceText.slice(0, markers[0].markerStart).trim();
+
+  const options = markers
     .map((marker, index) => {
       const end = markers[index + 1]?.markerStart ?? sourceText.length;
       const rawOptionText = sourceText.slice(marker.contentStart, end).trim();
@@ -230,6 +228,8 @@ const parseInlineOptions = (text: string): ParsedOption[] => {
       };
     })
     .filter((option) => option.text);
+
+  return { options, precedingText };
 };
 
 /** Check whether the next few lines after a given index contain options (at least 2 distinct option letters). */
@@ -240,9 +240,9 @@ const hasOptionsAhead = (lines: string[], startIndex: number, maxLookahead = 8):
     if (opt) {
       foundLetters.add(opt.letter);
     } else {
-      const inlineOpts = parseInlineOptions(lines[i]);
-      if (inlineOpts.length >= 2) {
-        inlineOpts.forEach(o => foundLetters.add(o.letter));
+      const inlineOptsResult = parseInlineOptions(lines[i]);
+      if (inlineOptsResult.options.length >= 2) {
+        inlineOptsResult.options.forEach(o => foundLetters.add(o.letter));
       }
     }
     // Relaxed requirement: at least 2 distinct options (e.g. A and B) to detect MCQ structure
@@ -464,11 +464,14 @@ export const parseMarkdownMcqs = (markdownText: string): MarkdownMcqParseResult 
       if (!trimmed) continue;
 
       // Try inline options first (since multiple options on same line won't match parseOptionLine)
-      const inlineOpts = parseInlineOptions(trimmed);
-      if (inlineOpts.length >= 2) {
+      const inlineOptsResult = parseInlineOptions(trimmed);
+      if (inlineOptsResult.options.length >= 2) {
         collectingOptions = true;
-        options.push(...inlineOpts);
-        for (const opt of inlineOpts) {
+        if (inlineOptsResult.precedingText) {
+          questionLines.push(stripMarkdown(inlineOptsResult.precedingText));
+        }
+        options.push(...inlineOptsResult.options);
+        for (const opt of inlineOptsResult.options) {
           if (opt.isAnswer) correctAnswer = opt.letter;
         }
         continue;

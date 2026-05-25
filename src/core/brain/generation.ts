@@ -2236,11 +2236,16 @@ export const generateQuestions = async (
           const recoveryParts = await buildPdfVisionRecoveryParts(part, [], missingCount, recoveryPolicy.maxRecoveryRequests);
           if (recoveryParts.length > 0) {
             console.info(`🔎 PDF Vision batch ${batchLabel} returned ${errorKind}. Retrying with high-quality overlapping page ranges...`);
+            const progressBeforePdfRecovery = allQuestions.length + allDuplicates.length + autoSkippedCount;
             await runPartsWithLimit(
               recoveryParts,
               getSplitConcurrencyLimit(),
               (recoveryPart, i) => processBatch(recoveryPart, index, depth + 1, true, topLevelIndex, i, batchLabel)
             );
+            const progressAfterPdfRecovery = allQuestions.length + allDuplicates.length + autoSkippedCount;
+            if (progressAfterPdfRecovery === progressBeforePdfRecovery && !failedBatches.includes(index + 1)) {
+              recordBatchFailure(index, batchLabel, e, 'split');
+            }
             return;
           }
         }

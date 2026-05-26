@@ -31,8 +31,10 @@ const cleanQuestion = (text: unknown): string => {
   // Remove generated tags entirely for a seamless reading experience
   cleaned = cleaned.replace(/\[TÌNH HUỐNG\]\s*/gi, '');
   cleaned = cleaned.replace(/\[CÂU HỎI\]\s*/gi, '');
-  // Strip <<<MCQ ...>>> wrappers and Question/Câu prefixes
-  cleaned = cleaned.replace(/^\s*(?:<<<[^>]+>>>\s*)?(?:(?:Câu|Question|Bài)\s*\d*[:.]?\s*|\d+[:.]\s+)?/i, '');
+  // Strip <<<MCQ ...>>> wrappers
+  cleaned = cleaned.replace(/^\s*<<<[^>]+>>>\s*/i, '');
+  // Strip Question/Câu prefixes, strictly requiring a number or colon/dot to avoid eating words like "Câu hỏi"
+  cleaned = cleaned.replace(/^\s*(?:(?:Câu|Question|Bài)(?:\s*\d+[:.]?|\s*[:.])\s+|\d+[:.]\s+)/i, '');
   // Strip trailing options if AI accidentally included them in the question field
   cleaned = cleaned.replace(/(?:\s+|^)A[.)]\s+[\s\S]*?(?:\s+|^)B[.)]\s+[\s\S]*?(?:\s+|^)C[.)]\s+[\s\S]*$/i, '');
   return cleaned.trim();

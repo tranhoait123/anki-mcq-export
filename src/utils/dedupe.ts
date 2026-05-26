@@ -810,7 +810,16 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
     const numExisting = getQuestionNumber(existing);
     const sameNumber = numCandidate !== null && numExisting !== null && numCandidate === numExisting;
     const isQuestionHighlySimilar = fieldScores.question >= 0.88 || (sameNumber && fieldScores.question >= 0.70);
-    const overlappingPageDuplicate = !fieldScores.intentMismatch && isQuestionHighlySimilar;
+    
+    // Heuristic: If questions share a long clinical stem, they might get a high question score due to partial matching.
+    // We can distinguish them from split-page duplicates by checking if they have significantly different lengths
+    // and their overall token sets are different (low tokenSortScore).
+    const lenCandidate = (candidate.question || '').length;
+    const lenExisting = (existing.question || '').length;
+    const isSignificantLengthDiff = Math.abs(lenCandidate - lenExisting) > 70 && (Math.min(lenCandidate, lenExisting) / Math.max(lenCandidate, lenExisting)) < 0.85;
+    const isSharedClinicalStemLikely = isSignificantLengthDiff && fieldScores.questionTokenSort < 0.82;
+    
+    const overlappingPageDuplicate = !fieldScores.intentMismatch && isQuestionHighlySimilar && !isSharedClinicalStemLikely;
 
     if (
         (

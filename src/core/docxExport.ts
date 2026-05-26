@@ -28,8 +28,9 @@ export const sanitizeDocxText = (value: unknown): string => {
 
 const cleanQuestion = (text: unknown): string => {
   let cleaned = sanitizeDocxText(text);
-  cleaned = cleaned.replace(/\[TÌNH HUỐNG\]\s*/gi, '**Tình huống:** ');
-  cleaned = cleaned.replace(/\[CÂU HỎI\]\s*/gi, '**Câu hỏi:** ');
+  // Remove generated tags entirely for a seamless reading experience
+  cleaned = cleaned.replace(/\[TÌNH HUỐNG\]\s*/gi, '');
+  cleaned = cleaned.replace(/\[CÂU HỎI\]\s*/gi, '');
   cleaned = cleaned.replace(/^(?:Câu|Question|Bài)\s*\d+[:.]\s*/i, '');
   cleaned = cleaned.replace(/^\d+[:.]\s*/, '');
   return cleaned.trim();

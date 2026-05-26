@@ -37,7 +37,11 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
    - Sửa lỗi chính tả OCR (VD: "p" thành "ư", "o" thành "ô") để đảm bảo thuật ngữ Y khoa chuẩn 100%.
 3. **KHÔI PHỤC CẤU TRÚC (DE-FRAGMENTATION)**:
    - Nếu câu hỏi bị ngắt dòng, ngắt trang hoặc bị che khuất một phần bởi ngón tay: Hãy nối các đoạn lại và dùng logic lâm sàng để phục hồi nội dung bị mất.
-4. **ƯU TIÊN BẢNG BIỂU & CSV (TABLE/CSV INTELLIGENCE)**:
+4. **XỬ LÝ LỖI XUỐNG DÒNG DO CỘT HẸP (TEXT WRAPPING)**:
+   - Các tài liệu có thể được chia cột rất hẹp, khiến phần sau của phương án (A, B, C, D) bị rớt xuống các dòng tiếp theo (thường thẳng hàng với nhau).
+   - **TUYỆT ĐỐI KHÔNG** được hiểu nhầm phần text bị rớt dòng là một "cột thứ 2" hay "bảng".
+   - Bắt buộc phải ghép nối phần text rớt dòng bên dưới vào ngay sau phương án bị cụt ở trên để tạo thành một câu hoàn chỉnh, có ý nghĩa y khoa.
+5. **ƯU TIÊN BẢNG BIỂU & CSV (TABLE/CSV INTELLIGENCE)**:
    - Nếu dữ liệu có dạng lưới (Grid) hoặc bảng: Phân tích kỹ lưỡng nội dung theo từng hàng.
       + Thường thì Cột 1 là Câu hỏi, các cột tiếp theo là Phương án (A, B, C, D) và Đáp án đúng.
       + Nếu văn bản có các ký tự \`|\` hoặc dấu phẩy \`,\` ngăn cách: Hãy coi đó là ranh giới giữa các trường dữ liệu và không được gộp chúng lại.

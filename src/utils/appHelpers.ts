@@ -143,8 +143,8 @@ export const cleanText = (text: string, type: 'question' | 'option') => {
     cleaned = cleaned.replace(/^\s*<<<[^>]+>>>\s*/i, '');
     // Strip Question/Câu prefixes, strictly requiring a number or colon/dot to avoid eating words like "Câu hỏi"
     cleaned = cleaned.replace(/^\s*(?:(?:Câu|Question|Bài)(?:\s*\d+[:.]?|\s*[:.])\s+|\d+[:.]\s+)/i, '');
-    // Strip trailing options if AI accidentally included them in the question field
-    cleaned = cleaned.replace(/(?:\s+|^)A[.)]\s+[\s\S]*?(?:\s+|^)B[.)]\s+[\s\S]*?(?:\s+|^)C[.)]\s+[\s\S]*$/i, '');
+    // Strip trailing options safely: ONLY if preceded by a newline or sentence terminator like ?, :, or .
+    cleaned = cleaned.replace(/(^|\n|<br>|<br\/>|<br \/>|\t|[?:.]\s+)(A[.)]\s+[\s\S]*?(?:\s+|^)B[.)]\s+[\s\S]*?(?:\s+|^)C[.)]\s+[\s\S]*)$/i, '$1');
   } else {
     cleaned = cleaned.replace(/^[A-Ea-e][:.)]\s*/, '');
   }

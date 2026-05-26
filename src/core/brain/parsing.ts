@@ -335,35 +335,44 @@ const normalizeCorrectAnswer = (value: any, options: string[]): string => {
 export const stripOptionsFromQuestionText = (question: string, options: string[]): string => {
   if (!question || typeof question !== 'string' || !Array.isArray(options) || options.length < 2) return question;
   
-  const opt0Text = String(options[0] || '').replace(/^[A-E][.\-)]?\s*/i, '').trim();
-  const opt1Text = String(options[1] || '').replace(/^[A-E][.\-)]?\s*/i, '').trim();
+  const cleanOpts = options.map(o => String(o || '').replace(/^[A-E][.\-)]?\s*/i, '').trim());
+  if (cleanOpts.some(o => o.length < 1)) return question; // Safety against empty options
   
-  if (opt0Text.length < 3 || opt1Text.length < 3) return question;
-
-  const idx0 = question.indexOf(opt0Text);
-  if (idx0 > -1) {
-    const idx1 = question.indexOf(opt1Text, idx0 + opt0Text.length);
-    if (idx1 > -1) {
-      let backtrackIdx = idx0;
-      while (backtrackIdx > 0 && question[backtrackIdx - 1] !== ' ' && question[backtrackIdx - 1] !== '\n') {
-        backtrackIdx--;
-      }
-      
-      const prefixLength = 10;
-      const prefixStart = Math.max(0, backtrackIdx - prefixLength);
-      const prefix = question.substring(prefixStart, idx0);
-      const match = prefix.match(/(?:^|\s)([A-E][.\-)])\s*$/i);
-      
-      if (match) {
-        backtrackIdx = prefixStart + match.index!;
-      }
-      
-      const newQuestion = question.substring(0, backtrackIdx).trim();
-      return newQuestion.length > 3 ? newQuestion : question;
-    }
+  // Find where opt0 starts
+  let currentIndex = question.indexOf(cleanOpts[0]);
+  if (currentIndex === -1) return question;
+  
+  const firstFoundIndex = currentIndex;
+  
+  // Ensure all options appear in sequence
+  for (let i = 1; i < cleanOpts.length; i++) {
+    const nextIndex = question.indexOf(cleanOpts[i], currentIndex + cleanOpts[i - 1].length);
+    if (nextIndex === -1) return question; // Option missing, not an options block
+    currentIndex = nextIndex;
   }
   
-  return question;
+  // Ensure the last option is close to the end of the question
+  const lastOpt = cleanOpts[cleanOpts.length - 1];
+  const distanceFromEnd = question.length - (currentIndex + lastOpt.length);
+  if (distanceFromEnd > 50) return question; // Has too much extra text at the end, so it's not an appended block
+
+  // Backtrack to find the start of the block
+  let backtrackIdx = firstFoundIndex;
+  while (backtrackIdx > 0 && question[backtrackIdx - 1] !== ' ' && question[backtrackIdx - 1] !== '\n') {
+    backtrackIdx--;
+  }
+  
+  const prefixLength = 10;
+  const prefixStart = Math.max(0, backtrackIdx - prefixLength);
+  const prefix = question.substring(prefixStart, firstFoundIndex);
+  const match = prefix.match(/(?:^|\s)([A-E][.\-)])\s*$/i);
+  
+  if (match) {
+    backtrackIdx = prefixStart + match.index!;
+  }
+  
+  const newQuestion = question.substring(0, backtrackIdx).trim();
+  return newQuestion.length > 3 ? newQuestion : question;
 };
 
 export const cleanQuestionText = (text: string): string => {

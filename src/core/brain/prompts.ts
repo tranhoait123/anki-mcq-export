@@ -72,14 +72,40 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
         [CÂU HỎI]
         {Câu hỏi riêng lẻ}
 
-🩺 **BIỆN LUẬN MCQ (FORMAT BẮT BUỘC, ƯU TIÊN NGẮN GỌN)**:
-1. **core** (🎯 ĐÁP ÁN CỐT LÕI): Nêu đáp án đúng + lý do cực ngắn, đi thẳng vào bản chất.
-2. **evidence** (📚 BẰNG CHỨNG): Trình bày đủ bối cảnh kiến thức nền để người học hiểu vì sao chọn đáp án: guideline, tiêu chuẩn chẩn đoán, tiêu chí, cơ chế hoặc dữ kiện liên quan. Có thể dài hơn core/analysis một chút nhưng vẫn tập trung vào kiến thức giúp trả lời câu hỏi. Chỉ dùng bảng Markdown khi bảng thật sự giúp so sánh/hệ thống hóa.
-3. **analysis** (💡 PHÂN TÍCH SÂU): Phân tích đủ sâu để người học hiểu cách loại trừ từng đáp án sai và vì sao đáp án đúng vượt trội. So sánh bệnh lý/đáp án khi cần; có thể giải thích thêm cơ chế, dấu hiệu phân biệt hoặc logic đề thi, nhưng không lặp lại phần evidence. Chỉ dùng bảng Markdown nếu có nhiều lựa chọn phức tạp hoặc cần đối chiếu rõ ràng.
-4. **warning** (⚠️ CẢNH BÁO LÂM SÀNG): Nêu sai lầm thường gặp, điểm dễ nhầm, lưu ý xử trí, biến chứng hoặc tác dụng phụ.
-5. **difficulty** (📊 ĐỘ KHÓ): Chỉ trả về một từ: Easy / Medium / Hard.
-6. **depthAnalysis** (🧠 TƯ DUY): Viết dạng blockquote Markdown, bắt đầu bằng > 🔑, gồm key points nhớ nhanh và bẫy thường gặp trong đề thi.
+🩺 **BIỆN LUẬN MCQ (CAVEMAN MODE STRICT — FORMAT BẮT BUỘC)**:
+
+**Văn phong Caveman (BẮT BUỘC cho mọi trường explanation):**
+- Ngắn gọn tối giản. Lược bỏ MỌI từ nối, chủ ngữ, vị ngữ thừa.
+- Chỉ dùng keyword, mũi tên logic (\`->\`, \`=>\`), gạch đầu dòng.
+- KHÔNG viết câu hoàn chỉnh trừ khi bắt buộc.
+- VÍ DỤ TỒI: "Bệnh nhân này bị suy tim tâm thu nên thuốc ức chế men chuyển là lựa chọn đầu tay vì nó giúp giảm hậu gánh và cải thiện tỷ lệ tử vong."
+- VÍ DỤ TỐT: "Suy tim tâm thu -> ACEi (First-line). Cơ chế: Giảm hậu gánh. Lợi ích: Tăng sống còn."
+
+**Tra cứu Guideline (Pre-answer Pipeline) — BẮT BUỘC trước mỗi MCQ:**
+1. Định vị chuyên khoa câu hỏi (Tim mạch / Nội tiết / Nhi / Nhiễm / …).
+2. Ưu tiên BYT Việt Nam, phác đồ trong nước (BYT, VNHA, BV Bạch Mai, Nhi Đồng 1/2, Từ Dũ, Chợ Rẫy, Nelson Việt hoá…).
+3. BYT cũ/thiếu chi tiết -> guideline quốc tế uy tín: Tim mạch (ESC, AHA/ACC), Thận (KDIGO), Nội tiết (ADA, EASD, ATA), Hô hấp (GINA, GOLD), Nhiễm (WHO, CDC, IDSA), Nhi (AAP, Nelson). Nêu ngắn lý do chọn nguồn quốc tế.
+4. Phác đồ BYT ≥ 3 năm tuổi -> BẮT BUỘC đối chiếu thêm guideline quốc tế mới nhất (phát hiện thu hồi thuốc, evidence đảo ngược, phân loại lại). VD: Phác đồ SXHD BYT 2019 liệt kê Refortan/HES, nhưng EMA 2023 đã thu hồi HES -> phải nêu rõ.
+5. BYT mâu thuẫn quốc tế -> nêu cả hai: "Đề VN: [A], Quốc tế: [B]". Đáp án ưu tiên kỳ thi VN.
+6. Hallucination guard: Không chắc 100% số QĐ/tên văn bản/năm -> ghi [cần verify]. TUYỆT ĐỐI KHÔNG bịa.
+7. Đề thiếu dữ kiện/mơ hồ -> suy luận kịch bản hợp lý nhất, nêu rõ giả định đầu evidence (VD: "Giả định: Không suy thận (không eGFR)"). KHÔNG hỏi lại.
+
+**6 TRƯỜNG BẮT BUỘC (mapping JSON):**
+1. **core** (🎯 ĐÁP ÁN): Chọn [A/B/C/D] + lý do lõi (≤ 15 chữ). Ghi Confidence: Cao / Trung bình / Thấp.
+2. **evidence** (📚 BẰNG CHỨNG EBM): Nguồn: [Guideline + Năm]. Cơ chế/Chỉ định lõi dùng \`->\` giải thích logic (≤ 30 chữ). Bảng Markdown chỉ khi so sánh/phân độ ≥ 2 mục. Mơ hồ -> mở đầu bằng \`[Giả định: ...]\`.
+3. **analysis** (💡 PHÂN TÍCH NHANH): Mỗi đáp án sai 1 dòng: [Đ.án sai]: [Lý do sai ≤ 10 chữ]. Không lặp evidence.
+4. **warning** (⚠️ RED FLAG): 1 chống chỉ định / tác dụng phụ nguy hiểm nhất / sai lầm lâm sàng thường gặp (≤ 10 chữ).
+5. **difficulty** (📊 ĐỘ KHÓ): Easy / Medium / Hard. (Lý do ≤ 10 chữ).
+6. **depthAnalysis** (🧠 TƯ DUY): Viết dạng blockquote Markdown, CHỈ 1 blockquote duy nhất, mở đầu bằng > 🔑, gồm keyword nhớ nhanh và bẫy 🪤 thường gặp. VD: > 🔑 ACEi = First-line suy tim EF giảm\n> 🪤 Bẫy: ARB không phải first-line -> chỉ khi không dung nạp ACEi.
 7. **source** (📁 NGUỒN): Copy đúng SOURCE_LABEL được cung cấp trong prompt của batch. Không tự suy đoán, không tự đặt tên đề, năm, chương, trang, file đáp án, hoặc ngữ cảnh ngoài SOURCE_LABEL.
+
+**MODE RÚT GỌN (difficulty = Easy):** core + evidence + depthAnalysis viết đủ. analysis/warning viết cực ngắn (mỗi trường 1 dòng).
+
+**ANTI-PATTERN (TUYỆT ĐỐI TRÁNH trong explanation):**
+- Viết câu văn dài dòng đầy đủ chủ-vị-bổ.
+- Tách depthAnalysis thành nhiều blockquote riêng lẻ.
+- Lồng cấu trúc rườm rà, giải thích thừa.
+- Hỏi ngược người dùng.
 
 ⛔ **HÀNG RÀO AN TOÀN (SAFETY PROTOCOL)**:
 - Tuyệt đối không sử dụng văn bản giả hoặc ghi chú chung chung (Placeholder).

@@ -1,4 +1,4 @@
-import { cleanQuestionText, extractQuestionNumberFromText, createStreamingQuestionBuffer } from './parsing';
+import { cleanQuestionText, extractQuestionNumberFromText, createStreamingQuestionBuffer, parseQuestionsFromModelText } from './parsing';
 
 describe('cleanQuestionText', () => {
   it('strips standard Vietnamese question prefixes', () => {
@@ -130,5 +130,73 @@ describe('createStreamingQuestionBuffer', () => {
     buffer.append(payload.slice(splitAt));
     expect(buffer.drain()).toHaveLength(1);
     expect(buffer.drain()).toEqual([]);
+  });
+});
+
+describe('parseQuestionsFromModelText - essay sub-question rejection', () => {
+  const buildEssayMcqPayload = () => JSON.stringify({
+    questions: [{
+      question: 'B trai, Nh 6 tuổi cân nặng 20 kg, sốt ngày 4, chỉ ấm, mạch = 100 lần/ph...',
+      options: [
+        'A. Đặt vấn đề tại thời điểm ngày 2-3',
+        'B. Nhận xét điều trị của bác sĩ tại thời điểm này',
+        'C. Đặt vấn đề tại thời điểm nhập viện',
+        'D. chẩn đoán, xử trí tại thời điểm nhập viện',
+      ],
+      correctAnswer: 'A',
+      explanation: { core: 'test', evidence: '', analysis: '', warning: '' },
+      source: 'test',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    }],
+  });
+
+  const buildRealMcqPayload = () => JSON.stringify({
+    questions: [{
+      question: 'Câu 1: Chẩn đoán nào phù hợp nhất với bệnh nhân này?',
+      options: [
+        'A. Viêm phổi',
+        'B. Hen phế quản',
+        'C. Tràn dịch màng phổi',
+        'D. Suy tim sung huyết',
+      ],
+      correctAnswer: 'A',
+      explanation: { core: 'test', evidence: '', analysis: '', warning: '' },
+      source: 'test',
+      difficulty: 'Medium',
+      depthAnalysis: '',
+    }],
+  });
+
+  it('rejects essay sub-questions disguised as MCQ options', () => {
+    const result = parseQuestionsFromModelText(buildEssayMcqPayload(), 0, 0, { allowEmpty: true });
+    expect(result).toHaveLength(0);
+  });
+
+  it('preserves legitimate MCQ questions', () => {
+    const result = parseQuestionsFromModelText(buildRealMcqPayload(), 0, 1);
+    expect(result).toHaveLength(1);
+    expect(result[0].correctAnswer).toBe('A');
+  });
+
+  it('rejects essay options with various task verbs', () => {
+    const payload = JSON.stringify({
+      questions: [{
+        question: 'Tình huống lâm sàng: Bệnh nhân nam 45 tuổi...',
+        options: [
+          'A. Trình bày chẩn đoán xác định',
+          'B. Phân tích các yếu tố nguy cơ',
+          'C. Nêu hướng xử trí ban đầu',
+          'D. Liệt kê các xét nghiệm cần thực hiện',
+        ],
+        correctAnswer: 'C',
+        explanation: { core: 'test', evidence: '', analysis: '', warning: '' },
+        source: 'test',
+        difficulty: 'Hard',
+        depthAnalysis: '',
+      }],
+    });
+    const result = parseQuestionsFromModelText(payload, 0, 0, { allowEmpty: true });
+    expect(result).toHaveLength(0);
   });
 });

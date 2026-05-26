@@ -118,16 +118,42 @@ const findBalancedObjectEnd = (text: string, startIndex: number): number => {
   return -1;
 };
 
-const isCompleteQuestionObject = (value: any): boolean =>
-  Boolean(
-    value &&
-    typeof value.question === 'string' &&
-    value.question.trim().length > 0 &&
-    Array.isArray(value.options) &&
-    value.options.length >= 2 &&
-    typeof value.correctAnswer === 'string' &&
-    value.correctAnswer.trim().length > 0
-  );
+/**
+ * Detect whether MCQ options are actually essay/short-answer sub-questions
+ * that the AI model incorrectly converted into MCQ format.
+ *
+ * Essay sub-questions typically look like:
+ *   a) Đặt vấn đề tại thời điểm ngày 2-3
+ *   b) Nhận xét điều trị của bác sĩ
+ *   c) Chẩn đoán, xử trí tại thời điểm nhập viện
+ *
+ * These are independent TASKS/QUESTIONS, not answer choices for a single question.
+ */
+const ESSAY_TASK_PATTERN = /^[A-E][\s.:)-]+\s*(?:đặt vấn đề|nhận xét|chẩn đoán|xử trí|xử lý|giải thích|phân tích|trình bày|nêu|liệt kê|mô tả|so sánh|bàn luận|bình luận|đánh giá|hướng xử trí|hướng điều trị|chỉ định|cho biết|tư vấn|lập kế hoạch|kê đơn|kê toa|viết đơn thuốc|đề xuất|lý giải|biện luận)/i;
+
+const looksLikeEssaySubQuestions = (options: string[]): boolean => {
+  if (!Array.isArray(options) || options.length < 2) return false;
+  const essayCount = options.filter(opt => ESSAY_TASK_PATTERN.test(String(opt || '').trim())).length;
+  // If ≥50% of options look like essay tasks, this is almost certainly NOT an MCQ
+  return essayCount >= Math.ceil(options.length / 2);
+};
+
+const isCompleteQuestionObject = (value: any): boolean => {
+  if (
+    !value ||
+    typeof value.question !== 'string' ||
+    value.question.trim().length === 0 ||
+    !Array.isArray(value.options) ||
+    value.options.length < 2 ||
+    typeof value.correctAnswer !== 'string' ||
+    value.correctAnswer.trim().length === 0
+  ) return false;
+
+  // Reject fake MCQs where options are actually essay sub-questions
+  if (looksLikeEssaySubQuestions(value.options)) return false;
+
+  return true;
+};
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E'];
 const OPTION_CORRECT_MARKER_PATTERN = /^[\s✓✔☑✅*•●■]+/;

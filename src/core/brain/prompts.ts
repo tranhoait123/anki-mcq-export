@@ -50,6 +50,11 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
    - **Đúng/Sai (True/False)**: Chuyển thành MCQ với câu hỏi "Phát biểu nào sau đây là ĐÚNG/SAI?".
    - **Ghép nối (Matching)**: Chuyển thành dạng "Ghép cột 1-?, 2-?..." (A,B,C,D là các phương án ghép).
    - **Điền khuyết (Fill-in)**: Chuyển thành "Chọn từ phù hợp điền vào chỗ trống...".
+3. **⛔ TUYỆT ĐỐI KHÔNG TRÍCH XUẤT CÁC DẠNG SAU (NON-MCQ REJECTION)**:
+   - **Câu hỏi tự luận / tình huống tự luận**: Các câu hỏi dạng "a) Đặt vấn đề...", "b) Nhận xét điều trị...", "c) Chẩn đoán...", "d) Xử trí..." là câu hỏi TỰ LUẬN (essay/short-answer), KHÔNG PHẢI trắc nghiệm. Tuyệt đối KHÔNG được chuyển đổi chúng thành dạng MCQ.
+   - **Dấu hiệu nhận biết câu tự luận**: Các mục a), b), c), d) mà mỗi mục là một NHIỆM VỤ hoặc CÂU HỎI RIÊNG LẺ (VD: "Đặt vấn đề", "Nhận xét", "Chẩn đoán", "Xử trí", "Giải thích", "Phân tích", "Trình bày", "Nêu", "Liệt kê") thì đó là câu hỏi tự luận, KHÔNG phải đáp án trắc nghiệm.
+   - **Phân biệt MCQ vs Tự luận**: Đáp án trắc nghiệm là các PHƯƠNG ÁN TRẢ LỜI cho CÙNG MỘT câu hỏi (VD: "A. Viêm phổi", "B. Hen phế quản"). Câu hỏi tự luận có a), b), c), d) là các CÂU HỎI KHÁC NHAU hoặc các NHIỆM VỤ KHÁC NHAU cần trả lời riêng biệt.
+   - Nếu toàn bộ đoạn văn chỉ chứa câu hỏi tự luận, trả về {"questions": []}.
    - **Tình huống lâm sàng (Case Study / Clinical Vignette)**:
       + Đây là quy tắc **QUAN TRỌNG NHẤT**: Khi một tình huống lâm sàng dùng chung cho nhiều câu hỏi (VD: "Dữ kiện sau cho câu 10, 11, 12"):
       + Audit bắt buộc các marker item-set/shared-vignette: "Tình huống cho câu 11-12-13-14", "Tình huống lâm sàng sau dùng cho...", "Dữ kiện sau áp dụng cho...", "Bệnh cảnh sau...", "Case for questions 11, 12, 13, and 14", "Vignette for questions...", "Item set...".
@@ -76,6 +81,7 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
 - Tuyệt đối không sử dụng văn bản giả hoặc ghi chú chung chung (Placeholder).
 - Không được bịa đặt (hallucinate) các tình huống lâm sàng không có trong văn bản.
 - Nếu một câu hỏi bị che khuất hoàn toàn (>70%) và không có cách nào suy luận logic, hãy bỏ qua câu đó.
+- **KHÔNG ĐƯỢC biến câu hỏi tự luận thành trắc nghiệm**: Nếu tài liệu chứa các câu hỏi dạng tự luận (essay, short-answer, case discussion) với các mục a), b), c), d) yêu cầu "Đặt vấn đề", "Nhận xét", "Chẩn đoán", "Xử trí", "Phân tích", "Trình bày"... thì TUYỆT ĐỐI bỏ qua, KHÔNG chuyển thành MCQ.
 
 1. **questions**: Mảng chứa danh sách các câu hỏi. Mỗi câu hỏi trong mảng PHẢI có đầy đủ các trường sau:
    - **question**: Nội dung câu hỏi, phải luôn bắt đầu bằng nhãn câu hỏi nguyên bản từ tài liệu (VD: "Câu 49: Mục đích...", "50. Biết 1 liều..."). TUYỆT ĐỐI không lược bỏ nhãn này. Kèm Case lâm sàng nếu có.

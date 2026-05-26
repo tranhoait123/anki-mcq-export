@@ -138,6 +138,7 @@ export const cleanText = (text: string, type: 'question' | 'option') => {
   if (type === 'question') {
     // Remove generated tags entirely for a seamless reading experience
     cleaned = cleaned.replace(/\[TÌNH HUỐNG\]\s*/gi, '');
+    cleaned = cleaned.replace(/\[TÌNH HUỐNG LÂM SÀNG\]\s*/gi, '');
     cleaned = cleaned.replace(/\[CÂU HỎI\]\s*/gi, '');
     // Strip <<<MCQ ...>>> wrappers
     cleaned = cleaned.replace(/^\s*<<<[^>]+>>>\s*/i, '');

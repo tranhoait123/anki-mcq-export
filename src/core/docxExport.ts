@@ -30,6 +30,7 @@ const cleanQuestion = (text: unknown): string => {
   let cleaned = sanitizeDocxText(text);
   // Remove generated tags entirely for a seamless reading experience
   cleaned = cleaned.replace(/\[TÌNH HUỐNG\]\s*/gi, '');
+  cleaned = cleaned.replace(/\[TÌNH HUỐNG LÂM SÀNG\]\s*/gi, '');
   cleaned = cleaned.replace(/\[CÂU HỎI\]\s*/gi, '');
   // Strip <<<MCQ ...>>> wrappers
   cleaned = cleaned.replace(/^\s*<<<[^>]+>>>\s*/i, '');

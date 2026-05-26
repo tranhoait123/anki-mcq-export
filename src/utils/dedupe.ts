@@ -816,8 +816,13 @@ export const findDuplicate = <T extends MCQLike>(candidate: MCQLike, existingQue
     // and their overall token sets are different (low tokenSortScore).
     const lenCandidate = (candidate.question || '').length;
     const lenExisting = (existing.question || '').length;
-    const isSignificantLengthDiff = Math.abs(lenCandidate - lenExisting) > 70 && (Math.min(lenCandidate, lenExisting) / Math.max(lenCandidate, lenExisting)) < 0.85;
-    const isSharedClinicalStemLikely = isSignificantLengthDiff && fieldScores.questionTokenSort < 0.82;
+    const diffLen = Math.abs(lenCandidate - lenExisting);
+    const minLen = Math.min(lenCandidate, lenExisting);
+    
+    // For very long clinical stems, the relative ratio might be > 0.85, but the absolute diff can still be > 100 chars.
+    // If the difference is > 100 chars, or the ratio is < 0.88, it's highly likely a different sub-question.
+    const isSignificantLengthDiff = diffLen > 100 || (diffLen > 60 && minLen / Math.max(lenCandidate, lenExisting) < 0.88);
+    const isSharedClinicalStemLikely = isSignificantLengthDiff && fieldScores.questionTokenSort < 0.94;
     
     const overlappingPageDuplicate = !fieldScores.intentMismatch && isQuestionHighlySimilar && !isSharedClinicalStemLikely;
 

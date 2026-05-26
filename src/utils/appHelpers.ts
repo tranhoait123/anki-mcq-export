@@ -136,12 +136,14 @@ export const cleanText = (text: string, type: 'question' | 'option') => {
   if (!text) return '';
   let cleaned = text.trim();
   if (type === 'question') {
+    cleaned = cleaned.replace(/\[TÌNH HUỐNG\]\s*/gi, '**Tình huống:** ');
+    cleaned = cleaned.replace(/\[CÂU HỎI\]\s*/gi, '**Câu hỏi:** ');
     cleaned = cleaned.replace(/^(?:Câu|Question|Bài)\s*\d+[:.]\s*/i, '');
     cleaned = cleaned.replace(/^\d+[:.]\s*/, '');
   } else {
     cleaned = cleaned.replace(/^[A-Ea-e][:.)]\s*/, '');
   }
-  return cleaned;
+  return cleaned.trim();
 };
 
 const normalizeProvider = (provider?: string): AppSettings['provider'] => {

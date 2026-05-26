@@ -26,8 +26,14 @@ export const sanitizeDocxText = (value: unknown): string => {
     .trim();
 };
 
-const cleanQuestion = (text: unknown): string =>
-  sanitizeDocxText(text).replace(/^(?:Câu|Question|Bài)\s*\d+[:.]\s*/i, '').replace(/^\d+[:.]\s*/, '').trim();
+const cleanQuestion = (text: unknown): string => {
+  let cleaned = sanitizeDocxText(text);
+  cleaned = cleaned.replace(/\[TÌNH HUỐNG\]\s*/gi, '**Tình huống:** ');
+  cleaned = cleaned.replace(/\[CÂU HỎI\]\s*/gi, '**Câu hỏi:** ');
+  cleaned = cleaned.replace(/^(?:Câu|Question|Bài)\s*\d+[:.]\s*/i, '');
+  cleaned = cleaned.replace(/^\d+[:.]\s*/, '');
+  return cleaned.trim();
+};
 
 const cleanOption = (text: unknown): string =>
   sanitizeDocxText(text).replace(/^[A-Ea-e]\s*[:.)]\s*/, '').trim();

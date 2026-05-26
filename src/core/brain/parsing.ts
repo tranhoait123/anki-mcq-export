@@ -332,6 +332,40 @@ const normalizeCorrectAnswer = (value: any, options: string[]): string => {
   return matchedIndex >= 0 ? OPTION_LETTERS[matchedIndex] : text;
 };
 
+export const stripOptionsFromQuestionText = (question: string, options: string[]): string => {
+  if (!question || typeof question !== 'string' || !Array.isArray(options) || options.length < 2) return question;
+  
+  const opt0Text = String(options[0] || '').replace(/^[A-E][.\-)]?\s*/i, '').trim();
+  const opt1Text = String(options[1] || '').replace(/^[A-E][.\-)]?\s*/i, '').trim();
+  
+  if (opt0Text.length < 3 || opt1Text.length < 3) return question;
+
+  const idx0 = question.indexOf(opt0Text);
+  if (idx0 > -1) {
+    const idx1 = question.indexOf(opt1Text, idx0 + opt0Text.length);
+    if (idx1 > -1) {
+      let backtrackIdx = idx0;
+      while (backtrackIdx > 0 && question[backtrackIdx - 1] !== ' ' && question[backtrackIdx - 1] !== '\n') {
+        backtrackIdx--;
+      }
+      
+      const prefixLength = 10;
+      const prefixStart = Math.max(0, backtrackIdx - prefixLength);
+      const prefix = question.substring(prefixStart, idx0);
+      const match = prefix.match(/(?:^|\s)([A-E][.\-)])\s*$/i);
+      
+      if (match) {
+        backtrackIdx = prefixStart + match.index!;
+      }
+      
+      const newQuestion = question.substring(0, backtrackIdx).trim();
+      return newQuestion.length > 3 ? newQuestion : question;
+    }
+  }
+  
+  return question;
+};
+
 export const cleanQuestionText = (text: string): string => {
   let cleaned = text.trim();
   
@@ -383,6 +417,9 @@ const fillMissingQuestionFields = (q: any): any => {
   const optionsValue = getAliasValue(q, ['options', 'choices', 'answers', 'answerOptions']);
   const optionPayload = normalizeOptionPayload(optionsValue);
   q.options = optionPayload.options;
+  
+  // Tự động xoá phần tùy chọn (A, B, C, D...) nếu AI lỡ ghép nó vào cuối câu hỏi
+  q.question = stripOptionsFromQuestionText(q.question, q.options);
 
   const correctAnswerValue = getAliasValue(q, ['correctAnswer', 'answer', 'correct_answer', 'correctOption', 'correct', 'correctChoice']);
   q.correctAnswer = optionPayload.markedAnswer || normalizeCorrectAnswer(correctAnswerValue, q.options);

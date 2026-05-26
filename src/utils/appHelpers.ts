@@ -15,7 +15,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   shopAIKeyEndpoint: 'direct',
   shopAIKeyOpenAIRoute: 'chat',
   provider: 'google',
-  model: 'gemini-3.1-flash-lite-preview',
+  model: DEFAULT_GEMINI_MODEL,
   customPrompt: '',
   skipAnalysis: true,
   concurrencyLimit: 1,
@@ -174,11 +174,11 @@ export const normalizePersistedSettings = (settings: LegacyPersistedSettings): A
 
   if (persistedSettings.model?.includes('gemini-1.5')) persistedSettings.model = 'gemini-2.5-flash';
   if (persistedSettings.model === 'gemini-3-flash' || persistedSettings.model === 'gemini-3-flash-preview') persistedSettings.model = 'gemini-3-flash-preview';
-  if (persistedSettings.model === 'gemini-3-pro' || persistedSettings.model === 'gemini-3-pro-preview') persistedSettings.model = 'gemini-3.1-pro-preview';
+  if (persistedSettings.model?.toLowerCase().includes('pro')) persistedSettings.model = 'gemini-3.1-flash-lite-preview';
   if (persistedSettings.model === 'gemini-3.1-flash-lite') persistedSettings.model = 'gemini-3.1-flash-lite-preview';
 
   if (!persistedSettings.model || !isModelAllowedForProvider(persistedSettings.provider, persistedSettings.model)) {
-    console.warn('🛡️ Detected missing or provider-incompatible model. Resetting to Gemini 3.1 Flash-Lite.');
+    console.warn(`🛡️ Detected missing or provider-incompatible model. Resetting to ${DEFAULT_GEMINI_MODEL}.`);
     persistedSettings.model = coerceModelForProvider(persistedSettings.provider, persistedSettings.model || DEFAULT_GEMINI_MODEL);
   }
 

@@ -21,28 +21,28 @@ export interface ModelTokenProfile {
 }
 
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite-preview';
-export const OPENROUTER_VISION_FALLBACK_MODEL = 'google/gemini-2.5-flash';
+export const OPENROUTER_VISION_FALLBACK_MODEL = 'google/gemini-3.1-flash-lite-preview';
 export const SHOPAIKEY_VISION_FALLBACK_MODEL = DEFAULT_GEMINI_MODEL;
 
 export const MODEL_GROUPS: Record<AIProvider, ModelGroup[]> = {
   google: [
     {
-      label: 'Mới nhất 2026',
+      label: 'Mới nhất 2026 (Free Tier)',
       options: [
-        { value: 'gemini-pro-latest', label: 'Gemini Pro Latest (Alias - luôn bám Pro mới nhất)' },
+        { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash-Lite Preview (Khuyên dùng - Mặc định)' },
+        { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash (Tối tân nhất - Tốc độ & Coding)' },
+        { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite (Cực nhanh & Tiết kiệm)' },
         { value: 'gemini-flash-latest', label: 'Gemini Flash Latest (Alias - tốc độ/chất lượng mới nhất)' },
-        { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (Mới nhất - tốc độ cao)' },
-        { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite (Stable - tiết kiệm)' },
       ],
     },
     {
-      label: 'Google Gemini hiện có',
+      label: 'Google Gemini hiện có (Free Tier)',
       options: [
-        { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (Mạnh nhất - Tư duy Y khoa sâu)' },
-        { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash-Lite (Khuyên dùng - Nhanh & Mượt)' },
-        { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (Ổn định - Tương thích cao)' },
-        { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Sắp xếp dự phòng - Tương thích)' },
-        { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (Cực nhanh)' },
+        { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash-Lite Preview (Free Tier)' },
+        { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash (Đa năng/Mạnh mẽ)' },
+        { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite (Nhanh & Mượt)' },
+        { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Cân bằng hiệu suất)' },
+        { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (Cực nhanh - Shutdown 01/06/2026)' },
       ],
     },
   ],
@@ -71,12 +71,13 @@ export const MODEL_GROUPS: Record<AIProvider, ModelGroup[]> = {
     {
       label: 'Gemini qua ShopAIKey',
       options: [
-        { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview (ShopAIKey - PDF/ảnh + suy luận sâu)' },
-        { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash-Lite (ShopAIKey - nhanh/rẻ cho scan đề)' },
-        { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (gateway tương thích)' },
-        { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite (gateway tương thích)' },
-        { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (Rất ổn định)' },
-        { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Cân bằng hiệu suất)' },
+        { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash-Lite Preview (ShopAIKey - Mặc định)' },
+        { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview (ShopAIKey - PDF/Ảnh & Suy luận)' },
+        { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (ShopAIKey)' },
+        { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview (ShopAIKey)' },
+        { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (ShopAIKey - Rất ổn định)' },
+        { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (ShopAIKey - Cân bằng hiệu suất)' },
+        { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite (ShopAIKey - Tiết kiệm)' },
       ],
     },
     {
@@ -100,6 +101,10 @@ export const MODEL_GROUPS: Record<AIProvider, ModelGroup[]> = {
     {
       label: 'Mới nhất 2026',
       options: [
+        { value: 'google/gemini-3.5-flash', label: 'Gemini 3.5 Flash (OpenRouter - Tối tân, agent/coding)' },
+        { value: 'google/gemini-3.1-pro', label: 'Gemini 3.1 Pro (OpenRouter - Flagship reasoning)' },
+        { value: 'google/gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite (OpenRouter - siêu tiết kiệm)' },
+        { value: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite (OpenRouter - Tiết kiệm)' },
         { value: '~google/gemini-pro-latest', label: 'Gemini Pro Latest (OpenRouter - audit đề khó/PDF dài)' },
         { value: '~google/gemini-flash-latest', label: 'Gemini Flash Latest (OpenRouter - nhanh, đa phương thức)' },
         { value: '~openai/gpt-latest', label: 'OpenAI GPT Latest (OpenRouter - lý luận mạnh)' },
@@ -116,14 +121,14 @@ export const MODEL_GROUPS: Record<AIProvider, ModelGroup[]> = {
         { value: 'anthropic/claude-opus-4.7', label: 'Claude Opus 4.7' },
         { value: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6' },
         { value: 'anthropic/claude-haiku-4.5', label: 'Claude Haiku 4.5' },
-        { value: 'google/gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (OpenRouter)' },
-        { value: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite (OpenRouter)' },
       ],
     },
     {
       label: 'Hệ thống OpenRouter',
       options: [
-        { value: 'google/gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (Mạnh nhất GCP)' },
+        { value: 'google/gemini-3.5-flash', label: 'Gemini 3.5 Flash (Tối tân nhất)' },
+        { value: 'google/gemini-3.1-pro', label: 'Gemini 3.1 Pro (Mạnh nhất GCP)' },
+        { value: 'google/gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite (Tiết kiệm)' },
         { value: 'openai/gpt-4.5-preview', label: 'GPT-4.5 Preview (Tối tân nhất)' },
         { value: 'openai/o3-pro', label: 'OpenAI o3 Pro (Lý luận chuyên gia)' },
         { value: 'openai/o3-mini', label: 'OpenAI o3-mini (Lý luận lập trình & Logic)' },
@@ -199,7 +204,7 @@ export const getModelLifecycleWarning = (provider: AIProvider, model: string): s
   }
 
   if ((provider === 'google' || normalizedModel.includes('gemini')) && isLegacyGeminiModel(normalizedModel)) {
-    return `MODEL_LIFECYCLE_WARNING: Model "${displayModel}" là model Gemini cũ/deprecated. Ưu tiên gemini-3.1-flash-lite-preview hoặc gemini-3-flash-preview để giảm lỗi endpoint và giới hạn legacy.`;
+    return `MODEL_LIFECYCLE_WARNING: Model "${displayModel}" là model Gemini cũ/deprecated hoặc preview đã đóng. Ưu tiên sử dụng gemini-3.1-flash-lite-preview hoặc gemini-3.5-flash để giảm lỗi endpoint.`;
   }
 
   return null;
@@ -212,8 +217,12 @@ const SHOPAIKEY_MODEL_ALIASES: Record<string, string> = {
   'openai/gpt-5.4-mini': 'gpt-5.4-mini',
   'openai/gpt-5.4-nano': 'gpt-5.4-nano',
   'openai/gpt-5-nano': 'gpt-5-nano',
+  'google/gemini-3.5-flash': 'gemini-3.5-flash',
+  'google/gemini-3.1-pro': 'gemini-3.1-pro',
+  'google/gemini-3.1-flash-lite': 'gemini-3.1-flash-lite',
   'google/gemini-3.1-pro-preview': 'gemini-3.1-pro-preview',
   'google/gemini-3.1-flash-lite-preview': 'gemini-3.1-flash-lite-preview',
+  'google/gemini-3-pro-preview': 'gemini-3-pro-preview',
   'google/gemini-3-flash-preview': 'gemini-3-flash-preview',
   'google/gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',
   'google/gemini-2.5-pro': 'gemini-2.5-pro',
@@ -358,6 +367,7 @@ export const getModelTokenProfile = (provider: AIProvider, model: string): Model
     normalized.includes('gemini-2.5-pro') ||
     normalized.includes('gemini-3-flash') ||
     normalized.includes('gemini-3.1') ||
+    normalized.includes('gemini-3.5') ||
     normalized.includes('gemini-flash-latest') ||
     normalized.includes('gemini-pro-latest')
   ) {

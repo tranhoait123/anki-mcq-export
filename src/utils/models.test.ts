@@ -23,24 +23,25 @@ describe('AI model registry', () => {
   it('keeps existing Google models and adds newest Gemini models', () => {
     const values = getModelValues('google');
 
-    expect(values).toContain('gemini-3.1-pro-preview');
+    expect(values).toContain('gemini-3.5-flash');
+    expect(values).not.toContain('gemini-3.1-pro');
+    expect(values).toContain('gemini-3.1-flash-lite');
     expect(values).toContain('gemini-3.1-flash-lite-preview');
-    expect(values).toContain('gemini-2.5-pro');
+    expect(values).not.toContain('gemini-2.5-pro');
     expect(values).toContain('gemini-2.5-flash');
     expect(values).toContain('gemini-2.0-flash');
-    expect(values).toContain('gemini-pro-latest');
+    expect(values).not.toContain('gemini-pro-latest');
     expect(values).toContain('gemini-flash-latest');
-    expect(values).toContain('gemini-3-flash-preview');
-    expect(values).toContain('gemini-2.5-flash-lite');
   });
 
   it('keeps existing OpenRouter models and adds newest provider families', () => {
     const values = getModelValues('openrouter');
 
-    expect(values).toContain('google/gemini-3.1-pro-preview');
+    expect(values).toContain('google/gemini-3.5-flash');
+    expect(values).toContain('google/gemini-3.1-pro');
+    expect(values).toContain('google/gemini-3.1-flash-lite');
     expect(values).toContain('openai/gpt-4o');
     expect(values).toContain('deepseek/deepseek-chat');
-    expect(values).toContain('deepseek/deepseek-r1');
     expect(values).toContain('openai/gpt-5.4-pro');
     expect(values).toContain('openai/gpt-5.4');
     expect(values).toContain('openai/gpt-5.5');
@@ -56,12 +57,11 @@ describe('AI model registry', () => {
     expect(values).toContain('anthropic/claude-opus-4.7');
     expect(values).toContain('anthropic/claude-sonnet-4.6');
     expect(values).toContain('anthropic/claude-haiku-4.5');
-    expect(values).toContain('google/gemini-3-flash-preview');
-    expect(values).toContain('google/gemini-2.5-flash-lite');
     expect(values).not.toContain('deepseek/deepseek-reasoner');
     expect(values).toContain('moonshotai/kimi-k2.6');
     expect(values).toContain('z-ai/glm-5.1');
     expect(values).toContain('qwen/qwen3.6-plus');
+    expect(values).toContain('google/gemini-2.5-flash-lite');
   });
 
   it('keeps ShopAIKey OpenAI-compatible, Gemini, and Claude model families', () => {
@@ -70,8 +70,11 @@ describe('AI model registry', () => {
     expect(values).toContain('o3-pro');
     expect(values).toContain('deepseek-v3.2');
     expect(values).toContain('gpt-5.5');
-    expect(values).toContain('gemini-3.1-pro-preview');
     expect(values).toContain('gemini-3.1-flash-lite-preview');
+    expect(values).toContain('gemini-3.1-pro-preview');
+    expect(values).toContain('gemini-3-flash-preview');
+    expect(values).toContain('gemini-3-pro-preview');
+    expect(values).toContain('gemini-2.5-pro');
     expect(values).toContain('deepseek-v4-pro');
     expect(values).toContain('deepseek-v4-flash');
     expect(values).toContain('qwen3.6-plus');
@@ -87,12 +90,13 @@ describe('AI model registry', () => {
     expect(values).toContain('claude-opus-4-7');
     expect(values).toContain('claude-sonnet-4-6');
     expect(values).toContain('claude-haiku-4-5-20251001');
+    expect(values).toContain('gemini-2.5-flash-lite');
     expect(values).not.toContain('openai/gpt-5.4-mini');
     expect(values).not.toContain('anthropic/claude-sonnet-4.6');
   });
 
   it('renders newest groups first for every provider', () => {
-    expect(getModelGroups('google')[0].label).toBe('Mới nhất 2026');
+    expect(getModelGroups('google')[0].label).toBe('Mới nhất 2026 (Free Tier)');
     expect(getModelGroups('shopaikey')[0].label).toBe('OpenAI-compatible qua ShopAIKey');
     expect(getModelGroups('openrouter')[0].label).toBe('Mới nhất 2026');
   });
@@ -101,7 +105,7 @@ describe('AI model registry', () => {
     expect(getProviderFallbackModel('google')).toBe('gemini-3.1-flash-lite-preview');
     expect(getProviderFallbackModel('google', 'gemini-2.5-flash-lite')).toBe('gemini-2.5-flash-lite');
     expect(getProviderFallbackModel('shopaikey')).toBe('gemini-3.1-flash-lite-preview');
-    expect(getProviderFallbackModel('openrouter')).toBe('google/gemini-2.5-flash');
+    expect(getProviderFallbackModel('openrouter')).toBe('google/gemini-3.1-flash-lite-preview');
   });
 
   it('does not reject DeepSeek for OpenRouter while rejecting non-Gemini for Google providers', () => {
@@ -144,7 +148,7 @@ describe('AI model registry', () => {
     expect(isVisionCapableModel('shopaikey', 'gemini-3.1-pro-preview')).toBe(true);
     expect(isVisionCapableModel('shopaikey', 'qwen3.6-27b')).toBe(true);
     expect(isVisionCapableModel('shopaikey', 'gpt-5.4-mini')).toBe(true);
-    expect(coerceModelForProviderInput('openrouter', 'deepseek/deepseek-chat', true)).toBe('google/gemini-2.5-flash');
+    expect(coerceModelForProviderInput('openrouter', 'deepseek/deepseek-chat', true)).toBe('google/gemini-3.1-flash-lite-preview');
     expect(coerceModelForProviderInput('shopaikey', 'deepseek-v4-pro', true)).toBe('deepseek-v4-pro');
     expect(coerceModelForProviderInput('shopaikey', 'deepseek-v4-flash', true)).toBe('deepseek-v4-flash');
     expect(coerceModelForProviderInput('shopaikey', 'deepseek/deepseek-v3.2', true)).toBe('deepseek-v3.2');
@@ -167,8 +171,8 @@ describe('AI model registry', () => {
   });
 
   it('detects ShopAIKey Gemini, Claude, and OpenAI-compatible runtime families', () => {
-    expect(isShopAIKeyGeminiModel('gemini-3.1-flash-lite-preview')).toBe(true);
-    expect(isShopAIKeyGeminiModel('google/gemini-3.1-pro-preview')).toBe(true);
+    expect(isShopAIKeyGeminiModel('gemini-3.1-flash-lite')).toBe(true);
+    expect(isShopAIKeyGeminiModel('google/gemini-3.1-pro')).toBe(true);
     expect(isShopAIKeyGeminiModel('gpt-5-nano')).toBe(false);
     expect(isShopAIKeyClaudeModel('claude-sonnet-4-6')).toBe(true);
     expect(isShopAIKeyClaudeModel('anthropic/claude-opus-4.7')).toBe(true);
@@ -180,7 +184,7 @@ describe('AI model registry', () => {
     expect(isShopAIKeyOpenAIModel('grok-4-20-reasoning')).toBe(true);
     expect(isShopAIKeyOpenAIModel('MiniMax-M2.7')).toBe(true);
     expect(isShopAIKeyOpenAIModel('mimo-v2.5-pro')).toBe(true);
-    expect(isShopAIKeyOpenAIResponsesModel('gemini-3.1-flash-lite-preview')).toBe(false);
+    expect(isShopAIKeyOpenAIResponsesModel('gemini-3.1-flash-lite')).toBe(false);
     expect(isShopAIKeyOpenAIResponsesModel('claude-sonnet-4-6')).toBe(false);
   });
 

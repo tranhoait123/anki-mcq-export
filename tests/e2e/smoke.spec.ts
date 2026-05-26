@@ -46,7 +46,7 @@ test.beforeEach(async ({ page }) => {
       apiKey: 'fake-e2e-key',
       shopAIKeyKey: '',
       provider: 'google',
-      model: 'gemini-3.1-flash-lite-preview',
+      model: 'gemini-3.5-flash',
       customPrompt: '',
       skipAnalysis: true,
       concurrencyLimit: 1,

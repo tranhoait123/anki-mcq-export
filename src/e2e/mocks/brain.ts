@@ -134,8 +134,8 @@ export const auditMissingQuestions = async (_files: UploadedFile[], _count: numb
 export const validateShopAIKeyConnection = async () => ({
   ok: true,
   message: 'Mock ShopAIKey connection passed.',
-  models: ['gemini-3.1-flash-lite-preview'],
-  selectedModel: 'gemini-3.1-flash-lite-preview',
+  models: ['gemini-3.5-flash'],
+  selectedModel: 'gemini-3.5-flash',
   selectedModelAvailable: true,
 });
 

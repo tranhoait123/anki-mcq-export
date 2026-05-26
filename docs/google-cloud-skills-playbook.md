@@ -16,7 +16,7 @@ This repo uses selected skills from `google/skills` as implementation guidance. 
 ## Gemini/API Upgrade Checklist
 
 - Keep `@google/genai` as the Google SDK.
-- Keep `gemini-3.1-flash-lite-preview` as the app default/fallback; use `gemini-3-flash-preview` or `gemini-3.1-pro-preview` only when a user intentionally chooses them.
+- Keep `gemini-3.1-flash-lite-preview` as the app default/fallback; use `gemini-3.5-flash` or `gemini-3.1-flash-lite` only when a user intentionally chooses them.
 - Preserve strict JSON object output with the top-level `questions` array.
 - Keep provider/model coercion before runtime calls.
 - Warn on legacy Gemini model IDs such as `gemini-2.0-*`, `gemini-1.*`, `gemini-pro`, and `gemini-3-pro-preview`.

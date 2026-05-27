@@ -148,7 +148,6 @@ B. Option B
     expect(classifyBatchError({ statusCode: 400, message: '400 INVALID_ARGUMENT: response_schema is invalid for this model' })).toBe('fatal');
     expect(classifyBatchError(new Error('400 INVALID_ARGUMENT: model does not support response_format'))).toBe('fatal');
     expect(classifyBatchError(new Error('400 INVALID_ARGUMENT: API_KEY_INVALID: API key not valid'))).toBe('auth');
-    expect(classifyBatchError(new Error('SHOPAIKEY_DEEPSEEK_VISION_GROUP_UNSUPPORTED: scan-only input'))).toBe('fatal');
     expect(classifyBatchError(new Error('ShopAIKey API Error: 500 | model=deepseek-v4-flash | no available channel for group cheap,gemini model deepseek-v4-flash'))).toBe('fatal');
   });
 

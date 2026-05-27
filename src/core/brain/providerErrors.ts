@@ -18,9 +18,6 @@ export const translateErrorForUser = (error: any, context?: string): string => {
     msgLow.includes("content must be a string")
   );
 
-  if (msgLow.includes("shopaikey_deepseek_vision_group_unsupported")) {
-    return `${prefix}🤖 DeepSeek ShopAIKey nằm trong group Cheap API nên app không gửi ảnh/PDF scan thô qua image_url để tránh gateway route sang group Gemini. Hãy dùng file text/OCR, chạy OCR trước, hoặc chọn model vision khác.${providerSuffix}`;
-  }
 
   if (msgLow.includes("shopaikey api error") && isDeepSeekModel && hasVisionUnsupportedSignal) {
     return `${prefix}🤖 Model DeepSeek ShopAIKey này không nhận ảnh/PDF scan qua OpenAI-format. Hãy dùng file text/OCR hoặc chọn model vision khác.${providerSuffix}`;

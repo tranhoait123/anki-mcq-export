@@ -145,19 +145,7 @@ describe('OpenAI-compatible provider vision payloads', () => {
     )).toThrow('Unsupported OpenAI-compatible provider');
   });
 
-  it('blocks ShopAIKey DeepSeek image_url payloads before hitting the gateway', () => {
-    expect(() => buildOpenAICompatibleProviderRequest(
-      { ...shopAIKeySettings, model: 'deepseek-v4-pro' },
-      'deepseek-v4-pro',
-      [{
-        role: 'user',
-        content: [
-          { type: 'text', text: 'Mô tả ảnh này.' },
-          { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,abc123' } },
-        ],
-      }]
-    )).toThrow('SHOPAIKEY_DEEPSEEK_VISION_GROUP_UNSUPPORTED');
-  });
+
 
   it('keeps ShopAIKey DeepSeek text-only requests on the selected model', () => {
     const request = buildOpenAICompatibleProviderRequest(

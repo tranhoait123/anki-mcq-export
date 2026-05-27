@@ -197,7 +197,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ show, onClose, settings, 
                                 ? 'Tự động xoay vòng nếu nhập nhiều Key (phân cách bằng dấu phẩy).'
                                 : settings.provider === 'shopaikey'
                                     ? isShopAIKeyDeepSeekModel(settings.model)
-                                        ? 'DeepSeek qua ShopAIKey dùng Cheap API: app gọi trực tiếp bằng text/OCR; nếu tài liệu chỉ có ảnh/PDF scan, app sẽ báo lỗi thay vì tự đổi model.'
+                                        ? 'DeepSeek qua ShopAIKey: hỗ trợ xử lý ảnh và PDF trực tiếp qua API.'
                                         : isShopAIKeyClaudeModel(settings.model)
                                             ? 'Claude qua ShopAIKey sẽ gọi đúng Claude Messages API theo spec provider.'
                                         : 'Dùng key ShopAIKey dạng Bearer token; nên kiểm tra model trước khi quét.'

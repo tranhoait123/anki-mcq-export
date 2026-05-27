@@ -84,35 +84,7 @@ const DEFERRED_RECOVERY_MAX_RETRIES = 2;
 const hasInlineVisionInput = (part: any): boolean =>
   Boolean(part?.inlineData) || (Array.isArray(part?.inlineDataParts) && part.inlineDataParts.length > 0);
 
-const getShopAIKeyDeepSeekTextOnlyError = (labels: string[]): Error => {
-  const sample = labels.slice(0, 5).join(', ');
-  const suffix = sample ? ` Batch chưa có text/OCR: ${sample}.` : '';
-  return new Error(`SHOPAIKEY_DEEPSEEK_VISION_GROUP_UNSUPPORTED: DeepSeek ShopAIKey nằm trong group Cheap API nên app không gửi ảnh/PDF scan thô để tránh gateway route sang group Gemini.${suffix} Hãy dùng file text/OCR hoặc chọn model vision khác.`);
-};
 
-export const prepareShopAIKeyDeepSeekTextOnlyParts = (parts: any[]): any[] => {
-  const missingTextLabels: string[] = [];
-  const nextParts = parts.map((part, index) => {
-    if (!hasInlineVisionInput(part)) return part;
-    const text = typeof part?.text === 'string' ? part.text.trim() : '';
-    if (!text) {
-      missingTextLabels.push(part?.sourceLabel || `Batch ${index + 1}`);
-      return part;
-    }
-    return {
-      ...part,
-      inlineData: undefined,
-      inlineDataParts: undefined,
-      sourceMode: part.sourceMode === 'pdfVision' ? 'pdfText' : part.sourceMode,
-      shopAIKeyDeepSeekTextOnly: true,
-    };
-  });
-
-  if (missingTextLabels.length > 0) {
-    throw getShopAIKeyDeepSeekTextOnlyError(missingTextLabels);
-  }
-  return nextParts;
-};
 
 const getNowMs = () => (
   typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -840,12 +812,7 @@ export const generateQuestions = async (
       return { questions: [], duplicates: [], failedBatches: [], failedBatchDetails: [], autoSkippedCount: 0 };
     }
 
-    if (runtimeSettings.provider === 'shopaikey' && isShopAIKeyDeepSeekModel(runtimeSettings.model) && partsRequireVision(allParts)) {
-      allParts = prepareShopAIKeyDeepSeekTextOnlyParts(allParts);
-      if (onProgress) {
-        onProgress('DeepSeek ShopAIKey dùng Cheap API: chuyển batch có text/OCR sang text-only, không gửi ảnh thô để tránh route sang Gemini group.', 0);
-      }
-    }
+
 
     if (isOpenAICompatibleRuntime(runtimeSettings)) {
       const coercedModel = coerceModelForProviderInput(runtimeSettings.provider, runtimeSettings.model, partsRequireVision(allParts));
@@ -1439,7 +1406,7 @@ export const generateQuestions = async (
               async (currentKey, activeModel, attemptContext) => {
                 const messages = [
                   { role: 'system', content: 'Return strict JSON only. Count PDF Vision MCQ coverage; do not extract questions.' },
-                  { role: 'user', content: [{ type: 'text', text: verifierPrompt }, ...toOpenAIContentFromPart(part)] },
+                  { role: 'user', content: [{ type: 'text', text: verifierPrompt }, ...toOpenAIContentFromPart(part, runtimeSettings.provider)] },
                 ];
                 const text = await callOpenAICompatibleProvider(runtimeSettings, activeModel, messages, true, {
                   apiKeyOverride: currentKey,
@@ -2060,7 +2027,7 @@ export const generateQuestions = async (
 
                   const messages = [
                     { role: "system", content: (isAdvancedMode || forceJsonRepair) ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction },
-                    { role: "user", content: [{ type: "text", text: scanPrompt }, ...toOpenAIContentFromPart(part)] }
+                    { role: "user", content: [{ type: "text", text: scanPrompt }, ...toOpenAIContentFromPart(part, runtimeSettings.provider)] }
                   ];
 
                   const text = await callOpenAICompatibleProvider(runtimeSettings, activeModel, messages, true, {

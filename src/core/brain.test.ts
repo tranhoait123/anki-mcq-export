@@ -31,7 +31,6 @@ import {
   shouldPreferTailFirstPdfVisionRetry,
   shouldHoldDeferredRecoveryForPressure,
   splitRecoveryPartsForImmediateRun,
-  prepareShopAIKeyDeepSeekTextOnlyParts,
 } from './brain/generation';
 import type { RetryProfile } from '../utils/retryStrategy';
 import { AppSettings } from '../types';
@@ -124,34 +123,6 @@ describe('Core Logic', () => {
     expect(message).toContain('request id');
   });
 
-  it('converts ShopAIKey DeepSeek PDF vision parts with text layer to text-only', () => {
-    const [part] = prepareShopAIKeyDeepSeekTextOnlyParts([{
-      text: 'Câu 1. Nội dung từ text layer/OCR.',
-      inlineDataParts: [{ mimeType: 'image/jpeg', data: 'page-1' }],
-      sourceMode: 'pdfVision',
-      sourceLabel: 'de.pdf | Trang 1',
-    }]);
-
-    expect(part.text).toContain('Câu 1');
-    expect(part.inlineDataParts).toBeUndefined();
-    expect(part.inlineData).toBeUndefined();
-    expect(part.sourceMode).toBe('pdfText');
-    expect(part.shopAIKeyDeepSeekTextOnly).toBe(true);
-  });
-
-  it('fails ShopAIKey DeepSeek scan-only vision parts before request routing', () => {
-    expect(() => prepareShopAIKeyDeepSeekTextOnlyParts([{
-      inlineData: { mimeType: 'image/png', data: 'scan' },
-      sourceLabel: 'scan.png',
-    }])).toThrow('SHOPAIKEY_DEEPSEEK_VISION_GROUP_UNSUPPORTED');
-
-    const message = translateErrorForUser(
-      new Error('SHOPAIKEY_DEEPSEEK_VISION_GROUP_UNSUPPORTED: scan.png'),
-      'Trích xuất'
-    );
-    expect(message).toContain('Cheap API');
-    expect(message).toContain('OCR');
-  });
 
   it('omits text parts from Google batch messages when context cache is available', () => {
     const part = { text: 'very long document part', sourceLabel: 'demo.pdf | Trang 1' };

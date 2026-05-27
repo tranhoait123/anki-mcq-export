@@ -105,7 +105,7 @@ const buildProviderHeaders = (settings: AppSettings, apiKey: string): Record<str
 
 const contentContainsImageUrl = (content: any): boolean => {
   if (!Array.isArray(content)) return false;
-  return content.some(part => part?.type === 'image_url' || part?.image_url);
+  return content.some(part => part?.type === 'image_url' || part?.image_url || part?.type === 'file');
 };
 
 const messagesContainImageUrl = (messages: any[]): boolean =>
@@ -250,9 +250,6 @@ export const buildOpenAICompatibleProviderRequest = (
 
   const apiKey = apiKeyOverride || getProviderApiKey(settings) || '';
   const model = normalizeProviderModel(settings.provider, modelName);
-  if (settings.provider === 'shopaikey' && isShopAIKeyDeepSeekModel(model) && messagesContainImageUrl(messages)) {
-    throw new Error(`SHOPAIKEY_DEEPSEEK_VISION_GROUP_UNSUPPORTED: DeepSeek ShopAIKey nằm trong group Cheap API nên app không gửi image_url/PDF scan thô để tránh gateway route sang group Gemini. Hãy dùng file text/OCR hoặc chọn model vision khác. | model=${model}`);
-  }
   const endpointKind: ProviderRequestConfig['endpointKind'] = settings.provider === 'shopaikey' && isShopAIKeyClaudeModel(model)
     ? 'claude'
     : settings.provider === 'shopaikey' && settings.shopAIKeyOpenAIRoute === 'responses'
@@ -600,13 +597,22 @@ export const callOpenAICompatibleProvider = async (
   return content;
 };
 
-export const toOpenAIContentFromPart = (part: any): any[] => {
+export const toOpenAIContentFromPart = (part: any, provider?: string): any[] => {
   const inlineDataParts = Array.isArray(part.inlineDataParts) ? part.inlineDataParts : [];
   if (inlineDataParts.length > 0) {
     return [
       ...(part.text ? [{ type: 'text', text: `[PDF_TEXT_LAYER_CONTEXT]\n${part.text}` }] : []),
       ...inlineDataParts.map((inlineData: any) => {
         if (inlineData.mimeType === 'application/pdf') {
+          if (provider === 'shopaikey') {
+            return {
+              type: 'file',
+              file: {
+                filename: 'document.pdf',
+                file_data: inlineData.data
+              }
+            };
+          }
           throw new Error('PDF_PROVIDER_RASTERIZATION_REQUIRED: Provider OpenAI-compatible không nhận PDF thô. Hãy để hệ thống chuyển PDF sang ảnh trước khi quét.');
         }
         return { type: 'image_url', image_url: { url: `data:${inlineData.mimeType};base64,${inlineData.data}` } };
@@ -615,6 +621,18 @@ export const toOpenAIContentFromPart = (part: any): any[] => {
   }
   if (part.inlineData) {
     if (part.inlineData.mimeType === 'application/pdf') {
+      if (provider === 'shopaikey') {
+        return [
+          ...(part.text ? [{ type: 'text', text: `[PDF_TEXT_LAYER_CONTEXT]\n${part.text}` }] : []),
+          {
+            type: 'file',
+            file: {
+              filename: 'document.pdf',
+              file_data: part.inlineData.data
+            }
+          }
+        ];
+      }
       throw new Error('PDF_PROVIDER_RASTERIZATION_REQUIRED: Provider OpenAI-compatible không nhận PDF thô. Hãy để hệ thống chuyển PDF sang ảnh trước khi quét.');
     }
     return [
@@ -625,7 +643,7 @@ export const toOpenAIContentFromPart = (part: any): any[] => {
   return [{ type: 'text', text: part.text || '' }];
 };
 
-export const toOpenAIContentFromFile = (file: UploadedFile): any => {
+export const toOpenAIContentFromFile = (file: UploadedFile, provider?: string): any => {
   if (file.type.startsWith('image/')) {
     return {
       type: 'image_url',
@@ -633,6 +651,15 @@ export const toOpenAIContentFromFile = (file: UploadedFile): any => {
     };
   }
   if (file.type === 'application/pdf') {
+    if (provider === 'shopaikey') {
+      return {
+        type: 'file',
+        file: {
+          filename: file.name || 'document.pdf',
+          file_data: file.content.includes(',') ? file.content.split(',')[1] : file.content
+        }
+      };
+    }
     return { type: 'text', text: `FILE: ${file.name}\n[PDF chưa được chuyển sang ảnh. Vui lòng quét lại để hệ thống rasterize PDF trước.]\n` };
   }
   return { type: 'text', text: `FILE: ${file.name}\n${getFileTextContent(file)}\n` };

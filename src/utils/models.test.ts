@@ -25,10 +25,12 @@ describe('AI model registry', () => {
 
     expect(values).toContain('gemini-3.5-flash');
     expect(values).not.toContain('gemini-3.1-pro');
+    expect(values).toContain('gemini-3.1-pro-preview');
     expect(values).toContain('gemini-3.1-flash-lite');
-    expect(values).toContain('gemini-3.1-flash-lite-preview');
-    expect(values).not.toContain('gemini-2.5-pro');
+    expect(values).toContain('gemini-3.1-flash-lite');
+    expect(values).toContain('gemini-2.5-pro');
     expect(values).toContain('gemini-2.5-flash');
+    expect(values).toContain('gemini-2.5-flash-lite');
     expect(values).toContain('gemini-2.0-flash');
     expect(values).not.toContain('gemini-pro-latest');
     expect(values).toContain('gemini-flash-latest');
@@ -70,7 +72,7 @@ describe('AI model registry', () => {
     expect(values).toContain('o3-pro');
     expect(values).toContain('deepseek-v3.2');
     expect(values).toContain('gpt-5.5');
-    expect(values).toContain('gemini-3.1-flash-lite-preview');
+    expect(values).toContain('gemini-3.1-flash-lite');
     expect(values).toContain('gemini-3.1-pro-preview');
     expect(values).toContain('gemini-3-flash-preview');
     expect(values).toContain('gemini-3-pro-preview');
@@ -102,10 +104,10 @@ describe('AI model registry', () => {
   });
 
   it('uses provider-specific fallback models', () => {
-    expect(getProviderFallbackModel('google')).toBe('gemini-3.1-flash-lite-preview');
+    expect(getProviderFallbackModel('google')).toBe('gemini-3.1-flash-lite');
     expect(getProviderFallbackModel('google', 'gemini-2.5-flash-lite')).toBe('gemini-2.5-flash-lite');
-    expect(getProviderFallbackModel('shopaikey')).toBe('gemini-3.1-flash-lite-preview');
-    expect(getProviderFallbackModel('openrouter')).toBe('google/gemini-3.1-flash-lite-preview');
+    expect(getProviderFallbackModel('shopaikey')).toBe('gemini-3.1-flash-lite');
+    expect(getProviderFallbackModel('openrouter')).toBe('google/gemini-3.1-flash-lite');
   });
 
   it('does not reject DeepSeek for OpenRouter while rejecting non-Gemini for Google providers', () => {
@@ -113,10 +115,12 @@ describe('AI model registry', () => {
     expect(isModelAllowedForProvider('shopaikey', 'deepseek/deepseek-v3.2')).toBe(true);
     expect(isModelAllowedForProvider('openrouter', 'custom/vendor-model')).toBe(true);
     expect(isModelAllowedForProvider('google', 'deepseek/deepseek-chat')).toBe(false);
+    expect(isModelAllowedForProvider('google', 'google/gemini-3.5-flash')).toBe(true);
   });
 
   it('coerces provider-incompatible models before runtime requests', () => {
-    expect(coerceModelForProvider('google', 'deepseek/deepseek-v3.2')).toBe('gemini-3.1-flash-lite-preview');
+    expect(coerceModelForProvider('google', 'deepseek/deepseek-v3.2')).toBe('gemini-3.1-flash-lite');
+    expect(coerceModelForProvider('google', 'google/gemini-3.5-flash')).toBe('gemini-3.5-flash');
     expect(coerceModelForProvider('openrouter', 'deepseek/deepseek-v3.2')).toBe('deepseek/deepseek-v3.2');
     expect(coerceModelForProvider('shopaikey', 'deepseek/deepseek-v3.2')).toBe('deepseek-v3.2');
   });
@@ -126,11 +130,11 @@ describe('AI model registry', () => {
     expect(isLegacyGeminiModel('google/gemini-2.0-flash-001')).toBe(true);
     expect(isLegacyGeminiModel('gemini-3-pro-preview')).toBe(true);
     expect(isLegacyGeminiModel('gemini-3-flash-preview')).toBe(false);
-    expect(isLegacyGeminiModel('gemini-3.1-flash-lite-preview')).toBe(false);
+    expect(isLegacyGeminiModel('gemini-3.1-flash-lite')).toBe(false);
 
     expect(getModelLifecycleWarning('google', 'gemini-2.0-flash')).toContain('MODEL_LIFECYCLE_WARNING');
     expect(getModelLifecycleWarning('openrouter', 'google/gemini-2.0-flash')).toContain('MODEL_LIFECYCLE_WARNING');
-    expect(getModelLifecycleWarning('google', 'gemini-3.1-flash-lite-preview')).toBeNull();
+    expect(getModelLifecycleWarning('google', 'gemini-3.1-flash-lite')).toBeNull();
   });
 
   it('surfaces provider mismatch through the lifecycle guardrail', () => {
@@ -148,7 +152,7 @@ describe('AI model registry', () => {
     expect(isVisionCapableModel('shopaikey', 'gemini-3.1-pro-preview')).toBe(true);
     expect(isVisionCapableModel('shopaikey', 'qwen3.6-27b')).toBe(true);
     expect(isVisionCapableModel('shopaikey', 'gpt-5.4-mini')).toBe(true);
-    expect(coerceModelForProviderInput('openrouter', 'deepseek/deepseek-chat', true)).toBe('google/gemini-3.1-flash-lite-preview');
+    expect(coerceModelForProviderInput('openrouter', 'deepseek/deepseek-chat', true)).toBe('google/gemini-3.1-flash-lite');
     expect(coerceModelForProviderInput('shopaikey', 'deepseek-v4-pro', true)).toBe('deepseek-v4-pro');
     expect(coerceModelForProviderInput('shopaikey', 'deepseek-v4-flash', true)).toBe('deepseek-v4-flash');
     expect(coerceModelForProviderInput('shopaikey', 'deepseek/deepseek-v3.2', true)).toBe('deepseek-v3.2');
@@ -168,6 +172,8 @@ describe('AI model registry', () => {
     expect(normalizeModelForProvider('shopaikey', 'deepseek/deepseek-v4-pro')).toBe('deepseek-v4-pro');
     expect(normalizeModelForProvider('shopaikey', 'qwen/qwen3.6-35b-a3b')).toBe('qwen3.6-35b-a3b');
     expect(normalizeModelForProvider('openrouter', 'openai/gpt-5.4-mini')).toBe('openai/gpt-5.4-mini');
+    expect(normalizeModelForProvider('google', 'google/gemini-3.5-flash')).toBe('gemini-3.5-flash');
+    expect(normalizeModelForProvider('google', '~google/gemini-3.1-flash-lite')).toBe('gemini-3.1-flash-lite');
   });
 
   it('detects ShopAIKey Gemini, Claude, and OpenAI-compatible runtime families', () => {
@@ -214,7 +220,7 @@ describe('AI model registry', () => {
       safeOutputBudget: 15000,
       maxQuestionsPerBatch: 10,
     });
-    expect(getModelTokenProfile('google', 'gemini-3.1-flash-lite-preview')).toMatchObject({
+    expect(getModelTokenProfile('google', 'gemini-3.1-flash-lite')).toMatchObject({
       safeOutputBudget: 15000,
       maxQuestionsPerBatch: 10,
     });

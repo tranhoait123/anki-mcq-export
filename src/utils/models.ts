@@ -20,8 +20,8 @@ export interface ModelTokenProfile {
   visionPagesPerBatch: number;
 }
 
-export const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite-preview';
-export const OPENROUTER_VISION_FALLBACK_MODEL = 'google/gemini-3.1-flash-lite-preview';
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite';
+export const OPENROUTER_VISION_FALLBACK_MODEL = 'google/gemini-3.1-flash-lite';
 export const SHOPAIKEY_VISION_FALLBACK_MODEL = DEFAULT_GEMINI_MODEL;
 
 export const MODEL_GROUPS: Record<AIProvider, ModelGroup[]> = {
@@ -29,19 +29,23 @@ export const MODEL_GROUPS: Record<AIProvider, ModelGroup[]> = {
     {
       label: 'Mới nhất 2026 (Free Tier)',
       options: [
-        { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash-Lite Preview (Khuyên dùng - Mặc định)' },
+        { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite (Bản chính thức - Khuyên dùng)' },
         { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash (Tối tân nhất - Tốc độ & Coding)' },
-        { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite (Cực nhanh & Tiết kiệm)' },
+        { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview (Mạnh mẽ & Lập trình)' },
+        { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash-Lite Preview (Sắp đóng)' },
         { value: 'gemini-flash-latest', label: 'Gemini Flash Latest (Alias - tốc độ/chất lượng mới nhất)' },
       ],
     },
     {
       label: 'Google Gemini hiện có (Free Tier)',
       options: [
-        { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash-Lite Preview (Free Tier)' },
+        { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite (Bản chính thức)' },
         { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash (Đa năng/Mạnh mẽ)' },
-        { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite (Nhanh & Mượt)' },
+        { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview (Suy luận sâu sắc)' },
+        { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash-Lite Preview (Free Tier)' },
+        { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (Flagship reasoning)' },
         { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Cân bằng hiệu suất)' },
+        { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite (Siêu nhanh & Tiết kiệm)' },
         { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (Cực nhanh - Shutdown 01/06/2026)' },
       ],
     },
@@ -71,8 +75,9 @@ export const MODEL_GROUPS: Record<AIProvider, ModelGroup[]> = {
     {
       label: 'Gemini qua ShopAIKey',
       options: [
-        { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash-Lite Preview (ShopAIKey - Mặc định)' },
+        { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite (ShopAIKey - Mặc định)' },
         { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview (ShopAIKey - PDF/Ảnh & Suy luận)' },
+        { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash-Lite Preview (ShopAIKey)' },
         { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (ShopAIKey)' },
         { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview (ShopAIKey)' },
         { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (ShopAIKey - Rất ổn định)' },
@@ -204,7 +209,7 @@ export const getModelLifecycleWarning = (provider: AIProvider, model: string): s
   }
 
   if ((provider === 'google' || normalizedModel.includes('gemini')) && isLegacyGeminiModel(normalizedModel)) {
-    return `MODEL_LIFECYCLE_WARNING: Model "${displayModel}" là model Gemini cũ/deprecated hoặc preview đã đóng. Ưu tiên sử dụng gemini-3.1-flash-lite-preview hoặc gemini-3.5-flash để giảm lỗi endpoint.`;
+    return `MODEL_LIFECYCLE_WARNING: Model "${displayModel}" là model Gemini cũ/deprecated hoặc preview đã đóng. Ưu tiên sử dụng gemini-3.1-flash-lite hoặc gemini-3.5-flash để giảm lỗi endpoint.`;
   }
 
   return null;
@@ -246,7 +251,12 @@ const SHOPAIKEY_MODEL_ALIASES: Record<string, string> = {
 };
 
 export const normalizeModelForProvider = (provider: AIProvider, model: string): string => {
+  if (!model) return '';
   if (provider === 'shopaikey') return SHOPAIKEY_MODEL_ALIASES[model] || model;
+  if (provider === 'google') {
+    if (model.startsWith('google/')) return model.substring(7);
+    if (model.startsWith('~google/')) return model.substring(8);
+  }
   return model;
 };
 

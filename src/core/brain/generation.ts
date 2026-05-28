@@ -911,6 +911,13 @@ export const generateQuestions = async (
       batchAutoSkipped.set(batchNumber, (batchAutoSkipped.get(batchNumber) || 0) + count);
     };
 
+    const getBatchLocalProgress = (batchNumber: number): number => {
+      const qs = batchQuestions.get(batchNumber)?.length || 0;
+      const dups = batchDuplicates.get(batchNumber)?.length || 0;
+      const skipped = batchAutoSkipped.get(batchNumber) || 0;
+      return qs + dups + skipped;
+    };
+
     const getBatchProgressNumbers = (): number[] => {
       const progressed = new Set<number>();
       batchQuestions.forEach((questions, batchNumber) => {
@@ -1557,6 +1564,7 @@ export const generateQuestions = async (
     // Hàm xử lý Batch chính có khả năng Đệ quy (Subdivision)
     const processBatch = async (part: any, index: number, depth: number = 0, forceJsonRepair: boolean = false, topLevelIndex: number = index, subIndex: number = 0, labelPrefix: string = `${index + 1}`) => {
       const batchLabel = depth === 0 ? labelPrefix : `${labelPrefix}${String.fromCharCode(96 + depth)}.${subIndex + 1}`;
+      const topLevelBatchNumber = topLevelIndex + 1;
       let createPostprocessInputForPartial: ((fullText: string) => BatchPostprocessInput) | null = null;
       let handlePostprocessResultForPartial: ((postprocessResult: BatchPostprocessResult, salvageReasonError?: any) => Promise<boolean>) | null = null;
 
@@ -1611,7 +1619,6 @@ export const generateQuestions = async (
         const expectedQuestions = expectedAtStart;
         const recoveryPolicy = getRecoveryPolicyForPart(part, expectedQuestions, runtimeSettings.mainBatchOnlyRescue);
         const hasReliableExpectedCount = recoveryPolicy.expectedCountReliable && expectedQuestions > 0;
-        const topLevelBatchNumber = topLevelIndex + 1;
         const isTargetedRetryBatch = Boolean(retryIndices?.includes(topLevelBatchNumber));
         const recoveryBudgetKey = typeof part.recoveryBudgetKey === 'string' ? part.recoveryBudgetKey : '';
         const createPostprocessInput = (fullText: string): BatchPostprocessInput => ({
@@ -1790,7 +1797,6 @@ export const generateQuestions = async (
               throw new Error(`AI_FORMAT_ERROR_PARTIAL_SALVAGE: Đã cứu ${rawNewQs.length} câu hợp lệ nhưng còn thiếu khoảng ${missingCount} câu (>${Math.round(missingRatio * 100)}%).`);
             } else if (!part.partialRecovery && canRecoverPartial) {
               console.info(`Batch ${batchLabel}: Salvage lấy được ${rawNewQs.length}/${expectedQuestions} câu (thiếu ${missingCount}). Đang cứu chọn lọc phần thiếu.`);
-              const topLevelBatchNumber = topLevelIndex + 1;
               const beforeRecoveryCount = getBatchCoveredQuestionCount(topLevelBatchNumber);
               const recoveryParts = canRecoverPdfVision
                 ? await buildPdfVisionRecoveryParts(part, rawNewQs, missingCount, recoveryPolicy.maxRecoveryRequests, 'tailFirst')
@@ -2203,13 +2209,13 @@ export const generateQuestions = async (
           const recoveryParts = await buildPdfVisionRecoveryParts(part, [], missingCount, recoveryPolicy.maxRecoveryRequests);
           if (recoveryParts.length > 0) {
             console.info(`🔎 PDF Vision batch ${batchLabel} returned ${errorKind}. Retrying with high-quality overlapping page ranges...`);
-            const progressBeforePdfRecovery = allQuestions.length + allDuplicates.length + autoSkippedCount;
+            const progressBeforePdfRecovery = getBatchLocalProgress(topLevelIndex + 1);
             await runPartsWithLimit(
               recoveryParts,
               getSplitConcurrencyLimit(),
               (recoveryPart, i) => processBatch(recoveryPart, index, depth + 1, true, topLevelIndex, i, batchLabel)
             );
-            const progressAfterPdfRecovery = allQuestions.length + allDuplicates.length + autoSkippedCount;
+            const progressAfterPdfRecovery = getBatchLocalProgress(topLevelIndex + 1);
             if (progressAfterPdfRecovery === progressBeforePdfRecovery && !failedBatches.includes(index + 1)) {
               recordBatchFailure(index, batchLabel, e, 'split');
             }
@@ -2285,7 +2291,7 @@ export const generateQuestions = async (
         if (nativeParts.length > 1 || canSplitText) {
           const splitPartsCount = adaptiveBatching && forceJsonRepair ? 2 : retryProfile.targetSplitParts;
           console.info(`🚀 Batch ${batchLabel} fail (${errorKind}). Triggering NATURAL-SUBDIVISION (${splitPartsCount} parts, Depth ${depth + 1})...`);
-          const progressBeforeSplit = allQuestions.length + allDuplicates.length + autoSkippedCount;
+          const progressBeforeSplit = getBatchLocalProgress(topLevelBatchNumber);
           const parts = (nativeParts.length > 1
             ? nativeParts.map(text => ({ ...part, text, expectedQuestions: getNativeBatchExpectedCount(text) }))
             : splitTextIntoNaturalParts(part.text, splitPartsCount, retryProfile.splitThresholdChars)
@@ -2294,7 +2300,7 @@ export const generateQuestions = async (
             .slice(0, batchDecision.cause === 'requestTooLarge' ? Number.POSITIVE_INFINITY : Math.max(1, recoveryPolicy.maxRecoveryRequests));
 
           await runPartsWithLimit(parts, getSplitConcurrencyLimit(), (p, i) => processBatch(p, index, depth + 1, false, topLevelIndex, i, batchLabel));
-          const progressAfterSplit = allQuestions.length + allDuplicates.length + autoSkippedCount;
+          const progressAfterSplit = getBatchLocalProgress(topLevelBatchNumber);
           if (depth === 0 && progressAfterSplit === progressBeforeSplit && !failedBatches.includes(index + 1)) {
             recordBatchFailure(index, batchLabel, e, 'split');
           }

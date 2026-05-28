@@ -566,7 +566,9 @@ export const generateQuestions = async (
             adaptiveQuestionCap,
             runtimeSettings.autoGroupClinicalCases !== false
           );
-          if (pdfTextAnalysis.textBatches.length > 0) {
+          const isShopAIKey = runtimeSettings.provider === 'shopaikey';
+
+          if (pdfTextAnalysis.textBatches.length > 0 && !isShopAIKey) {
             pdfTextAnalysis.textBatches.forEach((batch, batchIndex) => {
               const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(batch.pageRange), `Nhóm ${batchIndex + 1}`);
               const text = `[TÀI LIỆU PDF TEXT STRUCTURED: "${file.name}" (Trang ${batch.pageRange.start}-${batch.pageRange.end}, Nhóm ${batchIndex + 1}/${pdfTextAnalysis.textBatches.length})]\n\n${batch.text}`;
@@ -584,7 +586,20 @@ export const generateQuestions = async (
             });
           }
 
-          const visionRanges = pdfTextAnalysis.visionPageRanges;
+          const buildLocalPageRanges = (pageCount: number, pagesPerChunk = 3, overlap = 1) => {
+            const ranges: any[] = [];
+            const step = Math.max(1, pagesPerChunk - overlap);
+            for (let start = 1; start <= pageCount; start += step) {
+              const end = Math.min(pageCount, start + pagesPerChunk - 1);
+              ranges.push({ start, end });
+              if (end === pageCount) break;
+            }
+            return ranges;
+          };
+
+          const visionRanges = isShopAIKey
+            ? buildLocalPageRanges(pdfTextAnalysis.pageCount, visionPagesPerChunk, 1)
+            : pdfTextAnalysis.visionPageRanges;
           if (visionRanges.length > 0) {
             if (onProgress) onProgress(`PDF hybrid: ${pdfTextAnalysis.textBatches.length} batch text, ${visionRanges.length} batch Vision.`, 0);
             if (isOpenAICompatibleRuntime(runtimeSettings)) {

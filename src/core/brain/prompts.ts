@@ -65,7 +65,10 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
    - **Đúng/Sai (True/False)**: Chuyển thành MCQ với câu hỏi "Phát biểu nào sau đây là ĐÚNG/SAI?".
    - **Ghép nối (Matching)**: Chuyển thành dạng "Ghép cột 1-?, 2-?..." (A,B,C,D là các phương án ghép).
    - **Điền khuyết (Fill-in)**: Chuyển thành "Chọn từ phù hợp điền vào chỗ trống...".
-3. **⛔ TUYỆT ĐỐI KHÔNG TRÍCH XUẤT CÁC DẠNG SAU (NON-MCQ REJECTION)**:
+3. **LOẠI BỎ RÁC LMS/MOODLE VÀ DỮ LIỆU THỪA (GARBAGE REMOVAL)**:
+   - Nếu tài liệu được copy từ hệ thống thi (Moodle, Canvas...), hãy loại bỏ các cụm từ thừa (VD: "Question X", "Not yet answered", "Marked out of...", "Flag question", "Clear my choice"). KHÔNG đưa chúng vào trường "question".
+   - Loại bỏ các phần text rời rạc, câu lửng lơ hoặc phương án bị rớt từ câu hỏi trước (VD: text thừa nằm trước chữ "Question"). Chỉ giữ lại nội dung lâm sàng và câu hỏi thật sự.
+4. **⛔ TUYỆT ĐỐI KHÔNG TRÍCH XUẤT CÁC DẠNG SAU (NON-MCQ REJECTION)**:
    - **Câu hỏi tự luận / tình huống tự luận**: Các câu hỏi dạng "a) Đặt vấn đề...", "b) Nhận xét điều trị...", "c) Chẩn đoán...", "d) Xử trí..." là câu hỏi TỰ LUẬN (essay/short-answer), KHÔNG PHẢI trắc nghiệm. Tuyệt đối KHÔNG được chuyển đổi chúng thành dạng MCQ.
    - **Dấu hiệu nhận biết câu tự luận**: Các mục a), b), c), d) mà mỗi mục là một NHIỆM VỤ hoặc CÂU HỎI RIÊNG LẺ (VD: "Đặt vấn đề", "Nhận xét", "Chẩn đoán", "Xử trí", "Giải thích", "Phân tích", "Trình bày", "Nêu", "Liệt kê") thì đó là câu hỏi tự luận, KHÔNG phải đáp án trắc nghiệm.
    - **Phân biệt MCQ vs Tự luận**: Đáp án trắc nghiệm là các PHƯƠNG ÁN TRẢ LỜI cho CÙNG MỘT câu hỏi (VD: "A. Viêm phổi", "B. Hen phế quản"). Câu hỏi tự luận có a), b), c), d) là các CÂU HỎI KHÁC NHAU hoặc các NHIỆM VỤ KHÁC NHAU cần trả lời riêng biệt.

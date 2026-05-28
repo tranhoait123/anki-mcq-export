@@ -66,8 +66,9 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm từ tài
    - **Ghép nối (Matching)**: Chuyển thành dạng "Ghép cột 1-?, 2-?..." (A,B,C,D là các phương án ghép).
    - **Điền khuyết (Fill-in)**: Chuyển thành "Chọn từ phù hợp điền vào chỗ trống...".
 3. **LOẠI BỎ RÁC LMS/MOODLE VÀ DỮ LIỆU THỪA (GARBAGE REMOVAL)**:
-   - Nếu tài liệu được copy từ hệ thống thi (Moodle, Canvas...), hãy loại bỏ các cụm từ thừa (VD: "Question X", "Not yet answered", "Marked out of...", "Flag question", "Clear my choice"). KHÔNG đưa chúng vào trường "question".
-   - Loại bỏ các phần text rời rạc, câu lửng lơ hoặc phương án bị rớt từ câu hỏi trước (VD: text thừa nằm trước chữ "Question"). Chỉ giữ lại nội dung lâm sàng và câu hỏi thật sự.
+   - Loại bỏ HOÀN TOÀN các cụm từ rác sinh ra từ hệ thống thi (VD: "Question X", "Not yet answered", "Complete", "Marked out of...", "Flag question"). TUYỆT ĐỐI KHÔNG đưa chúng vào trường "question".
+   - **Xác định mốc bắt đầu câu hỏi**: Nếu có một đoạn text lửng lơ hoặc phương án bị rớt (VD: "1. Bloc nhánh...", "Liều tối đa...") dính sát vào ngay trước số thứ tự của một câu hỏi mới (VD: "10. Holter..."), hãy chủ động cắt bỏ đoạn text thừa đó và bắt đầu câu hỏi từ đúng số thứ tự mới.
+   - Vẫn trích xuất các câu hỏi bị khuyết phương án (A,B,C,D) do copy thiếu, hãy giữ lại phần nội dung câu hỏi.
 4. **⛔ TUYỆT ĐỐI KHÔNG TRÍCH XUẤT CÁC DẠNG SAU (NON-MCQ REJECTION)**:
    - **Câu hỏi tự luận / tình huống tự luận**: Các câu hỏi dạng "a) Đặt vấn đề...", "b) Nhận xét điều trị...", "c) Chẩn đoán...", "d) Xử trí..." là câu hỏi TỰ LUẬN (essay/short-answer), KHÔNG PHẢI trắc nghiệm. Tuyệt đối KHÔNG được chuyển đổi chúng thành dạng MCQ.
    - **Dấu hiệu nhận biết câu tự luận**: Các mục a), b), c), d) mà mỗi mục là một NHIỆM VỤ hoặc CÂU HỎI RIÊNG LẺ (VD: "Đặt vấn đề", "Nhận xét", "Chẩn đoán", "Xử trí", "Giải thích", "Phân tích", "Trình bày", "Nêu", "Liệt kê") thì đó là câu hỏi tự luận, KHÔNG phải đáp án trắc nghiệm.

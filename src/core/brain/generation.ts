@@ -1727,16 +1727,14 @@ export const generateQuestions = async (
           if (newQs.length > 0) {
             allQuestions.push(...newQs);
             appendBatchQuestions(topLevelBatchNumber, newQs);
-            if (onProgress) {
-              const subInfo = depth > 0 ? ` [Phần ${batchLabel.split(/[0-9]+/)[1] || batchLabel}]` : '';
-              onProgress(`Đang quét Batch ${depth === 0 ? batchLabel : index + 1}${subInfo}/${totalBatches}... đã tìm thấy ${allQuestions.length} câu`, allQuestions.length);
-            }
-            if (onBatchComplete) onBatchComplete(newQs);
           }
+          if (onProgress) {
+            const subInfo = depth > 0 ? ` [Phần ${batchLabel.split(/[0-9]+/)[1] || batchLabel}]` : '';
+            onProgress(`Đang quét Batch ${depth === 0 ? batchLabel : index + 1}${subInfo}/${totalBatches}... đã tìm thấy ${allQuestions.length} câu`, allQuestions.length);
+          }
+          if (onBatchComplete) onBatchComplete(newQs);
 
-          if (newQs.length > 0 || depth > 0) {
-            console.info(`✅ Batch ${batchLabel}: Hoàn tất (Tìm thấy ${newQs.length} câu, tổng cộng: ${allQuestions.length}).`);
-          }
+          console.info(`✅ Batch ${batchLabel}: Hoàn tất (Tìm thấy ${newQs.length} câu, tổng cộng: ${allQuestions.length}).`);
 
           if (salvagedPartial) {
             console.info(`Batch ${batchLabel}: Partial salvage ${partialStats}${partialNoAddReason ? `; ${partialNoAddReason}.` : '.'}`);

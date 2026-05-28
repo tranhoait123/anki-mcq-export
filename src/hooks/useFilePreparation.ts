@@ -34,7 +34,7 @@ export const useFilePreparation = ({
         setProgressStatus(`Đang chuyển đổi PDF sang ảnh để tương thích với ${activeSettings.provider}...`);
         try {
           const pdfDataUrl = file.content.startsWith('data:') ? file.content : `data:application/pdf;base64,${file.content}`;
-          const imageBase64s = await convertPdfToImages(pdfDataUrl);
+          const imageBase64s = await convertPdfToImages(pdfDataUrl, undefined, { quality: activeSettings.pdfVisionQuality ?? 'high' });
 
           imageBase64s.forEach((base64, index) => {
             const rawBase64 = base64.includes(',') ? base64.split(',')[1] : base64;

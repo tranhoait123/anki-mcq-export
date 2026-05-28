@@ -105,6 +105,7 @@ export const useResumeWorkflow = ({
           deprioritizedBatchIndices: session.failedBatchIndices || [],
           renderCompletedBatchesToVisible: true,
           forcedOcrMode: activeOcrMode,
+          resumeMode: true,
         });
 
         if (activeOcrMode === 'gemini' && session.analysisSnapshot && session.analysisSnapshot.estimatedCount > 0) {
@@ -207,6 +208,7 @@ export const useResumeWorkflow = ({
           comparisonFailedBatchDetails: session.phaseComparisonFailedBatchDetails || [],
           deprioritizedBatchIndices: session.failedBatchIndices || [],
           forcedOcrMode: 'tesseract',
+          resumeMode: true,
         });
 
         const preferredOutcome = selectPreferredPhaseOutcome({
@@ -298,6 +300,7 @@ export const useResumeWorkflow = ({
           seedDuplicates: session.phaseDuplicatesSnapshot || [],
           seedAutoSkippedCount: session.phaseAutoSkippedCount || 0,
           forcedOcrMode: activeOcrMode,
+          resumeMode: true,
         });
         setFailedBatchIndices(resumedPhase.res.failedBatches || []);
         setDuplicates(resumedPhase.res.duplicates || []);

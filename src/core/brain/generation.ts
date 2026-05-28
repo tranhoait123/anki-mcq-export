@@ -1,5 +1,5 @@
 import { UploadedFile, ProgressCallback, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, BatchFailureDiagnostics, SourceTrace } from "../../types";
-import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage, isShopAIKeyDeepSeekModel } from '../../utils/models';
+import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage, isShopAIKeyDeepSeekModel, isShopAIKeyGeminiModel } from '../../utils/models';
 import { analyzePdfTextLayer, convertPdfToImages, estimatePdfQuestionMarkers, splitPdfRangeForVisionRecovery, type PdfQuestionMarkerEstimate, type PdfVisionRecoveryDirection } from '../../utils/pdfProcessor';
 import {
   classifyBatchError,
@@ -567,8 +567,9 @@ export const generateQuestions = async (
             runtimeSettings.autoGroupClinicalCases !== false
           );
           const isShopAIKey = runtimeSettings.provider === 'shopaikey';
+          const isShopAIKeyGemini = isShopAIKey && isShopAIKeyGeminiModel(runtimeSettings.model);
 
-          if (pdfTextAnalysis.textBatches.length > 0 && !isShopAIKey) {
+          if (pdfTextAnalysis.textBatches.length > 0 && !isShopAIKeyGemini) {
             pdfTextAnalysis.textBatches.forEach((batch, batchIndex) => {
               const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(batch.pageRange), `Nhóm ${batchIndex + 1}`);
               const text = `[TÀI LIỆU PDF TEXT STRUCTURED: "${file.name}" (Trang ${batch.pageRange.start}-${batch.pageRange.end}, Nhóm ${batchIndex + 1}/${pdfTextAnalysis.textBatches.length})]\n\n${batch.text}`;
@@ -597,7 +598,7 @@ export const generateQuestions = async (
             return ranges;
           };
 
-          const visionRanges = isShopAIKey
+          const visionRanges = isShopAIKeyGemini
             ? buildLocalPageRanges(pdfTextAnalysis.pageCount, visionPagesPerChunk, 1)
             : pdfTextAnalysis.visionPageRanges;
           if (visionRanges.length > 0) {
@@ -847,14 +848,8 @@ export const generateQuestions = async (
     let autoSkippedCount = options.existingAutoSkippedCount || 0;
     let rescueCompleted = 0;
     const rescueTotal = retryIndices?.length || 0;
-    const shouldInferCompletedBatchIndices = Boolean(
-      options.resumeMode &&
-      !options.skipInferredCompletedBatches &&
-      !(retryIndices && retryIndices.length > 0)
-    );
-    const inferredCompletedBatchIndices = shouldInferCompletedBatchIndices
-      ? inferCompletedBatchIndicesFromExistingQuestions(allParts, options.existingQuestions || [])
-      : [];
+    const shouldInferCompletedBatchIndices = false;
+    const inferredCompletedBatchIndices: number[] = [];
     const deprioritizedBatchSet = new Set<number>(
       (options.deprioritizedBatchIndices || [])
         .filter((batchNumber) => Number.isFinite(batchNumber) && batchNumber > 0)
@@ -1428,7 +1423,7 @@ export const generateQuestions = async (
               async (currentKey, activeModel, attemptContext) => {
                 const messages = [
                   { role: 'system', content: 'Return strict JSON only. Count PDF Vision MCQ coverage; do not extract questions.' },
-                  { role: 'user', content: [{ type: 'text', text: verifierPrompt }, ...toOpenAIContentFromPart(part, runtimeSettings.provider)] },
+                  { role: 'user', content: [{ type: 'text', text: verifierPrompt }, ...toOpenAIContentFromPart(part, runtimeSettings.provider, runtimeSettings.model)] },
                 ];
                 const text = await callOpenAICompatibleProvider(runtimeSettings, activeModel, messages, true, {
                   apiKeyOverride: currentKey,
@@ -2048,7 +2043,7 @@ export const generateQuestions = async (
 
                   const messages = [
                     { role: "system", content: (isAdvancedMode || forceJsonRepair) ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction },
-                    { role: "user", content: [{ type: "text", text: scanPrompt }, ...toOpenAIContentFromPart(part, runtimeSettings.provider)] }
+                    { role: "user", content: [{ type: "text", text: scanPrompt }, ...toOpenAIContentFromPart(part, runtimeSettings.provider, runtimeSettings.model)] }
                   ];
 
                   const text = await callOpenAICompatibleProvider(runtimeSettings, activeModel, messages, true, {

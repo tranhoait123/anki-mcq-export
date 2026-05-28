@@ -61,7 +61,7 @@ export const analyzeDocument = async (files: UploadedFile[], settings: AppSettin
 
   if (isOpenAICompatibleRuntime(runtimeSettings)) {
     return await executeWithRetry(async () => {
-      const parts = files.map(f => toOpenAIContentFromFile(f, runtimeSettings.provider));
+      const parts = files.map(f => toOpenAIContentFromFile(f, runtimeSettings.provider, runtimeSettings.model));
       const text = await callOpenAICompatibleProvider(runtimeSettings, runtimeSettings.model, [
         { role: 'system', content: finalPrompt },
         { role: 'user', content: parts }
@@ -109,7 +109,7 @@ export const auditMissingQuestions = async (files: UploadedFile[], count: number
   }
   if (isOpenAICompatibleRuntime(runtimeSettings)) {
     return await executeWithRetry(async () => {
-      const parts = files.map(f => toOpenAIContentFromFile(f, runtimeSettings.provider));
+      const parts = files.map(f => toOpenAIContentFromFile(f, runtimeSettings.provider, runtimeSettings.model));
       const text = await callOpenAICompatibleProvider(runtimeSettings, runtimeSettings.model, [
         { role: 'system', content: SYSTEM_INSTRUCTION_AUDIT },
         {

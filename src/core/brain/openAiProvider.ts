@@ -597,14 +597,14 @@ export const callOpenAICompatibleProvider = async (
   return content;
 };
 
-export const toOpenAIContentFromPart = (part: any, provider?: string): any[] => {
+export const toOpenAIContentFromPart = (part: any, provider?: string, model?: string): any[] => {
   const inlineDataParts = Array.isArray(part.inlineDataParts) ? part.inlineDataParts : [];
   if (inlineDataParts.length > 0) {
     return [
       ...(part.text ? [{ type: 'text', text: `[PDF_TEXT_LAYER_CONTEXT]\n${part.text}` }] : []),
       ...inlineDataParts.map((inlineData: any) => {
         if (inlineData.mimeType === 'application/pdf') {
-          if (provider === 'shopaikey') {
+          if (provider === 'shopaikey' && model && isShopAIKeyGeminiModel(model)) {
             return {
               type: 'file',
               file: {
@@ -621,7 +621,7 @@ export const toOpenAIContentFromPart = (part: any, provider?: string): any[] => 
   }
   if (part.inlineData) {
     if (part.inlineData.mimeType === 'application/pdf') {
-      if (provider === 'shopaikey') {
+      if (provider === 'shopaikey' && model && isShopAIKeyGeminiModel(model)) {
         return [
           ...(part.text ? [{ type: 'text', text: `[PDF_TEXT_LAYER_CONTEXT]\n${part.text}` }] : []),
           {
@@ -643,7 +643,7 @@ export const toOpenAIContentFromPart = (part: any, provider?: string): any[] => 
   return [{ type: 'text', text: part.text || '' }];
 };
 
-export const toOpenAIContentFromFile = (file: UploadedFile, provider?: string): any => {
+export const toOpenAIContentFromFile = (file: UploadedFile, provider?: string, model?: string): any => {
   if (file.type.startsWith('image/')) {
     return {
       type: 'image_url',
@@ -651,7 +651,7 @@ export const toOpenAIContentFromFile = (file: UploadedFile, provider?: string): 
     };
   }
   if (file.type === 'application/pdf') {
-    if (provider === 'shopaikey') {
+    if (provider === 'shopaikey' && model && isShopAIKeyGeminiModel(model)) {
       return {
         type: 'file',
         file: {

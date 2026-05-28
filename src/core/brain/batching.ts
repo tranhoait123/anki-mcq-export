@@ -37,7 +37,7 @@ export const getNativeBatchExpectedCount = (text: string): number => {
 };
 
 export const inferCompletedBatchIndicesFromExistingQuestions = (
-  parts: Array<{ text?: string; expectedQuestions?: number; expectedQuestionsReliable?: boolean; sourceLabel?: string }>,
+  parts: Array<{ text?: string; expectedQuestions?: number; expectedQuestionsReliable?: boolean; sourceLabel?: string; trace?: SourceTrace }>,
   existingQuestions: MCQ[] = []
 ): number[] => {
   if (existingQuestions.length === 0) return [];
@@ -46,7 +46,11 @@ export const inferCompletedBatchIndicesFromExistingQuestions = (
   existingQuestions.forEach((question) => {
     const source = normalizeSourceLabel(question.source || '');
     if (!source) return;
-    sourceCounts.set(source, (sourceCounts.get(source) || 0) + 1);
+    
+    // Protect against duplicate labels from different files by checking fileId
+    const fileId = question.trace?.fileId || '';
+    const key = fileId ? `${fileId}::${source}` : source;
+    sourceCounts.set(key, (sourceCounts.get(key) || 0) + 1);
   });
 
   return parts.reduce<number[]>((completed, part, index) => {
@@ -57,7 +61,10 @@ export const inferCompletedBatchIndicesFromExistingQuestions = (
     if (expected <= 0) return completed;
 
     const source = normalizeSourceLabel(getTrustedSourceLabel(part));
-    const existingCount = sourceCounts.get(source) || 0;
+    const fileId = part.trace?.fileId || '';
+    const key = fileId ? `${fileId}::${source}` : source;
+    
+    const existingCount = sourceCounts.get(key) || 0;
     if (existingCount >= expected) completed.push(index + 1);
     return completed;
   }, []);

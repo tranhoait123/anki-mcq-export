@@ -43,6 +43,7 @@ export interface RunGenerationPhaseParams {
   deprioritizedBatchIndices?: number[];
   skipInferredCompletedBatches?: boolean;
   forcedOcrMode?: 'gemini' | 'tesseract';
+  resumeMode?: boolean;
 }
 
 export interface RunGenerationPhaseResult {
@@ -103,6 +104,7 @@ export const useGenerationPhase = ({
     deprioritizedBatchIndices = [],
     skipInferredCompletedBatches = false,
     forcedOcrMode,
+    resumeMode,
   }: RunGenerationPhaseParams): Promise<RunGenerationPhaseResult> => {
     let phaseQuestions = sortMcqsByQuestionNumber(seedQuestions);
     let phaseDuplicates = [...seedDuplicates];
@@ -196,7 +198,7 @@ export const useGenerationPhase = ({
           controller,
           retryProfile,
           autoRescue,
-          resumeMode: existingCompletedBatchIndices.length > 0 || seedQuestions.length > 0,
+          resumeMode: resumeMode !== undefined ? resumeMode : (existingCompletedBatchIndices.length > 0),
           skipInferredCompletedBatches: skipInferredCompletedBatches || Boolean(retryIndices?.length),
           completedBatchIndices: existingCompletedBatchIndices,
           deprioritizedBatchIndices,

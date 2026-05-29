@@ -103,8 +103,8 @@ export const cleanText = (text: string, type: 'question' | 'option'): string => 
     // Strip trailing options safely
     cleaned = stripTrailingOptions(cleaned);
   } else {
-    // Strip option prefix A., B., C.
-    cleaned = cleaned.replace(/^[A-Ea-e][:.)]\s*/, '');
+    // Strip option prefix A., B., C. with optional spaces before separator
+    cleaned = cleaned.replace(/^[A-Ea-e]\s*[:.)]\s*/, '');
   }
   return cleaned.trim();
 };

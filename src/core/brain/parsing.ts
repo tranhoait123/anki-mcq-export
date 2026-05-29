@@ -375,19 +375,10 @@ export const stripOptionsFromQuestionText = (question: string, options: string[]
   return newQuestion.length > 3 ? newQuestion : question;
 };
 
+import { cleanQuestionText as unifiedCleanQuestionText } from '../../utils/textCleaner';
+
 export const cleanQuestionText = (text: string): string => {
-  let cleaned = text.trim();
-  
-  // Trích xuất tiền tố câu hỏi (Question Prefix) - PHIÊN BẢN THÔNG MINH TỐI ĐA (Absolute Smartest)
-  // 1. Chấp nhận các chữ đệm: "Câu số 1", "Câu thứ 1", "Question No 1", "Bài tập 1", "Case 1"
-  // 2. Chấp nhận số phân cấp (Hierarchical): "Câu 1.1", "1.2.3."
-  // 3. Xử lý Markdown, Tags, Ngoặc kép, và bảo vệ số thập phân an toàn tuyệt đối.
-  const prefixRegex = /^(?:[\s*_*\[\(<]*)(?:(?:(?:c[âa]u(?:\s*(?:h[ỏo]i|s[ốo]|th[ứu]))?|question(?:\s*no\.?)?|q|case|b[àa]i(?:\s*t[ậa]p)?)\s*(?:\d{1,3}(?:\.\d{1,3})*[a-zA-Z]?|[IVX]{1,8})(?:\s*[([<][^\])>]+[\])>])?\s*[:.)\-\u2013\u2014\u2212–—]?)|(?:(?:\d{1,3}(?:\.\d{1,3})*[a-zA-Z]?|[IVX]{1,8})(?:\s*[([<][^\])>]+[\])>])?\s*(?:[:)\-\u2013\u2014\u2212–—]|\.(?=[\s*_*\]\)>]))))(?:[\s*_*\]\)>]*)\s*/i;
-  
-  const stripped = cleaned.replace(prefixRegex, '');
-  
-  // Fallback về chuỗi gốc nếu sau khi cắt chuỗi bị rỗng hoàn toàn
-  return stripped.trim() || cleaned;
+  return unifiedCleanQuestionText(text);
 };
 
 export const extractQuestionNumberFromText = (text: string = ''): number | null => {

@@ -1,3 +1,34 @@
+const LMS_GARBAGE_PATTERNS = [
+  /not\s+yet\s+answered/gi,
+  /chưa\s+trả\s+lời/gi,
+  /marked\s+out\s+of\s*\d+(?:[.,]\d+)?/gi,
+  /đạt\s+điểm(?:\s+số)?\s*\d+(?:[.,]\d+)?/gi,
+  /được\s+cho\s+điểm\s*\d+(?:[.,]\d+)?/gi,
+  /flag\s+question/gi,
+  /đánh\s+dấu\s+câu\s+hỏi/gi,
+  /edit\s+question/gi,
+  /chỉnh\s+sửa\s+câu\s+hỏi/gi,
+];
+
+/**
+ * Strips common LMS/Moodle garbage lines (e.g. "Not yet answered", "Marked out of 1.00").
+ */
+export const stripLmsGarbage = (text: string): string => {
+  if (!text) return '';
+  const lines = text.split('\n');
+  const cleanedLines = lines.map(line => {
+    let cleanedLine = line;
+    for (const pattern of LMS_GARBAGE_PATTERNS) {
+      cleanedLine = cleanedLine.replace(pattern, '');
+    }
+    return cleanedLine.trim();
+  }).filter(line => {
+    const trimmed = line.replace(/[|\-*•●■\s]/g, '');
+    return trimmed.length > 0;
+  });
+  return cleanedLines.join('\n').trim();
+};
+
 /**
  * Safe, non-backtracking trailing options stripper.
  * Finds A., B., C. at the end of the text block and strips it,
@@ -28,9 +59,10 @@ export const stripTrailingOptions = (text: string): string => {
 
 /**
  * Strips prefix of question stems such as "Câu 1:", "Question No 2.", etc.
+ * Also automatically strips common LMS/Moodle garbage.
  */
 export const cleanQuestionText = (text: string): string => {
-  let cleaned = text.trim();
+  let cleaned = stripLmsGarbage(text);
   
   // Smart prefix regex to strip question headers
   const prefixRegex = /^(?:[\s*_*\[\(<]*)(?:(?:(?:c[âa]u(?:\s*(?:h[ỏo]i|s[ốo]|th[ứu]))?|question(?:\s*no\.?)?|q|case|b[àa]i(?:\s*t[ậa]p)?)\s*(?:\d{1,3}(?:\.\d{1,3})*[a-zA-Z]?|[IVX]{1,8})(?:\s*[([<][^\])>]+[\])>])?\s*[:.)\-\u2013\u2014\u2212–—]?)|(?:(?:\d{1,3}(?:\.\d{1,3})*[a-zA-Z]?|[IVX]{1,8})(?:\s*[([<][^\])>]+[\])>])?\s*(?:[:)\-\u2013\u2014\u2212–—]|\.(?=[\s*_*\]\)>]))))(?:[\s*_*\]\)>]*)\s*/i;
@@ -65,7 +97,7 @@ export const cleanText = (text: string, type: 'question' | 'option'): string => 
     // Strip <<<MCQ ...>>> wrappers
     cleaned = cleaned.replace(/^\s*<<<[^>]+>>>\s*/i, '');
     
-    // Clean question header prefix
+    // Clean question header prefix & strip LMS garbage
     cleaned = cleanQuestionText(cleaned);
     
     // Strip trailing options safely

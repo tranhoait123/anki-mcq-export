@@ -81,6 +81,7 @@ describe('DOCX study export', () => {
   it('detects correct answer from option content or letter', () => {
     expect(getCorrectLetter(makeMcq({ correctAnswer: 'Sốt' }))).toBe('A');
     expect(getCorrectLetter(makeMcq({ correctAnswer: 'C' }))).toBe('C');
+    expect(getCorrectLetter(makeMcq({ correctAnswer: '' }))).toBe('?');
   });
 
   it('splits markdown tables into structured blocks without separator rows', () => {

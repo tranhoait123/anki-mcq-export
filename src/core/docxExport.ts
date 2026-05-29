@@ -1,5 +1,8 @@
 import { MCQ } from '../types';
 import { isOptionCorrect } from '../utils/text';
+import { cleanText, sanitizeDocxText } from '../utils/textCleaner';
+
+export { sanitizeDocxText };
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E'];
 const ACCENT_COLOR = '0F766E';
@@ -17,39 +20,18 @@ const MAX_MARKDOWN_TABLE_COLUMNS = 6;
 
 type DocxChild = any;
 
-export const sanitizeDocxText = (value: unknown): string => {
-  if (value === null || value === undefined) return '';
-  return String(value)
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
-    .replace(/\s+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-};
-
-const cleanQuestion = (text: unknown): string => {
-  let cleaned = sanitizeDocxText(text);
-  // Remove generated tags entirely for a seamless reading experience
-  cleaned = cleaned.replace(/\[TÌNH HUỐNG\]\s*/gi, '');
-  cleaned = cleaned.replace(/\[TÌNH HUỐNG LÂM SÀNG\]\s*/gi, '');
-  cleaned = cleaned.replace(/\[CÂU HỎI\]\s*/gi, '');
-  // Strip <<<MCQ ...>>> wrappers
-  cleaned = cleaned.replace(/^\s*<<<[^>]+>>>\s*/i, '');
-  // Strip Question/Câu prefixes, strictly requiring a number or colon/dot to avoid eating words like "Câu hỏi"
-  cleaned = cleaned.replace(/^\s*(?:(?:Câu|Question|Bài)(?:\s*\d+[:.]?|\s*[:.])\s+|\d+[:.]\s+)/i, '');
-  // Strip trailing options safely: ONLY if preceded by a newline or sentence terminator like ?, :, or .
-  cleaned = cleaned.replace(/(^|\n|<br>|<br\/>|<br \/>|\t|[?:.]\s+)(A[.)]\s+[\s\S]*?(?:\s+|^)B[.)]\s+[\s\S]*?(?:\s+|^)C[.)]\s+[\s\S]*)$/i, '$1');
-  return cleaned.trim();
-};
+const cleanQuestion = (text: unknown): string =>
+  cleanText(sanitizeDocxText(text), 'question');
 
 const cleanOption = (text: unknown): string =>
-  sanitizeDocxText(text).replace(/^[A-Ea-e]\s*[:.)]\s*/, '').trim();
+  cleanText(sanitizeDocxText(text), 'option');
 
 export const getCorrectLetter = (mcq: MCQ): string => {
   const safeMcq = mcq || ({} as MCQ);
   const options = Array.isArray(safeMcq.options) ? safeMcq.options : [];
   const correctIndex = options.findIndex((opt, index) => isOptionCorrect(opt, safeMcq.correctAnswer || '', index));
   if (correctIndex !== -1) return OPTION_LETTERS[correctIndex];
-  return sanitizeDocxText(safeMcq.correctAnswer || '').match(/^[A-E]/i)?.[0]?.toUpperCase() || 'A';
+  return sanitizeDocxText(safeMcq.correctAnswer || '').match(/^[A-E]/i)?.[0]?.toUpperCase() || '?';
 };
 
 const getSafeOptions = (mcq: Partial<MCQ> | null | undefined): string[] => {

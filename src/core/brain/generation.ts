@@ -21,7 +21,6 @@ import {
   getNativePartBatches,
   getStructuredQuestionBatchSize,
   getTrustedSourceLabel,
-  inferCompletedBatchIndicesFromExistingQuestions,
   joinSourceLabel,
   splitStructuredPartByBatchSize,
 } from './batching';
@@ -848,25 +847,14 @@ export const generateQuestions = async (
     let autoSkippedCount = options.existingAutoSkippedCount || 0;
     let rescueCompleted = 0;
     const rescueTotal = retryIndices?.length || 0;
-    const shouldInferCompletedBatchIndices = false;
-    const inferredCompletedBatchIndices: number[] = [];
     const deprioritizedBatchSet = new Set<number>(
       (options.deprioritizedBatchIndices || [])
         .filter((batchNumber) => Number.isFinite(batchNumber) && batchNumber > 0)
         .map((batchNumber) => Math.floor(batchNumber))
     );
     const skippedBatchSet = new Set(
-      [
-        ...(options.completedBatchIndices || []),
-        ...inferredCompletedBatchIndices,
-      ].filter((batchNumber) => !deprioritizedBatchSet.has(batchNumber))
+      (options.completedBatchIndices || []).filter((batchNumber) => !deprioritizedBatchSet.has(batchNumber))
     );
-    const inferredOnlyBatchIndices = inferredCompletedBatchIndices.filter(
-      index => !(options.completedBatchIndices || []).includes(index) && !deprioritizedBatchSet.has(index)
-    );
-    if (inferredOnlyBatchIndices.length > 0) {
-      console.warn(`↩️ Resume: inferred ${inferredOnlyBatchIndices.length} already-restored batch(es) from saved SOURCE_LABEL snapshots. Skipping re-scan: ${inferredOnlyBatchIndices.join(', ')}`);
-    }
     const phaseBatchNumbers = retryIndices && retryIndices.length > 0
       ? [...retryIndices]
       : Array.from({ length: allParts.length }, (_, idx) => idx + 1);

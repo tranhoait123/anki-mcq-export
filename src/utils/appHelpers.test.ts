@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanText, filterUniqueVisibleMcqs, formatSessionPhase, getPersistableFiles, mergeSortedMcqs, normalizePersistedSettings, sortMcqsByQuestionNumber, summarizeBatchFailures } from './appHelpers';
+import { cleanText, filterUniqueVisibleMcqs, formatSessionPhase, getPersistableFiles, mergeSortedMcqs, normalizePersistedSettings, sortMcqsByQuestionNumber, summarizeBatchFailures, getQuestionSortNumber } from './appHelpers';
 import { MCQ } from '../types';
 
 const mcq = (question: string): MCQ => ({
@@ -159,5 +159,12 @@ describe('app helpers', () => {
       model: 'gpt-5.4-mini',
       shopAIKeyOpenAIRoute: 'responses',
     }).shopAIKeyOpenAIRoute).toBe('responses');
+  });
+
+  it('extracts correct question sort number for clinical questions containing other numbers', () => {
+    expect(getQuestionSortNumber('Bệnh nhân 45 tuổi, Câu 7: Nội dung')).toBe(7);
+    expect(getQuestionSortNumber('Bệnh nhân nam, 62 tuổi, có tiền sử bệnh tim. Question 12: Hãy chẩn đoán.')).toBe(12);
+    expect(getQuestionSortNumber('34. Question 12: Hãy chẩn đoán.')).toBe(34);
+    expect(getQuestionSortNumber('Bệnh nhân 45 tuổi, không ghi số câu.')).toBe(45);
   });
 });

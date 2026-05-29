@@ -1,6 +1,7 @@
 import { AppSettings, GeneratedResponse, MCQ, ProcessingPhase, ProcessingSessionStatus, UploadedFile } from '../types';
 import { coerceModelForProvider, DEFAULT_GEMINI_MODEL, isModelAllowedForProvider } from './models';
 import { DEFAULT_GOOGLE_RPM_LIMIT, normalizeGoogleRpmLimit } from './rateLimitSettings';
+import { cleanText as unifiedCleanText } from './textCleaner';
 
 type LegacyPersistedSettings = Omit<Partial<AppSettings>, 'provider'> & {
   provider?: AppSettings['provider'] | string;
@@ -52,6 +53,27 @@ export const sortMcqsByQuestionNumber = (items: MCQ[]): MCQ[] => {
 };
 
 export const getQuestionSortNumber = (str: string): number => {
+  if (!str) return 999999;
+  
+  // 1. Try to find a number at the beginning of the string first (e.g. "1. ", "2) ", "3 - ")
+  const startMatch = str.match(/^\s*(?:[\s*_*\[\(<]*)(\d+)\s*[.:)\-\u2013\u2014\u2212–—]/);
+  if (startMatch) {
+    return parseInt(startMatch[1], 10);
+  }
+  
+  // 2. Try to find Câu X or Question X anywhere in the string
+  const patterns = [
+    /(?:câu|question|bài|case)\s*(?:hỏi|số|thứ|no\.?)?\s*(\d+)/i,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = str.match(pattern);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+  }
+  
+  // 3. Fallback to the first number found
   const match = str.match(/(\d+)/);
   return match ? parseInt(match[1], 10) : 999999;
 };
@@ -133,23 +155,7 @@ export const formatSessionPhase = (phase: ProcessingPhase) => {
 };
 
 export const cleanText = (text: string, type: 'question' | 'option') => {
-  if (!text) return '';
-  let cleaned = text.trim();
-  if (type === 'question') {
-    // Remove generated tags entirely for a seamless reading experience
-    cleaned = cleaned.replace(/\[TÌNH HUỐNG\]\s*/gi, '');
-    cleaned = cleaned.replace(/\[TÌNH HUỐNG LÂM SÀNG\]\s*/gi, '');
-    cleaned = cleaned.replace(/\[CÂU HỎI\]\s*/gi, '');
-    // Strip <<<MCQ ...>>> wrappers
-    cleaned = cleaned.replace(/^\s*<<<[^>]+>>>\s*/i, '');
-    // Strip Question/Câu prefixes, strictly requiring a number or colon/dot to avoid eating words like "Câu hỏi"
-    cleaned = cleaned.replace(/^\s*(?:(?:Câu|Question|Bài)(?:\s*\d+[:.]?|\s*[:.])\s+|\d+[:.]\s+)/i, '');
-    // Strip trailing options safely: ONLY if preceded by a newline or sentence terminator like ?, :, or .
-    cleaned = cleaned.replace(/(^|\n|<br>|<br\/>|<br \/>|\t|[?:.]\s+)(A[.)]\s+[\s\S]*?(?:\s+|^)B[.)]\s+[\s\S]*?(?:\s+|^)C[.)]\s+[\s\S]*)$/i, '$1');
-  } else {
-    cleaned = cleaned.replace(/^[A-Ea-e][:.)]\s*/, '');
-  }
-  return cleaned.trim();
+  return unifiedCleanText(text, type);
 };
 
 const normalizeProvider = (provider?: string): AppSettings['provider'] => {
@@ -173,10 +179,16 @@ export const normalizePersistedSettings = (settings: LegacyPersistedSettings): A
     persistedSettings.model = DEFAULT_GEMINI_MODEL;
   }
 
-  if (persistedSettings.model?.includes('gemini-1.5')) persistedSettings.model = 'gemini-2.5-flash';
-  if (persistedSettings.model === 'gemini-3-flash' || persistedSettings.model === 'gemini-3-flash-preview') persistedSettings.model = 'gemini-3-flash-preview';
-  if (persistedSettings.model?.toLowerCase().includes('pro')) persistedSettings.model = 'gemini-3.1-flash-lite-preview';
-  if (persistedSettings.model === 'gemini-3.1-flash-lite') persistedSettings.model = 'gemini-3.1-flash-lite-preview';
+  const model = persistedSettings.model || '';
+  if (model.includes('gemini-1.5')) {
+    persistedSettings.model = 'gemini-2.5-flash';
+  } else if (model === 'gemini-3-flash' || model === 'gemini-3-flash-preview') {
+    persistedSettings.model = 'gemini-3-flash-preview';
+  } else if (model.toLowerCase().includes('pro')) {
+    persistedSettings.model = 'gemini-3.1-flash-lite-preview';
+  } else if (model === 'gemini-3.1-flash-lite') {
+    persistedSettings.model = 'gemini-3.1-flash-lite-preview';
+  }
 
   if (!persistedSettings.model || !isModelAllowedForProvider(persistedSettings.provider, persistedSettings.model)) {
     console.warn(`🛡️ Detected missing or provider-incompatible model. Resetting to ${DEFAULT_GEMINI_MODEL}.`);

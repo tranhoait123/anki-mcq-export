@@ -17,6 +17,7 @@
   "dependencies": {
     "@google/genai": "^1.52.0",
     "docx": "^9.6.1",
+    "firebase": "^12.14.0",
     "jszip": "^3.10.1",
     "lucide-react": "^1.14.0",
     "mammoth": "^1.12.0",

@@ -25,6 +25,7 @@ import { useClearAllData } from './hooks/useClearAllData';
 import { useConfirmDialog } from './hooks/useConfirmDialog';
 import { useProjectLibrary } from './hooks/useProjectLibrary';
 import { usePwaUpdate } from './hooks/usePwaUpdate';
+import { logCustomEvent } from './config/firebase';
 
 const App: React.FC = () => {
   const [files, setFiles] = useState<UploadedFile[]>([]);
@@ -256,6 +257,10 @@ const App: React.FC = () => {
     waitWithController,
     warnVisionRecommendedDocx,
     onGenerationComplete: async ({ mcqs: completedMcqs, duplicates: completedDuplicates, analysis: completedAnalysis, settings: completedSettings }) => {
+      logCustomEvent('generation_completed', {
+        mcq_count: completedMcqs.length,
+        duplicate_count: completedDuplicates?.length || 0,
+      });
       if (settings.projectLibraryEnabled === false || completedSettings.projectLibraryEnabled === false) return;
       await autoSaveCurrentProject({
         mcqs: completedMcqs,
@@ -313,6 +318,63 @@ const App: React.FC = () => {
     setRetryFailedAttempted,
   });
 
+  // Analytics Tracking Wrappers
+  const handleAnalyzeWithTracking = async () => {
+    logCustomEvent('analysis_started', { file_count: files.length });
+    await handleAnalyze();
+  };
+
+  const handleGenerateWithTracking = async () => {
+    logCustomEvent('generation_started', {
+      ocr_mode: ocrMode,
+      file_count: files.length
+    });
+    await handleGenerate();
+  };
+
+  const handleClearAllDataWithTracking = async () => {
+    logCustomEvent('clear_data');
+    await handleClearAllData();
+  };
+
+  const setDarkModeWithTracking = (dark: boolean) => {
+    logCustomEvent('theme_changed', { mode: dark ? 'dark' : 'light' });
+    setDarkMode(dark);
+  };
+
+  const downloadCSVWithTracking = async () => {
+    logCustomEvent('mcq_exported', { format: 'csv', mcq_count: mcqs.length });
+    await downloadCSV();
+  };
+
+  const downloadDOCXWithTracking = async () => {
+    logCustomEvent('mcq_exported', { format: 'docx', mcq_count: mcqs.length });
+    await downloadDOCX();
+  };
+
+  const setFilesWithTracking = (newFiles: React.SetStateAction<UploadedFile[]>) => {
+    if (typeof newFiles === 'function') {
+      setFiles(prev => {
+        const result = newFiles(prev);
+        if (result.length > prev.length) {
+          logCustomEvent('file_uploaded', {
+            file_count: result.length - prev.length,
+            total_files: result.length
+          });
+        }
+        return result;
+      });
+    } else {
+      if (newFiles.length > files.length) {
+        logCustomEvent('file_uploaded', {
+          file_count: newFiles.length - files.length,
+          total_files: newFiles.length
+        });
+      }
+      setFiles(newFiles);
+    }
+  };
+
   const displayedProgressStatus = processingState === 'paused'
     ? 'Đã tạm dừng an toàn. Nhấn "Tiếp tục" để chạy tiếp.'
     : processingState === 'pausing'
@@ -335,7 +397,7 @@ const App: React.FC = () => {
         handleInstallApp={handleInstallApp}
         isSplitView={isSplitView}
         projectLibraryEnabled={settings.projectLibraryEnabled !== false}
-        setDarkMode={setDarkMode}
+        setDarkMode={setDarkModeWithTracking}
         setIsSplitView={setIsSplitView}
         setShowLibrary={setShowLibrary}
         setShowSettings={setShowSettings}
@@ -347,17 +409,17 @@ const App: React.FC = () => {
         audit={audit}
         currentCount={currentCount}
         displayedProgressStatus={displayedProgressStatus}
-        downloadCSV={downloadCSV}
-        downloadDOCX={downloadDOCX}
+        downloadCSV={downloadCSVWithTracking}
+        downloadDOCX={downloadDOCXWithTracking}
         duplicates={duplicates}
         exportAction={exportAction}
         failedBatchIndices={failedBatchIndices}
         files={files}
-        handleAnalyze={handleAnalyze}
-        handleClearAllData={handleClearAllData}
+        handleAnalyze={handleAnalyzeWithTracking}
+        handleClearAllData={handleClearAllDataWithTracking}
         handleDeleteMCQ={handleDeleteMCQ}
         handleDiscardResumeSession={handleDiscardResumeSession}
-        handleGenerate={handleGenerate}
+        handleGenerate={handleGenerateWithTracking}
         handleResumeSession={handleResumeSession}
         handleRetryFailed={handleRetryFailed}
         handleSourceTraceClick={handleSourceTraceClick}
@@ -374,7 +436,7 @@ const App: React.FC = () => {
         resultsPanelRef={resultsPanelRef}
         retryFailedAttempted={retryFailedAttempted}
         resumeSession={resumeSession}
-        setFiles={setFiles}
+        setFiles={setFilesWithTracking}
         setShowAudit={setShowAudit}
         setShowDuplicates={setShowDuplicates}
         showAudit={showAudit}
@@ -383,19 +445,19 @@ const App: React.FC = () => {
       <MobileActionBar
         analyzing={analyzing}
         darkMode={darkMode}
-        downloadCSV={downloadCSV}
-        downloadDOCX={downloadDOCX}
+        downloadCSV={downloadCSVWithTracking}
+        downloadDOCX={downloadDOCXWithTracking}
         exportAction={exportAction}
         filesCount={files.length}
-        handleAnalyze={handleAnalyze}
-        handleGenerate={handleGenerate}
+        handleAnalyze={handleAnalyzeWithTracking}
+        handleGenerate={handleGenerateWithTracking}
         handleTogglePause={handleTogglePause}
         hasAnalysis={Boolean(analysis)}
         loading={loading}
         mcqCount={mcqs.length}
         processingState={processingState}
         projectLibraryEnabled={settings.projectLibraryEnabled !== false}
-        setDarkMode={setDarkMode}
+        setDarkMode={setDarkModeWithTracking}
         setShowLibrary={setShowLibrary}
         setShowSettings={setShowSettings}
       />

@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import './config/firebase';
 import { Toaster } from 'sonner';
 
 const rootElement = document.getElementById('root');

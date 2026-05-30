@@ -107,7 +107,9 @@ describe('AI model registry', () => {
     expect(getProviderFallbackModel('google')).toBe('gemini-3.1-flash-lite');
     expect(getProviderFallbackModel('google', 'gemini-2.5-flash-lite')).toBe('gemini-2.5-flash-lite');
     expect(getProviderFallbackModel('shopaikey')).toBe('gemini-3.1-flash-lite');
+    expect(getProviderFallbackModel('shopaikey', 'gemini-2.5-flash-lite')).toBe('gemini-2.5-flash-lite');
     expect(getProviderFallbackModel('openrouter')).toBe('google/gemini-3.1-flash-lite');
+    expect(getProviderFallbackModel('openrouter', 'google/gemini-3.5-flash')).toBe('google/gemini-3.5-flash');
   });
 
   it('does not reject DeepSeek for OpenRouter while rejecting non-Gemini for Google providers', () => {

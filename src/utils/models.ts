@@ -294,6 +294,9 @@ export const getProviderFallbackModel = (provider: AIProvider, selectedModel: st
       ? normalizedSelectedModel
       : DEFAULT_GEMINI_MODEL;
   }
+  if (normalizedSelectedModel) {
+    return normalizedSelectedModel;
+  }
   if (provider === 'openrouter') return OPENROUTER_VISION_FALLBACK_MODEL;
   return DEFAULT_GEMINI_MODEL;
 };

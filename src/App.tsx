@@ -38,7 +38,6 @@ const App: React.FC = () => {
   const [progressStatus, setProgressStatus] = useState("");
   const [currentCount, setCurrentCount] = useState(0);
   const [showAudit, setShowAudit] = useState(false);
-  const [ocrMode] = useState<'gemini' | 'tesseract'>('gemini');
   const [duplicates, setDuplicates] = useState<DuplicateInfo[]>([]);
   const [failedBatchIndices, setFailedBatchIndices] = useState<number[]>([]);
   const [retryFailedAttempted, setRetryFailedAttempted] = useState(false);
@@ -91,7 +90,6 @@ const App: React.FC = () => {
     processingState,
     startProcessingController,
     clearProcessingController,
-    waitWithController,
     handleTogglePause,
   } = useProcessingControllerState(activeSessionRef, persistSessionSnapshot);
   const {
@@ -140,7 +138,7 @@ const App: React.FC = () => {
     setMcqs,
     setRetryFailedAttempted,
   });
-  const { prepareFiles } = useFilePreparation({ files, ocrMode, settings, setProgressStatus });
+  const { prepareFiles } = useFilePreparation({ files, settings, setProgressStatus });
   const {
     currentFilesRequireVision,
     getDetectedDocxMcqCount,
@@ -188,7 +186,6 @@ const App: React.FC = () => {
     files,
     getRequestSettings,
     mcqsRef,
-    ocrMode,
     persistMcqs,
     prepareFiles,
     retryFailedAttempted,
@@ -237,7 +234,6 @@ const App: React.FC = () => {
     getDetectedDocxMcqCount,
     getRequestSettings,
     mcqsRef,
-    ocrMode,
     prepareFiles,
     runAudit,
     runGenerationPhase,
@@ -254,7 +250,6 @@ const App: React.FC = () => {
     setVisibleMcqs,
     startProcessingController,
     validateProviderCredentials,
-    waitWithController,
     warnVisionRecommendedDocx,
     onGenerationComplete: async ({ mcqs: completedMcqs, duplicates: completedDuplicates, analysis: completedAnalysis, settings: completedSettings }) => {
       logCustomEvent('generation_completed', {
@@ -326,7 +321,6 @@ const App: React.FC = () => {
 
   const handleGenerateWithTracking = async () => {
     logCustomEvent('generation_started', {
-      ocr_mode: ocrMode,
       file_count: files.length
     });
     await handleGenerate();
@@ -388,6 +382,11 @@ const App: React.FC = () => {
     setIsSplitView(true);
   };
 
+  const handleToggleDetailedExplanation = (enabled: boolean) => {
+    logCustomEvent('detailed_explanation_toggled', { enabled });
+    setSettings(prev => ({ ...prev, detailedExplanation: enabled }));
+  };
+
   return (
     <div className="min-h-screen pb-20 bg-[#F8FAFC] dark:bg-[#020617] font-sans text-slate-800 dark:text-slate-100 transition-colors duration-300 sm:pb-0">
       <AppHeader
@@ -408,6 +407,7 @@ const App: React.FC = () => {
         analyzing={analyzing}
         audit={audit}
         currentCount={currentCount}
+        detailedExplanation={Boolean(settings.detailedExplanation)}
         displayedProgressStatus={displayedProgressStatus}
         downloadCSV={downloadCSVWithTracking}
         downloadDOCX={downloadDOCXWithTracking}
@@ -428,7 +428,7 @@ const App: React.FC = () => {
         isSplitView={isSplitView}
         loading={loading}
         mcqs={mcqs}
-        ocrMode={ocrMode}
+        onToggleDetailedExplanation={handleToggleDetailedExplanation}
         previewFile={previewFile}
         previewTrace={previewTrace}
         previewUrl={previewUrl}

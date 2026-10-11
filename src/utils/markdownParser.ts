@@ -130,7 +130,6 @@ export const parseMarkdownToHtml = (markdown: string): string => {
     const mcqOptionMatch = lineTrimmed.match(/^([A-Ea-e])\s*([.:)\-\]])\s*(.+)$/);
     if (mcqOptionMatch) {
       const optionLetter = mcqOptionMatch[1].toUpperCase();
-      const separator = mcqOptionMatch[2];
       const optionContent = applyInlineFormatting(mcqOptionMatch[3]);
       
       htmlLines.push(

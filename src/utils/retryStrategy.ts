@@ -14,7 +14,7 @@ export interface RetryProfile {
   maxDepth: number;
   targetSplitParts: number;
   initialJitterMs: [number, number];
-  serverBusyFastFailAttempt: number;
+  serverBusyFastFailAttempt?: number;
 }
 
 export type RetryDecisionCause =
@@ -64,32 +64,32 @@ const getExplicitRetryCause = (error: any): RetryDecisionCause | undefined => {
 export const RETRY_PROFILES: Record<RetryProfileName, RetryProfile> = {
   normal: {
     name: 'normal',
-    attemptBuffer: 3,
-    minAttempts: 4,
-    fallbackAfterAttempt: 6,
+    attemptBuffer: 1,
+    minAttempts: 3,
+    fallbackAfterAttempt: 3,
     formatFastFailAttempt: 2,
-    backoffCapMs: 45000,
-    singleKeyBackoffCapMs: 60000,
-    maxElapsedMs: 150000,
+    backoffCapMs: 15000,
+    singleKeyBackoffCapMs: 20000,
+    maxElapsedMs: 75000,
     splitThresholdChars: 4000, // Tăng ngưỡng tối thiểu để giữ nguyên vẹn câu hỏi trắc nghiệm
     maxDepth: 0, // Tắt hoàn toàn chia nhỏ đệ quy ở Lớp 1
     targetSplitParts: 2,
-    initialJitterMs: [500, 1500],
+    initialJitterMs: [300, 1000],
     serverBusyFastFailAttempt: 2,
   },
   rescue: {
     name: 'rescue',
-    attemptBuffer: 2,
-    minAttempts: 3,
+    attemptBuffer: 1,
+    minAttempts: 2,
     fallbackAfterAttempt: 2,
     formatFastFailAttempt: 1,
-    backoffCapMs: 20000,
-    singleKeyBackoffCapMs: 30000,
-    maxElapsedMs: 120000,
+    backoffCapMs: 10000,
+    singleKeyBackoffCapMs: 15000,
+    maxElapsedMs: 60000,
     splitThresholdChars: 3000, // Tăng ngưỡng tối thiểu cứu hộ
     maxDepth: 1, // Kích hoạt chia nhỏ cứu hộ ở Lớp 2
     targetSplitParts: 2,
-    initialJitterMs: [750, 2000],
+    initialJitterMs: [400, 1200],
     serverBusyFastFailAttempt: 2,
   },
 };
@@ -114,7 +114,17 @@ export const classifyBatchError = (error: any): BatchErrorKind => {
   if (statusCode === 400 || msg.includes('400 invalid_argument') || msg.includes('invalid_argument')) return 'fatal';
   if (hasRateLimitSignal) return 'rateLimit';
   if (hasAuthStatus) return 'auth';
-  if (statusCode === 503 || statusCode === 504 || msg.includes('503') || msg.includes('504') || msg.includes('unavailable') || msg.includes('overloaded') || msg.includes('deadline') || msg.includes('timeout') || msg.includes('econnreset') || msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('network_error') || msg.includes('networkerror') || msg.includes('net::')) return 'serverBusy';
+
+  const hasNetworkOrServerBusySignal = statusCode === 503 || statusCode === 504 || statusCode === 502
+    || msg.includes('503') || msg.includes('504') || msg.includes('502')
+    || msg.includes('unavailable') || msg.includes('overloaded') || msg.includes('deadline')
+    || msg.includes('timeout') || msg.includes('aborted') || msg.includes('stream interrupted')
+    || msg.includes('stream_interrupted') || msg.includes('econnreset') || msg.includes('econnrefused')
+    || msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('network_error')
+    || msg.includes('networkerror') || msg.includes('net::') || msg.includes('socket hang up')
+    || msg.includes('serverbusy') || msg.includes('server busy');
+  if (hasNetworkOrServerBusySignal) return 'serverBusy';
+
   if (msg.includes('không tìm thấy câu hỏi') || msg.includes('khong tim thay cau hoi') || msg.includes('questions.length') || msg.includes('empty')) return 'empty';
   if (msg.includes('ai_format_error') || msg.includes('json') || msg.includes('định dạng') || msg.includes('dinh dang') || msg.includes('format') || msg.includes('unexpected token') || msg.includes('truncated') || msg.includes('bị cắt') || msg.includes('cắt ngang') || msg.includes('chưa xác minh') || msg.includes('thiếu ')) return 'format';
   return 'fatal';
@@ -199,7 +209,7 @@ export const getRetryDecision = (
       cause: 'serverBusy',
       action: fastFail ? 'split' : 'retry',
       retryDelayMs,
-      shouldTryFallbackModel: attempts > profile.fallbackAfterAttempt,
+      shouldTryFallbackModel: attempts >= profile.fallbackAfterAttempt,
       message: fastFail ? 'Server busy persistently; fast-failing to trigger subdivision.' : 'Server/network pressure detected; use capped full-jitter backoff.',
     };
   }
@@ -270,7 +280,7 @@ export const getRetryDecision = (
       cause: 'serverBusy',
       action: fastFail ? 'split' : 'retry',
       retryDelayMs,
-      shouldTryFallbackModel: attempts > profile.fallbackAfterAttempt,
+      shouldTryFallbackModel: attempts >= profile.fallbackAfterAttempt,
       message: fastFail ? 'Server busy persistently; fast-failing to trigger subdivision.' : 'Server/network pressure detected; use capped full-jitter backoff.',
     };
   }
@@ -558,8 +568,8 @@ export const getBackoffDelayMs = (
     return min + random() * Math.max(0, max - min);
   }
 
-  const baseDelay = isServerBusy ? 3500 : (isRateLimit ? 2500 : 2000);
-  const multiplier = (isServerBusy || isFormatError) ? 2 : 1.7;
+  const baseDelay = isServerBusy ? 1500 : (isRateLimit ? 2000 : 1000);
+  const multiplier = (isServerBusy || isFormatError) ? 1.6 : 1.5;
   const maxDelay = Math.min(
     profile.backoffCapMs,
     baseDelay * Math.pow(multiplier, Math.max(0, cycles || attempts - 1))

@@ -1,22 +1,23 @@
-import { AlertTriangle, CheckCircle2, Info, Loader2, RotateCcw, ScanText, Sparkles } from 'lucide-react';
+import { Info, Loader2, RotateCcw, ScanText, Sparkles } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 import { AnalysisResult, AuditResult, DuplicateInfo, UploadedFile } from '../types';
 import AuditPanel from './AuditPanel';
 import FileUploader from './FileUploader';
 
 interface ControlPanelProps {
-  analysis: AnalysisResult | null;
-  analyzing: boolean;
+  analysis?: AnalysisResult | null;
+  analyzing?: boolean;
   audit: AuditResult | null;
+  detailedExplanation?: boolean;
   duplicates: DuplicateInfo[];
   failedBatchIndices: number[];
   files: UploadedFile[];
-  handleAnalyze: () => void;
+  handleAnalyze?: () => void;
   handleGenerate: () => void;
   handleRetryFailed: () => void;
   isSplitView: boolean;
   loading: boolean;
-  ocrMode: 'gemini' | 'tesseract';
+  onToggleDetailedExplanation?: (enabled: boolean) => void;
   retryFailedAttempted: boolean;
   setFiles: Dispatch<SetStateAction<UploadedFile[]>>;
   setShowAudit: (show: boolean) => void;
@@ -25,18 +26,16 @@ interface ControlPanelProps {
 }
 
 const ControlPanel: React.FC<ControlPanelProps> = ({
-  analysis,
-  analyzing,
   audit,
+  detailedExplanation,
   duplicates,
   failedBatchIndices,
   files,
-  handleAnalyze,
   handleGenerate,
   handleRetryFailed,
   isSplitView,
   loading,
-  ocrMode,
+  onToggleDetailedExplanation,
   retryFailedAttempted,
   setFiles,
   setShowAudit,
@@ -47,59 +46,59 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 space-y-4">
       <FileUploader files={files} setFiles={setFiles} />
 
-      {ocrMode === 'tesseract' && files.some(file => file.type.startsWith('image/')) && (
-        <div className="text-xs bg-amber-50 text-amber-700 p-2 rounded border border-amber-100 flex items-start gap-2">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <span>Đang dùng Local OCR (Offline). Tốc độ có thể chậm hơn Cloud.</span>
-        </div>
-      )}
-
-      {!analysis ? (
-        <button
-          onClick={handleAnalyze}
-          data-testid="analyze-button"
-          disabled={analyzing || files.length === 0}
-          className="w-full py-3.5 pro-gradient text-white font-black rounded-2xl hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-indigo-100 dark:shadow-none flex items-center justify-center gap-3 text-sm uppercase tracking-widest"
-        >
-          {analyzing ? <Loader2 className="animate-spin" size={18} /> : <><ScanText size={18} strokeWidth={2.5} /> Quét tài liệu</>}
-        </button>
-      ) : (
-        <div className="space-y-4">
-          <div className="p-4 bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-200 dark:border-emerald-800 rounded-2xl flex justify-between items-center group">
-            <div className="flex items-center gap-3">
-              <div className="bg-emerald-500 p-1.5 rounded-lg text-white">
-                <CheckCircle2 size={16} />
-              </div>
-              <span className="font-bold text-emerald-900 dark:text-emerald-400 text-xs uppercase tracking-tighter">Hệ thống đã sẵn sàng</span>
-            </div>
-            <span className="text-lg font-black text-emerald-600">{analysis.estimatedCount}</span>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl transition-all select-none">
+          <div className="flex items-center gap-2.5">
+            <Sparkles size={16} className={detailedExplanation ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400 dark:text-slate-500"} />
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+              Giải chi tiết bằng AI
+            </span>
           </div>
-
           <button
-            onClick={handleGenerate}
-            data-testid="generate-button"
+            type="button"
+            role="switch"
+            aria-checked={Boolean(detailedExplanation)}
+            onClick={() => onToggleDetailedExplanation?.(!detailedExplanation)}
             disabled={loading}
-            className="w-full py-3.5 bg-slate-900 dark:bg-indigo-600 text-white font-black rounded-2xl hover:scale-[1.02] active:scale-95 shadow-xl transition-all flex items-center justify-center gap-3 uppercase tracking-widest"
+            className={`w-10 h-6 flex items-center rounded-full p-0.5 transition-colors focus:outline-none ${
+              detailedExplanation ? 'bg-indigo-600 justify-end' : 'bg-slate-300 dark:bg-slate-700 justify-start'
+            }`}
           >
-            {loading ? <Loader2 className="animate-spin" /> : <><Sparkles size={18} /> Trích xuất câu hỏi</>}
+            <div className="w-5 h-5 rounded-full bg-white shadow-sm transition-transform" />
           </button>
-
-          {failedBatchIndices.length > 0 && !loading && !retryFailedAttempted && (
-            <button
-              onClick={handleRetryFailed}
-              className="w-full py-3 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 font-extrabold rounded-2xl border-2 border-orange-200 dark:border-orange-800 hover:bg-orange-600 hover:text-white dark:hover:bg-orange-600 transition-all flex items-center justify-center gap-2 uppercase tracking-tighter text-xs"
-            >
-              <RotateCcw size={16} /> Quét lại {failedBatchIndices.length} phần bị lỗi
-            </button>
-          )}
-
-          {failedBatchIndices.length > 0 && !loading && retryFailedAttempted && (
-            <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs font-bold leading-relaxed text-orange-700 dark:border-orange-900/50 dark:bg-orange-950/20 dark:text-orange-300">
-              Đã quét lại phần lỗi một lần. Nếu vẫn còn lỗi, hãy đổi model/API key hoặc chia nhỏ tài liệu rồi chạy lại từ đầu.
-            </div>
-          )}
         </div>
-      )}
+
+        <button
+          onClick={handleGenerate}
+          data-testid="generate-button"
+          disabled={loading || files.length === 0}
+          className="w-full py-3.5 pro-gradient text-white font-black rounded-2xl hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 shadow-xl shadow-indigo-100 dark:shadow-none transition-all flex items-center justify-center gap-3 uppercase tracking-widest text-xs sm:text-sm"
+        >
+          {loading ? (
+            <Loader2 className="animate-spin" size={18} />
+          ) : (
+            <>
+              <Sparkles size={18} />
+              {detailedExplanation ? 'Trích xuất & giải chi tiết' : 'Trích xuất câu hỏi'}
+            </>
+          )}
+        </button>
+
+        {failedBatchIndices.length > 0 && !loading && !retryFailedAttempted && (
+          <button
+            onClick={handleRetryFailed}
+            className="w-full py-3 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 font-extrabold rounded-2xl border-2 border-orange-200 dark:border-orange-800 hover:bg-orange-600 hover:text-white dark:hover:bg-orange-600 transition-all flex items-center justify-center gap-2 uppercase tracking-tighter text-xs"
+          >
+            <RotateCcw size={16} /> Quét lại {failedBatchIndices.length} phần bị lỗi
+          </button>
+        )}
+
+        {failedBatchIndices.length > 0 && !loading && retryFailedAttempted && (
+          <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs font-bold leading-relaxed text-orange-700 dark:border-orange-900/50 dark:bg-orange-950/20 dark:text-orange-300">
+            Đã quét lại phần lỗi một lần. Nếu vẫn còn lỗi, hãy đổi model/API key hoặc chia nhỏ tài liệu rồi chạy lại từ đầu.
+          </div>
+        )}
+      </div>
     </div>
 
     {audit && (

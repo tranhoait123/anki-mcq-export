@@ -1,6 +1,5 @@
-import { FileText, Image as ImageIcon, Loader2, X, FileCode } from 'lucide-react';
+import { FileText, Loader2, X, FileCode } from 'lucide-react';
 import { UploadedFile } from '../../types';
-import { getDocxModeBadge, getPdfModeBadge, getMarkdownModeBadge } from './fileBadges';
 
 interface UploadedFileListProps {
   files: UploadedFile[];
@@ -15,10 +14,6 @@ const UploadedFileList: React.FC<UploadedFileListProps> = ({ files, onRemoveFile
       <h3 className="mb-2 text-xs font-black uppercase tracking-wide text-gray-500 dark:text-slate-400">Tài liệu đã chọn ({files.length})</h3>
       <ul className="max-h-[38dvh] space-y-2 overflow-y-auto pr-1 lg:max-h-[calc(100dvh-620px)]">
         {files.map((file, idx) => {
-          const docxModeBadge = getDocxModeBadge(file);
-          const pdfModeBadge = getPdfModeBadge(file);
-          const markdownModeBadge = getMarkdownModeBadge(file);
-
           return (
             <li key={idx} className="flex items-center justify-between rounded-lg bg-gray-50 p-2 transition hover:bg-gray-100 dark:bg-slate-800 dark:hover:bg-slate-700">
               <div className="flex items-center space-x-3 overflow-hidden flex-1">
@@ -52,31 +47,6 @@ const UploadedFileList: React.FC<UploadedFileListProps> = ({ files, onRemoveFile
                   ) : (
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       <span className="text-xs text-gray-400">Đã sẵn sàng</span>
-                      {docxModeBadge && (
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${docxModeBadge.className}`}
-                          title={file.docxNotice}
-                        >
-                          {(file.docxMode === 'visionRecommended' || file.docxMode === 'hybrid') && <ImageIcon size={10} className="mr-1 inline" />}
-                          {docxModeBadge.text}
-                        </span>
-                      )}
-                      {pdfModeBadge && (
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${pdfModeBadge.className}`}
-                          title={file.pdfNotice}
-                        >
-                          {pdfModeBadge.text}
-                        </span>
-                      )}
-                      {markdownModeBadge && (
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${markdownModeBadge.className}`}
-                          title={file.markdownNotice}
-                        >
-                          {markdownModeBadge.text}
-                        </span>
-                      )}
                     </div>
                   )}
                 </div>

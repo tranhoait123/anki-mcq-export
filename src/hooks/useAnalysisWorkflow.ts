@@ -19,7 +19,6 @@ interface UseAnalysisWorkflowParams {
   getDetectedDocxMcqCount: () => number;
   getRequestSettings: (requiresVision?: boolean) => AppSettings;
   prepareFiles: (
-    forcedMode?: 'gemini' | 'tesseract',
     controller?: ProcessingController,
     runtimeSettings?: AppSettings
   ) => Promise<UploadedFile[]>;
@@ -74,7 +73,7 @@ export const useAnalysisWorkflow = ({
         return;
       }
 
-      const filesToUse = await prepareFiles(undefined, undefined, requestSettings);
+      const filesToUse = await prepareFiles(undefined, requestSettings);
       const res = await analyzeDocument(filesToUse, requestSettings);
       setAnalysis(res);
       toast.success(`Phân tích thành công! Dự kiến có khoảng ${res.estimatedCount} câu hỏi.`);
@@ -89,7 +88,7 @@ export const useAnalysisWorkflow = ({
     setAuditing(true);
     try {
       const requestSettings = getRequestSettings((processedFiles || files).some(file => file.type === 'application/pdf' || file.type.startsWith('image/')));
-      const filesToUse = processedFiles || await prepareFiles(undefined, undefined, requestSettings);
+      const filesToUse = processedFiles || await prepareFiles(undefined, requestSettings);
       const res = await auditMissingQuestions(filesToUse, count, requestSettings);
       setAudit(res);
       setShowAudit(true);

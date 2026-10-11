@@ -67,7 +67,6 @@ export default defineConfig(({ mode }) => {
             if (id.includes('/@google/genai/')) return 'genai';
             if (id.includes('/pdfjs-dist/') || id.includes('/pdf-lib/')) return 'pdf';
             if (id.includes('/docx/') || id.includes('/mammoth/') || id.includes('/jszip/')) return 'docx';
-            if (id.includes('/tesseract.js/')) return 'ocr';
             return undefined;
           },
         },

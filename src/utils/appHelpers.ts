@@ -28,6 +28,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   autoGroupClinicalCases: true,
   googleRpmLimiterEnabled: true,
   googleRpmLimitPerMinute: DEFAULT_GOOGLE_RPM_LIMIT,
+  detailedExplanation: false,
 };
 
 export const isDocxFile = (file?: UploadedFile | null) =>
@@ -214,6 +215,7 @@ export const normalizePersistedSettings = (settings: LegacyPersistedSettings): A
   if (persistedSettings.autoGroupClinicalCases === undefined) persistedSettings.autoGroupClinicalCases = true;
   persistedSettings.googleRpmLimiterEnabled = persistedSettings.googleRpmLimiterEnabled !== false;
   persistedSettings.googleRpmLimitPerMinute = normalizeGoogleRpmLimit(persistedSettings.googleRpmLimitPerMinute);
+  if (persistedSettings.detailedExplanation === undefined) persistedSettings.detailedExplanation = false;
 
   return persistedSettings;
 };

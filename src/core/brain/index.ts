@@ -17,6 +17,8 @@ export {
   buildGoogleBatchMessage,
   getPdfVisionCoverageSchema,
   getModelConfig,
+  getQuestionSchema,
+  getFastQuestionSchema,
 } from './googleProvider';
 
 export {

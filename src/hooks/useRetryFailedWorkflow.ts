@@ -22,10 +22,8 @@ interface UseRetryFailedWorkflowParams {
   files: UploadedFile[];
   getRequestSettings: (requiresVision?: boolean) => AppSettings;
   mcqsRef: React.MutableRefObject<MCQ[]>;
-  ocrMode: 'gemini' | 'tesseract';
   persistMcqs: (items: MCQ[]) => Promise<void>;
   prepareFiles: (
-    forcedMode?: 'gemini' | 'tesseract',
     controller?: ProcessingController,
     runtimeSettings?: AppSettings
   ) => Promise<UploadedFile[]>;
@@ -52,7 +50,6 @@ export const useRetryFailedWorkflow = ({
   files,
   getRequestSettings,
   mcqsRef,
-  ocrMode,
   persistMcqs,
   prepareFiles,
   retryFailedAttempted,
@@ -89,7 +86,7 @@ export const useRetryFailedWorkflow = ({
       setCurrentCount(baselineCount);
       setProgressStatus(`Đang quét lại ${failedBatchIndices.length} phần lỗi...`);
       const controller = startProcessingController();
-      const filesToUse = await prepareFiles(ocrMode, controller, requestSettings);
+      const filesToUse = await prepareFiles(controller, requestSettings);
       const retryPhase = await runGenerationPhase({
         phase: 'retryFailed',
         filesToUse,
@@ -104,7 +101,6 @@ export const useRetryFailedWorkflow = ({
         seedDuplicates: duplicatesRef.current,
         renderCompletedBatchesToVisible: true,
         skipInferredCompletedBatches: true,
-        forcedOcrMode: ocrMode,
       });
       const res = retryPhase.res;
       const visibleQuestions = await setVisibleMcqs(res.questions);

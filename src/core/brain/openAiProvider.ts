@@ -2,7 +2,6 @@ import { AppSettings, UploadedFile } from '../../types';
 import {
   getModelTokenProfile,
   isShopAIKeyClaudeModel,
-  isShopAIKeyDeepSeekModel,
   isShopAIKeyGeminiModel,
   normalizeModelForProvider,
 } from '../../utils/models';
@@ -103,13 +102,6 @@ const buildProviderHeaders = (settings: AppSettings, apiKey: string): Record<str
   return headers;
 };
 
-const contentContainsImageUrl = (content: any): boolean => {
-  if (!Array.isArray(content)) return false;
-  return content.some(part => part?.type === 'image_url' || part?.image_url || part?.type === 'file');
-};
-
-const messagesContainImageUrl = (messages: any[]): boolean =>
-  messages.some(message => contentContainsImageUrl(message?.content));
 
 const textFromContent = (content: any): string => {
   if (typeof content === 'string') return content;

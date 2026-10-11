@@ -301,6 +301,29 @@ export const getProviderFallbackModel = (provider: AIProvider, selectedModel: st
   return DEFAULT_GEMINI_MODEL;
 };
 
+export const getAlternateFallbackModel = (provider: AIProvider, currentModel: string = ''): string => {
+  const normalized = normalizeModelForProvider(provider, currentModel);
+  if (provider === 'google') {
+    if (normalized === DEFAULT_GEMINI_MODEL) {
+      return 'gemini-2.5-flash';
+    }
+    return DEFAULT_GEMINI_MODEL;
+  }
+  if (provider === 'shopaikey') {
+    if (normalized === DEFAULT_GEMINI_MODEL) {
+      return 'gemini-2.5-flash';
+    }
+    return DEFAULT_GEMINI_MODEL;
+  }
+  if (provider === 'openrouter') {
+    if (normalized === OPENROUTER_VISION_FALLBACK_MODEL) {
+      return 'google/gemini-2.5-flash';
+    }
+    return OPENROUTER_VISION_FALLBACK_MODEL;
+  }
+  return DEFAULT_GEMINI_MODEL;
+};
+
 export const isVisionCapableModel = (provider: AIProvider, model: string): boolean => {
   const normalizedModel = normalizeModelForProvider(provider, model);
   if (!normalizedModel) return false;

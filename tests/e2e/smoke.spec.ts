@@ -14,8 +14,6 @@ const uploadAndGenerate = async (
   await page.getByTestId('file-input').setInputFiles(file);
   await expect(page.getByText(file.name)).toBeVisible();
   await expect(page.getByText('Đã sẵn sàng')).toBeVisible();
-  await page.getByTestId('analyze-button').click();
-  await expect(page.getByText('Hệ thống đã sẵn sàng')).toBeVisible();
   await page.getByTestId('generate-button').click();
   await expect(page.getByTestId('result-count')).toHaveText('1');
   await expect(page.getByText('Đâu là đáp án đúng trong smoke test?')).toBeVisible();
@@ -134,8 +132,6 @@ test('keeps shared clinical vignette on item-set questions', async ({ page }) =>
     ].join('\n')),
   });
 
-  await page.getByTestId('analyze-button').click();
-  await expect(page.getByText('Hệ thống đã sẵn sàng')).toBeVisible();
   await page.getByTestId('generate-button').click();
 
   await expect(page.getByTestId('result-count')).toHaveText('1');
@@ -155,8 +151,6 @@ test('retrying failed batches appends rescued questions to existing results', as
     buffer: Buffer.from('E2E retry should preserve existing questions and append rescued batch.'),
   });
 
-  await page.getByTestId('analyze-button').click();
-  await expect(page.getByText('Hệ thống đã sẵn sàng')).toBeVisible();
   await page.getByTestId('generate-button').click();
   await expect(page.getByTestId('result-count')).toHaveText('2');
   await expect(page.getByRole('button', { name: /Quét lại 1 phần bị lỗi/i })).toBeVisible();
@@ -174,8 +168,6 @@ test('renders, filters, edits, deletes, and traces a large virtualized MCQ list'
     buffer: Buffer.from('E2E large list should stay responsive while review/search/edit/delete/source trace are used.'),
   });
 
-  await page.getByTestId('analyze-button').click();
-  await expect(page.getByText('Hệ thống đã sẵn sàng')).toBeVisible();
   await page.getByTestId('generate-button').click();
   await expect(page.getByTestId('result-count')).toHaveText('350');
 
@@ -215,8 +207,6 @@ test('renders a large streamed result set once per batch and keeps search respon
     buffer: Buffer.from('E2E streamed result set should render completed batches without duplicate final cards.'),
   });
 
-  await page.getByTestId('analyze-button').click();
-  await expect(page.getByText('Hệ thống đã sẵn sàng')).toBeVisible();
   await page.getByTestId('generate-button').click();
   await expect(page.getByTestId('result-count')).toHaveText('320');
 
@@ -234,8 +224,6 @@ test('keeps frames moving while streaming and postprocessing a heavy MCQ batch',
     buffer: Buffer.from('E2E heavy postprocess should keep progress, search, and frames responsive.'),
   });
 
-  await page.getByTestId('analyze-button').click();
-  await expect(page.getByText('Hệ thống đã sẵn sàng')).toBeVisible();
   await page.evaluate(() => {
     (window as any).__maxFrameGap = 0;
     let last = performance.now();

@@ -98,6 +98,7 @@ describe('batch retry strategy', () => {
     expect(rescueSecond.action).toBe('split');
     expect(first.cooldownKind).toBeUndefined();
     expect(first.shouldTryFallbackModel).toBe(false);
+    expect(second.shouldTryFallbackModel).toBe(false);
     expect(later.shouldTryFallbackModel).toBe(true);
     expect(splitTextIntoNaturalParts('text', 2, 50).length).toBe(1);
   });

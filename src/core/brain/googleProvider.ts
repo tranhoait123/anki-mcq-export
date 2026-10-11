@@ -91,6 +91,25 @@ export const getQuestionSchema = () => ({
   }
 });
 
+export const getFastQuestionSchema = () => ({
+  type: Type.OBJECT,
+  properties: {
+    questions: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          question: { type: Type.STRING },
+          options: { type: Type.ARRAY, items: { type: Type.STRING } },
+          correctAnswer: { type: Type.STRING },
+          source: { type: Type.STRING }
+        },
+        required: ["question", "options", "correctAnswer", "source"]
+      }
+    }
+  }
+});
+
 export const getPdfVisionCoverageSchema = () => ({
   type: Type.OBJECT,
   properties: {

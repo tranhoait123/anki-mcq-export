@@ -11,8 +11,8 @@ import {
 } from '../types';
 import { db } from '../core/db';
 import { translateErrorForUser } from '../core/brain';
-import { selectPreferredPhaseOutcome, shouldDelayAutoRescue } from '../utils/resumeSession';
-import { sortMcqsByQuestionNumber, summarizeBatchFailures } from '../utils/appHelpers';
+import { runAutoRescuePhaseIfNeeded } from '../utils/workflowPhaseHelpers';
+import { summarizeBatchFailures } from '../utils/appHelpers';
 import { scheduleIdleTask, yieldToMain } from '../utils/performance';
 import { RunGenerationPhaseParams, RunGenerationPhaseResult } from './useGenerationPhase';
 
@@ -27,9 +27,7 @@ interface UseGenerateWorkflowParams {
   getDetectedDocxMcqCount: () => number;
   getRequestSettings: (requiresVision?: boolean) => AppSettings;
   mcqsRef: React.MutableRefObject<MCQ[]>;
-  ocrMode: 'gemini' | 'tesseract';
   prepareFiles: (
-    forcedMode?: 'gemini' | 'tesseract',
     controller?: ProcessingController,
     runtimeSettings?: AppSettings
   ) => Promise<UploadedFile[]>;
@@ -48,7 +46,6 @@ interface UseGenerateWorkflowParams {
   setVisibleMcqs: (items: MCQ[]) => Promise<MCQ[]>;
   startProcessingController: () => ProcessingController;
   validateProviderCredentials: (requestSettings: AppSettings) => boolean;
-  waitWithController: (ms: number, controller?: ProcessingController) => Promise<void>;
   warnVisionRecommendedDocx: () => boolean;
   onGenerationComplete?: (payload: {
     files: UploadedFile[];
@@ -75,7 +72,6 @@ export const useGenerateWorkflow = ({
   getDetectedDocxMcqCount,
   getRequestSettings,
   mcqsRef,
-  ocrMode,
   prepareFiles,
   runAudit,
   runGenerationPhase,
@@ -92,7 +88,6 @@ export const useGenerateWorkflow = ({
   setVisibleMcqs,
   startProcessingController,
   validateProviderCredentials,
-  waitWithController,
   warnVisionRecommendedDocx,
   onGenerationComplete,
 }: UseGenerateWorkflowParams) => {
@@ -130,10 +125,9 @@ export const useGenerateWorkflow = ({
       setShowDuplicates(false);
       const controller = startProcessingController();
       const settingsSnapshot = { ...requestSettings };
-      let activeOcrMode: 'gemini' | 'tesseract' = ocrMode;
 
-      // 1. Initial Attempt (Default Mode)
-      let filesToUse = await prepareFiles(activeOcrMode, controller, settingsSnapshot);
+      // 1. Initial Attempt (Direct Multimodal Vision / Native Text)
+      let filesToUse = await prepareFiles(controller, settingsSnapshot);
       const expectedQuestionCount = analysis?.estimatedCount || getDetectedDocxMcqCount();
       let { res } = await runGenerationPhase({
         phase: 'initial',
@@ -142,113 +136,23 @@ export const useGenerateWorkflow = ({
         expectedQuestionCount,
         controller,
         renderCompletedBatchesToVisible: true,
-        forcedOcrMode: activeOcrMode,
       });
 
-      // 2. Auto-Fallback Check
-      // If we used Gemini (Cloud) AND got bad results (< 60% of estimate), try Tesseract
-      if (ocrMode === 'gemini' && analysis && analysis.estimatedCount > 0) {
-        const count = res.questions.length;
-        if (count < analysis.estimatedCount * 0.9) {
-          const hasImages = files.some(f => f.type.startsWith('image/'));
-          if (hasImages) {
-            // Trigger Fallback
-            setProgressStatus(`Kết quả Cloud thấp(${count} / ${analysis.estimatedCount}).Đang tự động chuyển sang Local OCR(Smart Fallback)...`);
-            await waitWithController(2000, controller);
-
-            try {
-              const tesseractFiles = await prepareFiles('tesseract', controller, settingsSnapshot);
-              // If OCR produced text, let's retry generation
-              if (tesseractFiles.some(f => f.type === 'text/plain' && f.content.length > 50)) {
-                const fallbackPhase = await runGenerationPhase({
-                  phase: 'fallback',
-                  filesToUse: tesseractFiles,
-                  requestSettings: settingsSnapshot,
-                  expectedQuestionCount: analysis.estimatedCount,
-                  controller,
-                  progressPrefix: '',
-                  comparisonBaselineCount: count,
-                  comparisonFailedBatchIndices: res.failedBatches || [],
-                  comparisonFailedBatchDetails: res.failedBatchDetails || [],
-                  forcedOcrMode: 'tesseract',
-                });
-                const fallbackRes = fallbackPhase.res;
-
-                const preferredOutcome = selectPreferredPhaseOutcome({
-                  baselineQuestions: res.questions,
-                  baselineFailedBatchIndices: res.failedBatches || [],
-                  baselineFailedBatchDetails: res.failedBatchDetails || [],
-                  baselineMode: activeOcrMode,
-                  candidateQuestions: fallbackRes.questions,
-                  candidateFailedBatchIndices: fallbackRes.failedBatches || [],
-                  candidateFailedBatchDetails: fallbackRes.failedBatchDetails || [],
-                  candidateMode: 'tesseract',
-                });
-
-                if (preferredOutcome.useCandidate) {
-                  res = {
-                    ...fallbackRes,
-                    failedBatches: preferredOutcome.failedBatchIndices,
-                    failedBatchDetails: preferredOutcome.failedBatchDetails,
-                  };
-                  filesToUse = tesseractFiles;
-                  activeOcrMode = 'tesseract';
-                  await setVisibleMcqs(sortMcqsByQuestionNumber(fallbackRes.questions.map((q, i) => ({
-                    ...q,
-                    id: q.id || `q-${Date.now()}-${i}`,
-                  }))));
-                  console.log("Fallback successful, replaced results.");
-                } else {
-                  setFailedBatchIndices(preferredOutcome.failedBatchIndices);
-                }
-              }
-            } catch (fallbackError) {
-              console.error("Fallback failed:", fallbackError);
-              // Swallow error and keep original results
-            }
-          }
-        }
-      }
-
-      let autoRescuedCount = 0;
-      if (!settingsSnapshot.mainBatchOnlyRescue && res.failedBatches && res.failedBatches.length > 0) {
-        const initialFailed = [...res.failedBatches];
-        if (shouldDelayAutoRescue(res.failedBatchDetails || [], initialFailed)) {
-          setProgressStatus(`Provider đang nóng hoặc còn nhiều batch cứu thiếu; giữ ${initialFailed.length} phần lỗi để quét lại sau thay vì chạy cứu ngay.`);
-        } else {
-          try {
-            const rescuePhase = await runGenerationPhase({
-              phase: 'rescue',
-              filesToUse,
-              requestSettings: settingsSnapshot,
-              expectedQuestionCount,
-              controller,
-              retryIndices: initialFailed,
-              isAdvancedMode: true,
-              retryProfile: 'rescue',
-              autoRescue: true,
-              renderCompletedBatchesToVisible: true,
-              forcedOcrMode: activeOcrMode,
-              seedQuestions: res.questions,
-              seedDuplicates: res.duplicates || [],
-            });
-            const rescueRes = rescuePhase.res;
-
-            const uniqueRescued = deduplicateQuestions(rescueRes.questions, res.questions);
-            autoRescuedCount = Math.max(autoRescuedCount, uniqueRescued.length);
-            res = {
-              ...res,
-              questions: [...res.questions, ...uniqueRescued],
-              duplicates: [...(res.duplicates || []), ...(rescueRes.duplicates || [])],
-              failedBatches: rescueRes.failedBatches || [],
-              failedBatchDetails: rescueRes.failedBatchDetails || [],
-              autoSkippedCount: (res.autoSkippedCount || 0) + (rescueRes.autoSkippedCount || 0),
-            };
-          } catch (rescueError) {
-            console.warn("Auto-rescue failed:", rescueError);
-          }
-        }
-      }
+      // 2. Auto-Rescue Check (Direct Subdivision on failed batches)
+      const rescueResult = await runAutoRescuePhaseIfNeeded({
+        mainBatchOnlyRescue: settingsSnapshot.mainBatchOnlyRescue,
+        res,
+        filesToUse,
+        settingsSnapshot,
+        expectedQuestionCount,
+        controller,
+        seedQuestions: res.questions,
+        runGenerationPhase,
+        deduplicateQuestions,
+        setProgressStatus,
+      });
+      res = rescueResult.res;
+      const autoRescuedCount = rescueResult.autoRescuedCount;
 
       const formatted = res.questions.map((q, i) => ({
         ...q, id: q.id || `q - ${Date.now()} -${i} `

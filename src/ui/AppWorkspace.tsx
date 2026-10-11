@@ -18,6 +18,7 @@ interface AppWorkspaceProps {
   analyzing: boolean;
   audit: AuditResult | null;
   currentCount: number;
+  detailedExplanation?: boolean;
   displayedProgressStatus: string;
   downloadCSV: () => void;
   downloadDOCX: () => void;
@@ -38,7 +39,7 @@ interface AppWorkspaceProps {
   isSplitView: boolean;
   loading: boolean;
   mcqs: MCQ[];
-  ocrMode: 'gemini' | 'tesseract';
+  onToggleDetailedExplanation?: (enabled: boolean) => void;
   previewFile: UploadedFile | null;
   previewTrace: SourceTrace | null;
   previewUrl: string | null;
@@ -57,6 +58,7 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   analyzing,
   audit,
   currentCount,
+  detailedExplanation,
   displayedProgressStatus,
   downloadCSV,
   downloadDOCX,
@@ -77,7 +79,7 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({
   isSplitView,
   loading,
   mcqs,
-  ocrMode,
+  onToggleDetailedExplanation,
   previewFile,
   previewTrace,
   previewUrl,
@@ -99,6 +101,7 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       analysis={analysis}
       analyzing={analyzing}
       audit={audit}
+      detailedExplanation={detailedExplanation}
       duplicates={duplicates}
       failedBatchIndices={failedBatchIndices}
       files={files}
@@ -107,7 +110,7 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({
       handleRetryFailed={handleRetryFailed}
       isSplitView={isSplitView}
       loading={loading}
-      ocrMode={ocrMode}
+      onToggleDetailedExplanation={onToggleDetailedExplanation}
       retryFailedAttempted={retryFailedAttempted}
       setFiles={setFiles}
       setShowAudit={setShowAudit}

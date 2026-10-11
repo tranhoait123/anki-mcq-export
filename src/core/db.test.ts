@@ -196,11 +196,10 @@ const baseFile: UploadedFile = {
 const baseSession: ProcessingSession = {
   id: 'current',
   status: 'interrupted',
-  phase: 'fallback',
+  phase: 'rescue',
   createdAt: 1,
   updatedAt: 2,
   filesFingerprint: 'abc',
-  forcedOcrMode: 'tesseract',
   settingsSnapshot: baseSettings,
   analysisSnapshot: null,
   totalTopLevelBatches: 4,

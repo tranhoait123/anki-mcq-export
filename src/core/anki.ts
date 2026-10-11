@@ -88,8 +88,35 @@ export const formatRichText = (text: any): string => {
   return html.replace(/\r/g, '').replace(/\n/g, ' ');
 };
 
+export const hasExplanationContent = (exp?: Explanation | null): boolean => {
+  if (!exp || typeof exp !== 'object') return false;
+  return Boolean(
+    (typeof exp.core === 'string' && exp.core.trim()) ||
+    (typeof exp.analysis === 'string' && exp.analysis.trim()) ||
+    (typeof exp.evidence === 'string' && exp.evidence.trim())
+  );
+};
+
 export const buildAnkiHtml = (exp: Explanation, difficulty: string, depth: string) => {
   if (!exp) return "<i>Dữ liệu lỗi.</i>";
-  const content = `<b>🎯 ĐÁP ÁN CỐT LÕI</b><br>${formatRichText(exp.core || "")}<br><br><b>📚 BẰNG CHỨNG</b><br>${formatRichText(exp.evidence || "")}<br><br><b>💡 PHÂN TÍCH SÂU</b><br>${formatRichText(exp.analysis || "")}<br><br>${exp.warning ? `<b>⚠️ CẢNH BÁO</b><br>${formatRichText(exp.warning)}<br><br>` : ''}<b>📊 ĐỘ KHÓ:</b> <b>${escapeHtml(difficulty || "N/A")}</b><br><b>🧠 TƯ DUY:</b> <b>${escapeHtml(depth || "N/A")}</b>`;
-  return content;
+  if (!hasExplanationContent(exp)) return "";
+  const parts: string[] = [];
+  if (exp.core && exp.core.trim()) {
+    parts.push(`<b>🎯 ĐÁP ÁN CỐT LÕI</b><br>${formatRichText(exp.core)}`);
+  }
+  if (exp.evidence && exp.evidence.trim()) {
+    parts.push(`<b>📚 BẰNG CHỨNG</b><br>${formatRichText(exp.evidence)}`);
+  }
+  if (exp.analysis && exp.analysis.trim()) {
+    parts.push(`<b>💡 PHÂN TÍCH SÂU</b><br>${formatRichText(exp.analysis)}`);
+  }
+  if (exp.warning && exp.warning.trim()) {
+    parts.push(`<b>⚠️ CẢNH BÁO</b><br>${formatRichText(exp.warning)}`);
+  }
+  const metaParts: string[] = [];
+  if (difficulty && difficulty !== 'N/A') metaParts.push(`<b>📊 ĐỘ KHÓ:</b> <b>${escapeHtml(difficulty)}</b>`);
+  if (depth && depth !== 'N/A') metaParts.push(`<b>🧠 TƯ DUY:</b> <b>${escapeHtml(depth)}</b>`);
+  if (metaParts.length > 0) parts.push(metaParts.join('<br>'));
+
+  return parts.join('<br><br>');
 };

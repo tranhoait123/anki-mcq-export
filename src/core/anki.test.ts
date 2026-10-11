@@ -61,4 +61,9 @@ describe('Anki rich text formatting', () => {
     expect(html).not.toContain('<style>');
     expect(html).toContain('<table><tr><th>A</th><th>B</th></tr><tr><td>x</td><td>y</td></tr></table>');
   });
+
+  it('returns empty string when explanation has no content', () => {
+    const emptyExp = { core: '', evidence: '   ', analysis: '', warning: '' };
+    expect(buildAnkiHtml(emptyExp, 'Easy', 'Nhận biết')).toBe('');
+  });
 });

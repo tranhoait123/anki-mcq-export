@@ -31,7 +31,6 @@ describe('resume session selection', () => {
         message: 'JSON lỗi',
         advice: 'Thử rescue',
       }],
-      baselineMode: 'gemini',
       candidateQuestions: [makeQuestion(1)],
       candidateFailedBatchIndices: [2],
       candidateFailedBatchDetails: [{
@@ -42,21 +41,18 @@ describe('resume session selection', () => {
         message: 'Rỗng',
         advice: 'Thử lại',
       }],
-      candidateMode: 'tesseract',
     });
 
     expect(result.useCandidate).toBe(false);
     expect(result.questions).toHaveLength(2);
     expect(result.failedBatchIndices).toEqual([3]);
     expect(result.failedBatchDetails.map((item) => item.index)).toEqual([3]);
-    expect(result.forcedOcrMode).toBe('gemini');
   });
 
   it('switches to fallback when it extracts more questions', () => {
     const result = selectPreferredPhaseOutcome({
       baselineQuestions: [makeQuestion(1)],
       baselineFailedBatchIndices: [4],
-      baselineMode: 'gemini',
       candidateQuestions: [makeQuestion(1), makeQuestion(2), makeQuestion(3)],
       candidateFailedBatchIndices: [5],
       candidateFailedBatchDetails: [{
@@ -67,13 +63,11 @@ describe('resume session selection', () => {
         message: '429',
         advice: 'Đợi rồi thử lại',
       }],
-      candidateMode: 'tesseract',
     });
 
     expect(result.useCandidate).toBe(true);
     expect(result.questions).toHaveLength(3);
     expect(result.failedBatchIndices).toEqual([5]);
-    expect(result.forcedOcrMode).toBe('tesseract');
   });
 
   it('runs limited auto-rescue for small pressure failures but delays heavy pressure', () => {

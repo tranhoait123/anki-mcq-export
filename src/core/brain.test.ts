@@ -2893,4 +2893,50 @@ D. Bốn
 
     vi.unstubAllGlobals();
   });
+
+  it('supports lightweight fast extraction mode when detailedExplanation is false', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            questions: [{
+              question: '1. Fast extracted stem?',
+              options: ['A. One', 'B. Two', 'C. Three', 'D. Four'],
+              correctAnswer: 'B',
+              source: 'test.txt | Phần 1',
+            }],
+          }),
+        },
+      }],
+    }), { status: 200 }));
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateQuestions(
+      [{
+        id: 'file-fast-extract',
+        name: 'test.txt',
+        type: 'text/plain',
+        content: '1. Fast extracted stem?\nA. One\nB. Two\nC. Three\nD. Four\nĐáp án: B',
+      }],
+      { ...baseSettings, detailedExplanation: false, adaptiveBatching: false, concurrencyLimit: 1 }
+    );
+
+    expect(result.questions).toHaveLength(1);
+    expect(result.questions[0].question).toBe('Fast extracted stem?');
+    expect(result.questions[0].correctAnswer).toBe('B');
+    expect(result.questions[0].explanation).toEqual({
+      core: '',
+      evidence: '',
+      analysis: '',
+      warning: '',
+    });
+
+    const fetchCallBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const systemInstruction = fetchCallBody.messages?.find((m: any) => m.role === 'system')?.content || '';
+    expect(systemInstruction).toContain('Medical Document Extraction Specialist');
+
+    vi.unstubAllGlobals();
+  });
 });
+

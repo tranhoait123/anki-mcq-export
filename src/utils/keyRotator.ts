@@ -274,6 +274,12 @@ export class UserKeyRotator {
   markKeyResult(key: string, result: KeyResult): void {
     if (!key || !this.keys.includes(key)) return;
     if (result.kind === 'serverBusy') {
+      const now = this.now();
+      const record = this.getOrCreateRecord(key);
+      record.failureCount++;
+      record.lastFailureAt = now;
+      if (result.error) record.lastError = getErrorText(result.error);
+      this.successStreak = 0;
       this.markProviderPressure(result.durationMs);
       return;
     }

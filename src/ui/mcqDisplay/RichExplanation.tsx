@@ -1,7 +1,7 @@
 import { AlertTriangle, Lightbulb, Quote, Target } from 'lucide-react';
 import React from 'react';
 import { Explanation } from '../../types';
-import { formatRichText } from '../../core/anki';
+import { formatRichText, hasExplanationContent } from '../../core/anki';
 
 interface RichExplanationProps {
   compact?: boolean;
@@ -9,12 +9,18 @@ interface RichExplanationProps {
 }
 
 const RichExplanation: React.FC<RichExplanationProps> = React.memo(({ exp, compact = false }) => {
+  const hasContent = hasExplanationContent(exp);
+  const coreHtml = React.useMemo(() => (hasContent ? formatRichText(exp.core) : ''), [hasContent, exp.core]);
+  const analysisHtml = React.useMemo(() => (hasContent ? formatRichText(exp.analysis) : ''), [hasContent, exp.analysis]);
+  const evidenceHtml = React.useMemo(() => (hasContent ? formatRichText(exp.evidence) : ''), [hasContent, exp.evidence]);
+  const warningHtml = React.useMemo(() => (hasContent ? formatRichText(exp.warning) : ''), [hasContent, exp.warning]);
+
+  if (!hasContent) {
+    return null;
+  }
+
   const spacingClass = compact ? 'space-y-3 mt-4' : 'space-y-4 mt-6';
   const blockPaddingClass = compact ? 'p-3' : 'p-4';
-  const coreHtml = React.useMemo(() => formatRichText(exp.core), [exp.core]);
-  const analysisHtml = React.useMemo(() => formatRichText(exp.analysis), [exp.analysis]);
-  const evidenceHtml = React.useMemo(() => formatRichText(exp.evidence), [exp.evidence]);
-  const warningHtml = React.useMemo(() => formatRichText(exp.warning), [exp.warning]);
 
   return (
     <div className={`${spacingClass} text-sm`}>

@@ -54,4 +54,16 @@ describe('LazyAnkiHtml', () => {
     expect(buildHtml).toHaveBeenCalledTimes(1);
     expect(html).toContain('rendered');
   });
+
+  it('does not render anything when explanation is empty or missing', () => {
+    const emptyExplanation = { core: '', evidence: '', analysis: '', warning: '' };
+    const html = renderToString(
+      <LazyAnkiHtml
+        depthAnalysis=""
+        difficulty=""
+        explanation={emptyExplanation}
+      />
+    );
+    expect(html).toBe('');
+  });
 });

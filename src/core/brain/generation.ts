@@ -1,5 +1,5 @@
 import { UploadedFile, ProgressCallback, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, BatchFailureDiagnostics, SourceTrace } from "../../types";
-import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage, isShopAIKeyDeepSeekModel, isShopAIKeyGeminiModel } from '../../utils/models';
+import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage, isShopAIKeyGeminiModel } from '../../utils/models';
 import { analyzePdfTextLayer, convertPdfToImages, estimatePdfQuestionMarkers, splitPdfRangeForVisionRecovery, type PdfQuestionMarkerEstimate, type PdfVisionRecoveryDirection } from '../../utils/pdfProcessor';
 import {
   classifyBatchError,
@@ -8,6 +8,7 @@ import {
   getRetryProfile,
   shouldSplitForError,
   splitTextIntoNaturalParts,
+  type RetryProfile,
 } from '../../utils/retryStrategy';
 import { splitNativeMcqTextIntoBatches } from '../docxNative';
 import {
@@ -43,6 +44,7 @@ import {
   getPdfVisionCoverageSchema,
   getModelConfig,
   getQuestionSchema,
+  getFastQuestionSchema,
 } from './googleProvider';
 import {
   executeWithUserRotation,
@@ -69,7 +71,7 @@ import {
   partsRequireVision,
   waitWithController,
 } from './generationHelpers';
-import { SYSTEM_INSTRUCTION_EXTRACT, RESCUE_ADDENDUM } from './prompts';
+import { SYSTEM_INSTRUCTION_EXTRACT, SYSTEM_INSTRUCTION_FAST_EXTRACT, RESCUE_ADDENDUM } from './prompts';
 import { measureSync } from '../../utils/performance';
 import { buildMCQFingerprint } from '../../utils/dedupe';
 import { parseJsonFromModelText } from './parsing';
@@ -78,10 +80,8 @@ const FULL_CHECKPOINT_INTERVAL_MS = 30000;
 const KEY_CONSERVATION_PRESSURE_WINDOW_MS = 60 * 1000;
 const MAX_IMMEDIATE_RECOVERY_PARTS = 3;
 const DEFERRED_RECOVERY_MIN_SETTLE_MS = 1000;
-const DEFERRED_RECOVERY_MAX_RETRIES = 2;
+const DEFERRED_RECOVERY_MAX_RETRIES = 1;
 
-const hasInlineVisionInput = (part: any): boolean =>
-  Boolean(part?.inlineData) || (Array.isArray(part?.inlineDataParts) && part.inlineDataParts.length > 0);
 
 
 
@@ -837,7 +837,7 @@ export const generateQuestions = async (
       }
     }
 
-    const questionSchema = getQuestionSchema();
+    const questionSchema = runtimeSettings.detailedExplanation ? getQuestionSchema() : getFastQuestionSchema();
 
     let allQuestions: any[] = [...(options.existingQuestions || [])];
     let allDuplicates: any[] = [...(options.existingDuplicates || [])];
@@ -1563,6 +1563,14 @@ export const generateQuestions = async (
     const processBatch = async (part: any, index: number, depth: number = 0, forceJsonRepair: boolean = false, topLevelIndex: number = index, subIndex: number = 0, labelPrefix: string = `${index + 1}`) => {
       const batchLabel = depth === 0 ? labelPrefix : `${labelPrefix}${String.fromCharCode(96 + depth)}.${subIndex + 1}`;
       const topLevelBatchNumber = topLevelIndex + 1;
+      const effectiveRetryProfile: RetryProfile = part.deferredRecovery
+        ? {
+            ...retryProfile,
+            serverBusyFastFailAttempt: undefined,
+            fallbackAfterAttempt: 2,
+            maxElapsedMs: Math.max(retryProfile.maxElapsedMs, 90000),
+          }
+        : retryProfile;
       let createPostprocessInputForPartial: ((fullText: string) => BatchPostprocessInput) | null = null;
       let handlePostprocessResultForPartial: ((postprocessResult: BatchPostprocessResult, salvageReasonError?: any) => Promise<boolean>) | null = null;
 
@@ -1610,7 +1618,6 @@ export const generateQuestions = async (
             onProgress(`Quét Batch ${batchLabel}/${totalBatches}${depth > 0 ? ' (Đang chia nhỏ)' : ''}...`, allQuestions.length);
           }
         }
-        await waitWithController(Math.random() * (isRescueMode ? 250 : 800), controller);
 
         // Per-batch key assignment: Mỗi batch nhận key riêng theo round-robin
         const batchStartingKey = runtimeSettings.provider === 'google' ? userKeyRotator.getKeyForBatch() : '';
@@ -2024,7 +2031,8 @@ export const generateQuestions = async (
               extractionModel,
               async (currentKey, activeModel, attemptContext) => {
                   const isRescueOrRetry = isRescueMode || isTargetedRetryBatch || part.partialRecovery || part.deferredRecovery;
-                  const baseInstruction = isRescueOrRetry ? `${SYSTEM_INSTRUCTION_EXTRACT}\n${RESCUE_ADDENDUM}` : SYSTEM_INSTRUCTION_EXTRACT;
+                  const targetInstruction = runtimeSettings.detailedExplanation ? SYSTEM_INSTRUCTION_EXTRACT : SYSTEM_INSTRUCTION_FAST_EXTRACT;
+                  const baseInstruction = isRescueOrRetry ? `${targetInstruction}\n${RESCUE_ADDENDUM}` : targetInstruction;
                   const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${baseInstruction}` : baseInstruction;
 
                   const messages = [
@@ -2043,7 +2051,7 @@ export const generateQuestions = async (
               ,
               undefined,
               stableFallbackModel,
-              retryProfile,
+              effectiveRetryProfile,
               controller
             )
           : executeWithUserRotation(
@@ -2052,7 +2060,8 @@ export const generateQuestions = async (
                   if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
                   const aiInstance = createGoogleGenAIClient(runtimeSettings, currentKey);
                   const isRescueOrRetry = isRescueMode || isTargetedRetryBatch || part.partialRecovery || part.deferredRecovery;
-                  const baseInstruction = isRescueOrRetry ? `${SYSTEM_INSTRUCTION_EXTRACT}\n${RESCUE_ADDENDUM}` : SYSTEM_INSTRUCTION_EXTRACT;
+                  const targetInstruction = runtimeSettings.detailedExplanation ? SYSTEM_INSTRUCTION_EXTRACT : SYSTEM_INSTRUCTION_FAST_EXTRACT;
+                  const baseInstruction = isRescueOrRetry ? `${targetInstruction}\n${RESCUE_ADDENDUM}` : targetInstruction;
                   const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${baseInstruction}` : baseInstruction;
                   // Cache key bao gồm cả modelName để tránh dùng cache của model cũ khi fallback
                   const cacheSessionKey = `${hashApiKey(currentKey)}_${activeModel}`;
@@ -2098,6 +2107,10 @@ export const generateQuestions = async (
                           streamError.partialText = fullText;
                           console.warn(`Batch ${batchLabel}: Stream interrupted after receiving ${Math.round(fullText.length / 1024)}KB; will try to salvage complete questions before retry/split.`);
                       }
+                      if (!streamError.retryKind) {
+                          streamError.retryKind = 'serverBusy';
+                          streamError.retryCause = 'serverBusy';
+                      }
                       throw streamError;
                   }
 
@@ -2106,7 +2119,7 @@ export const generateQuestions = async (
               },
               batchStartingKey, // Per-batch key assignment
               stableFallbackModel,
-              retryProfile,
+              effectiveRetryProfile,
               controller,
               getGoogleRequestRateLimitOptions(runtimeSettings)
             )
@@ -2132,7 +2145,7 @@ export const generateQuestions = async (
         }
       } catch (e: any) {
         const errorKind = classifyBatchError(e);
-        const batchDecision = getRetryDecision(e, retryProfile);
+        const batchDecision = getRetryDecision(e, effectiveRetryProfile);
         const expectedQuestions = part.sourceMode === 'pdfVision'
           ? (part.expectedQuestions || 0)
           : (part.expectedQuestions || getNativeBatchExpectedCount(part.text || ''));
@@ -2333,7 +2346,7 @@ export const generateQuestions = async (
           recordBatchFailure(topLevelIndex, batchLabel, e, 'split');
         }
         if (onProgress) {
-          const detail = describeBatchError(e, retryProfile.name);
+          const detail = describeBatchError(e, effectiveRetryProfile.name);
           const subInfo = depth > 0 ? ` (Phần ${batchLabel})` : '';
           onProgress(`⚠️ Batch ${depth === 0 ? batchLabel : index + 1}${subInfo} gặp sự cố: ${detail.message}. Đang tìm cách xử lý...`, allQuestions.length);
         }
@@ -2426,7 +2439,7 @@ export const generateQuestions = async (
           let afterDeferredCount = beforeDeferredCount;
           while (deferredAttempt <= DEFERRED_RECOVERY_MAX_RETRIES) {
             if (deferredAttempt > 0) {
-              const retrySettleMs = Math.min(3000 * deferredAttempt, retryProfile.singleKeyBackoffCapMs);
+              const retrySettleMs = Math.min(1500 * deferredAttempt, retryProfile.singleKeyBackoffCapMs);
               console.info(`🔄 Batch ${item.label}: Deferred recovery lần ${deferredAttempt + 1}/${DEFERRED_RECOVERY_MAX_RETRIES + 1}, chờ ${Math.round(retrySettleMs / 1000)}s...`);
               if (onProgress) {
                 onProgress(`Đang thử lại cứu Batch ${item.label} lần ${deferredAttempt + 1} sau ${Math.round(retrySettleMs / 1000)}s...`, allQuestions.length);

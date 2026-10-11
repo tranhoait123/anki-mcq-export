@@ -4,11 +4,9 @@ interface SelectPreferredPhaseOutcomeInput {
   baselineQuestions: MCQ[];
   baselineFailedBatchIndices?: number[];
   baselineFailedBatchDetails?: BatchFailureInfo[];
-  baselineMode?: 'gemini' | 'tesseract';
   candidateQuestions: MCQ[];
   candidateFailedBatchIndices?: number[];
   candidateFailedBatchDetails?: BatchFailureInfo[];
-  candidateMode?: 'gemini' | 'tesseract';
 }
 
 interface SelectPreferredPhaseOutcomeResult {
@@ -16,18 +14,15 @@ interface SelectPreferredPhaseOutcomeResult {
   questions: MCQ[];
   failedBatchIndices: number[];
   failedBatchDetails: BatchFailureInfo[];
-  forcedOcrMode?: 'gemini' | 'tesseract';
 }
 
 export const selectPreferredPhaseOutcome = ({
   baselineQuestions,
   baselineFailedBatchIndices = [],
   baselineFailedBatchDetails = [],
-  baselineMode,
   candidateQuestions,
   candidateFailedBatchIndices = [],
   candidateFailedBatchDetails = [],
-  candidateMode,
 }: SelectPreferredPhaseOutcomeInput): SelectPreferredPhaseOutcomeResult => {
   const useCandidate = candidateQuestions.length > baselineQuestions.length;
   if (useCandidate) {
@@ -36,7 +31,6 @@ export const selectPreferredPhaseOutcome = ({
       questions: candidateQuestions,
       failedBatchIndices: candidateFailedBatchIndices,
       failedBatchDetails: candidateFailedBatchDetails,
-      forcedOcrMode: candidateMode,
     };
   }
 
@@ -45,7 +39,6 @@ export const selectPreferredPhaseOutcome = ({
     questions: baselineQuestions,
     failedBatchIndices: baselineFailedBatchIndices,
     failedBatchDetails: baselineFailedBatchDetails,
-    forcedOcrMode: baselineMode,
   };
 };
 

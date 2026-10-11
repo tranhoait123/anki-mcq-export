@@ -235,13 +235,13 @@ export const getStructuredQuestionBatchSize = (
   Math.min(getAdaptiveQuestionBatchSize(profile, adaptiveBatching), STRUCTURED_QUESTION_BATCH_CAP);
 
 export const getAdaptiveTextCharBudget = (profile: ModelTokenProfile, adaptiveBatching = true): number => {
-  if (!adaptiveBatching) return 15000;
-  const inputBudgetChars = Math.floor(profile.inputLimit * 0.08 * 3.6);
-  return Math.max(15000, Math.min(22000, inputBudgetChars));
+  if (!adaptiveBatching) return 10000;
+  const inputBudgetChars = Math.floor(profile.inputLimit * 0.05 * 3.6);
+  return Math.max(8000, Math.min(13000, inputBudgetChars));
 };
 
 export const getAdaptiveVisionPagesPerChunk = (profile: ModelTokenProfile, adaptiveBatching = true): number =>
-  adaptiveBatching ? Math.max(2, Math.min(4, profile.visionPagesPerBatch)) : 2;
+  adaptiveBatching ? Math.max(1, Math.min(3, profile.visionPagesPerBatch)) : 2;
 
 export const hashFiles = async (files: UploadedFile[]): Promise<string> => {
   const sortedFiles = [...files].sort((a, b) => a.name.localeCompare(b.name));

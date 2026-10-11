@@ -94,7 +94,6 @@ export const useProcessingSession = ({
     createdAt: extras.createdAt ?? Date.now(),
     updatedAt: Date.now(),
     filesFingerprint: await hashFiles(getPersistableFiles(filesRef.current || [])),
-    forcedOcrMode: extras.forcedOcrMode,
     settingsSnapshot,
     analysisSnapshot: analysisRef.current,
     totalTopLevelBatches: extras.totalTopLevelBatches ?? 0,

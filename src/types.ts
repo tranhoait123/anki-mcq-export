@@ -236,7 +236,6 @@ export interface ProcessingSession {
   createdAt: number;
   updatedAt: number;
   filesFingerprint: string;
-  forcedOcrMode?: 'gemini' | 'tesseract';
   settingsSnapshot: AppSettings;
   analysisSnapshot: AnalysisResult | null;
   totalTopLevelBatches: number;
@@ -287,6 +286,7 @@ export interface AppSettings {
   googleRpmLimitPerMinute?: number;
   pdfVisionQuality?: 'standard' | 'high';
   enableContextCaching?: boolean;
+  detailedExplanation?: boolean;
 }
 
 export interface ProjectSettingsSummary {
@@ -305,6 +305,7 @@ export interface ProjectSettingsSummary {
   googleRpmLimitPerMinute?: number;
   pdfVisionQuality?: AppSettings['pdfVisionQuality'];
   enableContextCaching?: boolean;
+  detailedExplanation?: boolean;
   hasCustomPrompt: boolean;
 }
 

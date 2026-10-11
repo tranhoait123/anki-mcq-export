@@ -1,6 +1,6 @@
 import React from 'react';
 import { Explanation } from '../../types';
-import { buildAnkiHtml } from '../../core/anki';
+import { buildAnkiHtml, hasExplanationContent } from '../../core/anki';
 
 interface LazyAnkiHtmlProps {
   buildHtml?: typeof buildAnkiHtml;
@@ -22,15 +22,16 @@ const LazyAnkiHtml: React.FC<LazyAnkiHtmlProps> = React.memo(({
   difficulty,
   explanation,
 }) => {
+  const hasContent = hasExplanationContent(explanation);
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const [shouldRender, setShouldRender] = React.useState(shouldRenderImmediately);
   const htmlContent = React.useMemo(
-    () => shouldRender ? buildHtml(explanation, difficulty, depthAnalysis) : '',
-    [buildHtml, depthAnalysis, difficulty, explanation, shouldRender]
+    () => (hasContent && shouldRender) ? buildHtml(explanation, difficulty, depthAnalysis) : '',
+    [buildHtml, depthAnalysis, difficulty, explanation, hasContent, shouldRender]
   );
 
   React.useEffect(() => {
-    if (shouldRender || shouldRenderImmediately()) return;
+    if (!hasContent || shouldRender || shouldRenderImmediately()) return;
     const target = rootRef.current;
     if (!target) return;
 
@@ -43,7 +44,11 @@ const LazyAnkiHtml: React.FC<LazyAnkiHtmlProps> = React.memo(({
 
     observer.observe(target);
     return () => observer.disconnect();
-  }, [shouldRender]);
+  }, [hasContent, shouldRender]);
+
+  if (!hasContent) {
+    return null;
+  }
 
   return (
     <div ref={rootRef} className={`${compact ? 'pt-4' : 'pt-6'} border-t border-slate-100 dark:border-slate-800`}>

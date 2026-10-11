@@ -8,14 +8,14 @@ import {
   RetryDecisionCause,
   RetryProfile,
 } from '../../utils/retryStrategy';
-import { DEFAULT_GEMINI_MODEL } from '../../utils/models';
+import { DEFAULT_GEMINI_MODEL, getAlternateFallbackModel } from '../../utils/models';
 import { getRetryDelayMsFromError } from './providerErrors';
 import { db } from '../db';
 import { googleRequestRateLimiter, RequestRateLimitOptions } from './requestRateLimiter';
 
 export { userKeyRotator };
 
-const SERVER_BUSY_FRESH_KEY_BACKOFF_MS: [number, number] = [5000, 12000];
+const SERVER_BUSY_FRESH_KEY_BACKOFF_MS: [number, number] = [800, 2000];
 
 const getServerBusyFreshKeyBackoffMs = (random: () => number = Math.random): number => {
   const [min, max] = SERVER_BUSY_FRESH_KEY_BACKOFF_MS;
@@ -108,7 +108,7 @@ export async function executeWithRetry<T>(fn: () => Promise<T>, retries: number 
         }
 
         console.info(`${isFormatError ? 'Lỗi định dạng' : 'API Busy'} (Lượt đầu - Lần thử ${attempt}/${retries}). Retrying...`);
-        await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, i)));
+        await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(1.5, i)));
         continue;
       }
       throw error;
@@ -141,7 +141,7 @@ export async function executeWithUserRotation<T>(
   const getUntriedAvailableKey = () => userKeyRotator.selectBestKey({ excludeKeys: keysTried });
   const getRetriedAvailableKey = () => userKeyRotator.selectBestKey({ allowRetriedKeys: true });
   const getRotationLimit = () => userKeyRotator.getRecommendedRotationLimit();
-  const getAttemptTimeoutMs = () => Math.max(1, Math.ceil(getRemainingBudgetMs()));
+  const getAttemptTimeoutMs = () => Math.max(1, Math.min(40000, Math.ceil(getRemainingBudgetMs())));
   const rememberPartialText = (error: any) => {
     const partialText = typeof error?.partialText === 'string' ? error.partialText : '';
     if (partialText.trim().length > bestPartialText.trim().length) bestPartialText = partialText;
@@ -320,9 +320,14 @@ export async function executeWithUserRotation<T>(
       }
 
       if (decision.action === 'retry') {
-        if (decision.shouldTryFallbackModel && currentModel !== fallbackModel) {
-          console.log(`🚀 Switching to STABLE FALLBACK MODEL after transient failures: ${fallbackModel}`);
-          currentModel = fallbackModel;
+        if (decision.shouldTryFallbackModel) {
+          const nextFallbackModel = (fallbackModel && fallbackModel !== currentModel)
+            ? fallbackModel
+            : getAlternateFallbackModel(currentModel.includes('/') ? 'openrouter' : 'google', currentModel);
+          if (nextFallbackModel && nextFallbackModel !== currentModel) {
+            console.log(`🚀 Switching to STABLE FALLBACK MODEL after transient failures: ${nextFallbackModel} (from ${currentModel})`);
+            currentModel = nextFallbackModel;
+          }
         }
 
         const reason = decision.cause === 'softRateLimit'
@@ -387,7 +392,7 @@ export async function executeWithUserRotation<T>(
             ));
           }
         } else if (isServerBusyRetry) {
-          userKeyRotator.markProviderPressure(backoffMs);
+          userKeyRotator.markKeyResult(attemptedKey, { kind: 'serverBusy', durationMs: backoffMs, error });
 
           if (shouldRotateKey({
             cause: 'serverBusy',

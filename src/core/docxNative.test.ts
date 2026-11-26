@@ -7,6 +7,7 @@ import {
   parseDocxDocumentXml,
   parseDocxImageRelationships,
   splitNativeMcqTextIntoBatches,
+  tryParseStructuredBatchLocally,
 } from './docxNative';
 
 const p = (text: string, highlighted = false) => `
@@ -509,5 +510,51 @@ describe('DOCX embedded image extraction', () => {
     expect(result.embeddedImages.map((image) => image.name)).toEqual(['image2.jpeg', 'image1.png']);
     expect(result.embeddedImages.map((image) => image.mimeType)).toEqual(['image/jpeg', 'image/png']);
     expect(result.unsupportedImageCount).toBe(1);
+  });
+
+  it('parses clean marked structured batches locally (Zero-AI Fast Path) and falls back when answers are missing', () => {
+    const cleanBatch = [
+      '[DOCX_NATIVE_BATCH_COUNT: 2]',
+      '',
+      '<<<MCQ 1>>>',
+      'Question: Câu 1: Thuốc đầu tay trong suy tim tâm thu?',
+      'A. Digoxin',
+      '✅ B. ACEi',
+      'C. Amlodipin',
+      'D. Diltiazem',
+      '',
+      '<<<MCQ 2>>>',
+      'Question: [TÌNH HUỐNG]',
+      'BN nam 60 tuổi đau ngực.',
+      '[CÂU HỎI]',
+      'Câu 2: Cận lâm sàng ưu tiên ngay?',
+      '✅ A. ECG 12 chuyển đạo',
+      'B. Nội soi dạ dày',
+    ].join('\n');
+
+    const parsed = tryParseStructuredBatchLocally(cleanBatch);
+    expect(parsed).toEqual([
+      {
+        question: 'Câu 1: Thuốc đầu tay trong suy tim tâm thu?',
+        options: ['A. Digoxin', 'B. ACEi', 'C. Amlodipin', 'D. Diltiazem'],
+        correctAnswer: 'B',
+      },
+      {
+        question: '[TÌNH HUỐNG]\nBN nam 60 tuổi đau ngực.\n[CÂU HỎI]\nCâu 2: Cận lâm sàng ưu tiên ngay?',
+        options: ['A. ECG 12 chuyển đạo', 'B. Nội soi dạ dày'],
+        correctAnswer: 'A',
+      },
+    ]);
+
+    const missingAnswerBatch = [
+      '[DOCX_NATIVE_BATCH_COUNT: 1]',
+      '',
+      '<<<MCQ 1>>>',
+      'Question: Câu 1: Không có đáp án đánh dấu?',
+      'A. Một',
+      'B. Hai',
+    ].join('\n');
+
+    expect(tryParseStructuredBatchLocally(missingAnswerBatch)).toBeNull();
   });
 });

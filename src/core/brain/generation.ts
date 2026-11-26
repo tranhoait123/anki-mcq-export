@@ -1,5 +1,5 @@
 import { UploadedFile, ProgressCallback, BatchCallback, AppSettings, MCQ, DuplicateInfo, BatchFailureInfo, BatchFailureDiagnostics, SourceTrace } from "../../types";
-import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage, isShopAIKeyGeminiModel } from '../../utils/models';
+import { coerceModelForProvider, coerceModelForProviderInput, getModelTokenProfile, getProviderFallbackModel, getProviderModelMismatchMessage } from '../../utils/models';
 import { analyzePdfTextLayer, convertPdfToImages, estimatePdfQuestionMarkers, splitPdfRangeForVisionRecovery, type PdfQuestionMarkerEstimate, type PdfVisionRecoveryDirection } from '../../utils/pdfProcessor';
 import {
   classifyBatchError,
@@ -10,7 +10,7 @@ import {
   splitTextIntoNaturalParts,
   type RetryProfile,
 } from '../../utils/retryStrategy';
-import { splitNativeMcqTextIntoBatches } from '../docxNative';
+import { splitNativeMcqTextIntoBatches, tryParseStructuredBatchLocally } from '../docxNative';
 import {
   buildSourceSnippet,
   formatPageRangeLabel,
@@ -565,10 +565,7 @@ export const generateQuestions = async (
             adaptiveQuestionCap,
             runtimeSettings.autoGroupClinicalCases !== false
           );
-          const isShopAIKey = runtimeSettings.provider === 'shopaikey';
-          const isShopAIKeyGemini = isShopAIKey && isShopAIKeyGeminiModel(runtimeSettings.model);
-
-          if (pdfTextAnalysis.textBatches.length > 0 && !isShopAIKeyGemini) {
+          if (pdfTextAnalysis.textBatches.length > 0) {
             pdfTextAnalysis.textBatches.forEach((batch, batchIndex) => {
               const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(batch.pageRange), `Nhóm ${batchIndex + 1}`);
               const text = `[TÀI LIỆU PDF TEXT STRUCTURED: "${file.name}" (Trang ${batch.pageRange.start}-${batch.pageRange.end}, Nhóm ${batchIndex + 1}/${pdfTextAnalysis.textBatches.length})]\n\n${batch.text}`;
@@ -586,25 +583,13 @@ export const generateQuestions = async (
             });
           }
 
-          const buildLocalPageRanges = (pageCount: number, pagesPerChunk = 3, overlap = 1) => {
-            const ranges: any[] = [];
-            const step = Math.max(1, pagesPerChunk - overlap);
-            for (let start = 1; start <= pageCount; start += step) {
-              const end = Math.min(pageCount, start + pagesPerChunk - 1);
-              ranges.push({ start, end });
-              if (end === pageCount) break;
-            }
-            return ranges;
-          };
-
-          const visionRanges = isShopAIKeyGemini
-            ? buildLocalPageRanges(pdfTextAnalysis.pageCount, visionPagesPerChunk, 1)
-            : pdfTextAnalysis.visionPageRanges;
+          const initialPdfVisionQuality = runtimeSettings.pdfVisionQuality ?? 'standard';
+          const visionRanges = pdfTextAnalysis.visionPageRanges;
           if (visionRanges.length > 0) {
             if (onProgress) onProgress(`PDF hybrid: ${pdfTextAnalysis.textBatches.length} batch text, ${visionRanges.length} batch Vision.`, 0);
             if (isOpenAICompatibleRuntime(runtimeSettings)) {
               for (const range of visionRanges) {
-                const images = await convertPdfToImages(pdfDataUrl, range, { quality: runtimeSettings.pdfVisionQuality ?? 'high' });
+                const images = await convertPdfToImages(pdfDataUrl, range, { quality: initialPdfVisionQuality });
                 const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(range));
                 const rangePages = pdfTextAnalysis.pages.slice(range.start - 1, range.end);
                 const rangeText = rangePages.map((page) => page.text).join('\n\n');
@@ -626,7 +611,7 @@ export const generateQuestions = async (
                   rawPdfBase64: rawBase64,
                   pdfFileName: file.name,
                   pdfTextPages: rangePages.map((page) => ({ pageNumber: page.pageNumber, text: page.text })),
-                  pdfVisionQuality: runtimeSettings.pdfVisionQuality ?? 'high',
+                  pdfVisionQuality: runtimeSettings.pdfVisionQuality ?? 'standard',
                   trace: buildTrace(file, sourceLabel, 'pdfVision', {
                     pageRange: range,
                     boundaryRisk: range.boundaryRisk,
@@ -661,7 +646,7 @@ export const generateQuestions = async (
                   rawPdfBase64: rawBase64,
                   pdfFileName: file.name,
                   pdfTextPages: rangePages.map((page) => ({ pageNumber: page.pageNumber, text: page.text })),
-                  pdfVisionQuality: runtimeSettings.pdfVisionQuality ?? 'high',
+                  pdfVisionQuality: runtimeSettings.pdfVisionQuality ?? 'standard',
                   trace: buildTrace(file, sourceLabel, 'pdfVision', {
                     pageRange: range,
                     boundaryRisk: range.boundaryRisk,
@@ -681,7 +666,7 @@ export const generateQuestions = async (
           const legacyRanges = getPdfPageRanges(await getPdfPageCount(rawBase64), visionPagesPerChunk, 1);
           if (isOpenAICompatibleRuntime(runtimeSettings)) {
             for (const range of legacyRanges) {
-              const images = await convertPdfToImages(pdfDataUrl, range, { quality: runtimeSettings.pdfVisionQuality ?? 'high' });
+              const images = await convertPdfToImages(pdfDataUrl, range, { quality: runtimeSettings.pdfVisionQuality ?? 'standard' });
               const sourceLabel = joinSourceLabel(file.name, formatPageRangeLabel(range));
               allParts.push({
                 inlineDataParts: images.map((imageBase64) => ({
@@ -693,7 +678,7 @@ export const generateQuestions = async (
                 pdfDataUrl,
                 rawPdfBase64: rawBase64,
                 pdfFileName: file.name,
-                pdfVisionQuality: runtimeSettings.pdfVisionQuality ?? 'high',
+                pdfVisionQuality: runtimeSettings.pdfVisionQuality ?? 'standard',
                 boundaryRisk: range.boundaryRisk,
                 expectedQuestionEvidence: buildPdfMarkerExpectedEvidence(null),
                 expectedQuestionsReliable: false,
@@ -712,7 +697,7 @@ export const generateQuestions = async (
                 pdfDataUrl,
                 rawPdfBase64: rawBase64,
                 pdfFileName: file.name,
-                pdfVisionQuality: runtimeSettings.pdfVisionQuality ?? 'high',
+                pdfVisionQuality: runtimeSettings.pdfVisionQuality ?? 'standard',
                 boundaryRisk: range.boundaryRisk,
                 expectedQuestionEvidence: buildPdfMarkerExpectedEvidence(null),
                 expectedQuestionsReliable: false,
@@ -1644,7 +1629,7 @@ export const generateQuestions = async (
           topLevelBatchNumber,
         });
         createPostprocessInputForPartial = createPostprocessInput;
-        const sourceInstruction = `SOURCE_LABEL: ${getTrustedSourceLabel(part)}\nCopy y nguyên SOURCE_LABEL vào trường "source" và CHỈ trích xuất câu nằm trong phạm vi SOURCE_LABEL này.`;
+        const sourceInstruction = `PHẠM VI BATCH: ${getTrustedSourceLabel(part)} (CHỈ trích xuất câu nằm trong phạm vi này).`;
         const structuredSourceLabel = part.sourceMode === 'pdfText' ? 'PDF TEXT STRUCTURED' : 'DOCX';
         const hasStructuredExpectedBlocks = expectedQuestions > 0 && (part.nativeMcqBatch || part.structuredMcqBatch || part.sourceMode === 'pdfText');
         const repairInstruction = forceJsonRepair
@@ -2026,6 +2011,28 @@ export const generateQuestions = async (
           return true;
         };
         handlePostprocessResultForPartial = handlePostprocessResult;
+
+        const canUseZeroAiFastPath =
+          !runtimeSettings.detailedExplanation &&
+          !runtimeSettings.customPrompt?.trim() &&
+          !isRescueMode &&
+          !isTargetedRetryBatch &&
+          !part.partialRecovery &&
+          !part.deferredRecovery &&
+          !forceJsonRepair &&
+          Boolean(part.nativeMcqBatch) &&
+          Boolean(part.text) &&
+          !hasVisionInput;
+
+        const localParsedMcqs = canUseZeroAiFastPath ? tryParseStructuredBatchLocally(part.text) : null;
+        if (localParsedMcqs && localParsedMcqs.length > 0) {
+          console.info(`⚡ Batch ${batchLabel}: Zero-AI Fast Path đã tách trực tiếp ${localParsedMcqs.length} câu (0 token).`);
+          const localPostprocess = await batchPostprocessor!.processBatch(
+            createPostprocessInput(JSON.stringify({ questions: localParsedMcqs }))
+          );
+          await handlePostprocessResult(localPostprocess);
+          return;
+        }
 
         const postprocessResult: BatchPostprocessResult = await (isOpenAICompatibleRuntime(runtimeSettings)
           ? executeWithUserRotation(

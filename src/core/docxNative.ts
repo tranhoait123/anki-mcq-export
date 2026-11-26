@@ -644,3 +644,67 @@ export const splitNativeMcqTextIntoBatches = (nativeText: string, batchSize = 5)
   }
   return batches;
 };
+
+/**
+ * Zero-AI Fast Path parser for structured <<<MCQ n>>> batches.
+ * Returns parsed MCQs ONLY when EVERY block in the batch has a valid question,
+ * >= 2 clean A-E options, and an explicit marked correctAnswer (✅).
+ * Returns null if any block needs AI solving/inference.
+ */
+export const tryParseStructuredBatchLocally = (batchText: string): NativeDocxMcq[] | null => {
+  const blocks = getNativeMcqBlocks(batchText);
+  if (blocks.length === 0) return null;
+
+  const parsed: NativeDocxMcq[] = [];
+
+  for (const block of blocks) {
+    const lines = block
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length < 4) return null;
+    if (/^Answer\/Notes:/im.test(block)) return null;
+
+    const questionLines: string[] = [];
+    const options: string[] = [];
+    let correctAnswer = '';
+    let seenOption = false;
+
+    for (const line of lines) {
+      if (/^<<<MCQ\s+\d+>>>$/i.test(line)) continue;
+
+      const markedOptionMatch = line.match(/^(?:(✅)\s*)?([A-E])\s*[\.:)]\s*(.+)$/i);
+      if (markedOptionMatch) {
+        seenOption = true;
+        const isCorrect = Boolean(markedOptionMatch[1]);
+        const letter = markedOptionMatch[2].toUpperCase();
+        const body = markedOptionMatch[3].trim();
+        if (!body) return null;
+        if (isCorrect) {
+          if (correctAnswer && correctAnswer !== letter) return null;
+          correctAnswer = letter;
+        }
+        options.push(`${letter}. ${body}`);
+        continue;
+      }
+
+      if (!seenOption) {
+        questionLines.push(line.replace(/^Question:\s*/i, '').trim());
+      } else {
+        // Multi-line continuation of an option
+        if (options.length === 0) return null;
+        options[options.length - 1] = `${options[options.length - 1]} ${line}`.trim();
+      }
+    }
+
+    const question = questionLines.filter(Boolean).join('\n').trim();
+    if (!question || options.length < 2 || !correctAnswer) {
+      return null;
+    }
+
+    parsed.push({ question, options, correctAnswer });
+  }
+
+  return parsed.length === blocks.length ? parsed : null;
+};

@@ -46,7 +46,7 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm (MCQ) san
 - **Guideline Pipeline**: Ưu tiên BYT VN/BV lớn -> nếu thiếu hoặc BYT ≥ 3 năm tuổi, đối chiếu thêm guideline quốc tế mới nhất (ESC, AHA/ACC, KDIGO, ADA, GINA, GOLD, WHO, IDSA, AAP). Mâu thuẫn -> ghi "Đề VN: [A], Quốc tế: [B]" (chọn đáp án theo kỳ thi VN). Không chắc số QĐ/năm -> ghi \`[cần verify]\`, cấm bịa. Thiếu dữ kiện -> mở đầu \`evidence\` bằng \`[Giả định: ...]\`.
 
 📦 **CẤU TRÚC JSON BẮT BUỘC** (\`{"questions": [...]}\`, KHÔNG markdown/text thừa, tự đóng ngoặc sạch nếu sắp chạm giới hạn token):
-Mỗi phần tử trong \`questions\` gồm đủ 7 khóa:
+Mỗi phần tử trong \`questions\` gồm đủ 6 khóa:
 - \`question\`: string (giữ số câu + tình huống nếu có).
 - \`options\`: string[] (VD: ["A. ...", "B. ..."]).
 - \`correctAnswer\`: string (VD: "A"; tự giải nếu đề không có sẵn đáp án).
@@ -60,7 +60,6 @@ Mỗi phần tử trong \`questions\` gồm đủ 7 khóa:
 - \`depthAnalysis\`: 1 blockquote gồm 2 dòng:
   > 🔑 [Chốt chặn lâm sàng ≤ 20 chữ]
   > 🪤 [Bẫy thi kinh điển ≤ 20 chữ]
-- \`source\`: copy y nguyên \`SOURCE_LABEL\` của batch (không tự đặt tên đề/trang khác).
 `;
 
 /**
@@ -86,7 +85,7 @@ Mục tiêu: Trích xuất chính xác 100% câu hỏi trắc nghiệm, các l�
 5. **Đáp án**: Lấy đúng đáp án có sẵn trong đề (marker/gạch chân/key); nếu không có sẵn, dùng kiến thức Y khoa chọn đáp án chính xác nhất.
 
 📦 **STRICT JSON ONLY** (\`{"questions": [...]}\`, không văn bản ngoài JSON):
-Mỗi câu hỏi chỉ có đúng 4 trường: \`question\` (string), \`options\` (string[]), \`correctAnswer\` (string), \`source\` (copy y nguyên \`SOURCE_LABEL\`).
+Mỗi câu hỏi chỉ có đúng 3 trường: \`question\` (string), \`options\` (string[]), \`correctAnswer\` (string).
 `;
 
 export interface BuildExtractionSystemInstructionOptions {

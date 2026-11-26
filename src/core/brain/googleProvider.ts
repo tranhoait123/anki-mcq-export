@@ -81,11 +81,10 @@ export const getQuestionSchema = () => ({
             },
             required: ["core", "evidence", "analysis", "warning"]
           },
-          source: { type: Type.STRING },
           difficulty: { type: Type.STRING },
           depthAnalysis: { type: Type.STRING }
         },
-        required: ["question", "options", "correctAnswer", "explanation", "source", "difficulty", "depthAnalysis"]
+        required: ["question", "options", "correctAnswer", "explanation", "difficulty", "depthAnalysis"]
       }
     }
   }
@@ -101,10 +100,9 @@ export const getFastQuestionSchema = () => ({
         properties: {
           question: { type: Type.STRING },
           options: { type: Type.ARRAY, items: { type: Type.STRING } },
-          correctAnswer: { type: Type.STRING },
-          source: { type: Type.STRING }
+          correctAnswer: { type: Type.STRING }
         },
-        required: ["question", "options", "correctAnswer", "source"]
+        required: ["question", "options", "correctAnswer"]
       }
     }
   }

@@ -1,14 +1,15 @@
 import path from 'path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({ mode }) => {
+  const e2eBrainMock = path.resolve(__dirname, 'src/e2e/mocks/brain.ts');
   const alias = mode === 'e2e'
     ? [
-        { find: './core/brain', replacement: path.resolve(__dirname, 'src/e2e/mocks/brain.ts') },
-        { find: '../core/brain', replacement: path.resolve(__dirname, 'src/e2e/mocks/brain.ts') },
-        { find: '@/core/brain', replacement: path.resolve(__dirname, 'src/e2e/mocks/brain.ts') },
+        { find: /^(\.\.?\/)+core\/brain$/, replacement: e2eBrainMock },
+        { find: '@/core/brain', replacement: e2eBrainMock },
         { find: '@', replacement: path.resolve(__dirname, '.') },
       ]
     : {
@@ -22,8 +23,9 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
+      tailwindcss(),
       ...VitePWA({
-        registerType: 'autoUpdate',
+        registerType: 'prompt',
         workbox: {
           globIgnores: ['**/pdf.worker.min-*.mjs']
         },

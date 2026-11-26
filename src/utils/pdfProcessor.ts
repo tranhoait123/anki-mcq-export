@@ -276,8 +276,8 @@ export const estimatePdfQuestionMarkers = (text: string): PdfQuestionMarkerEstim
 
 export const getPdfRasterConfig = (quality: PdfRasterQuality = 'standard'): PdfRasterConfig => (
     quality === 'high'
-        ? { scale: 2.8, jpegQuality: 0.92 }
-        : { scale: 2.0, jpegQuality: 0.85 }
+        ? { scale: 2.2, jpegQuality: 0.88 }
+        : { scale: 1.5, jpegQuality: 0.80 }
 );
 
 export const splitPdfRangeForVisionRecovery = (

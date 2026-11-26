@@ -112,9 +112,15 @@ describe('OpenAI-compatible provider vision payloads', () => {
 
     expect(request.url).toBe('https://direct.shopaikey.com/v1/messages');
     expect(request.endpointKind).toBe('claude');
+    expect(request.headers['anthropic-version']).toBe('2023-06-01');
+    expect(request.headers['X-Title']).toBeUndefined();
+    expect(request.headers['HTTP-Referer']).toBeUndefined();
     expect(request.body.model).toBe('claude-sonnet-4-6');
-    expect(request.body.system).toContain('Return JSON.');
-    expect(request.body.system).toContain('Endpoint hiện tại không hỗ trợ response_format');
+    expect(Array.isArray(request.body.system)).toBe(true);
+    expect(request.body.system[0].type).toBe('text');
+    expect(request.body.system[0].cache_control).toEqual({ type: 'ephemeral' });
+    expect(request.body.system[0].text).toContain('Return JSON.');
+    expect(request.body.system[0].text).toContain('Endpoint hiện tại không hỗ trợ response_format');
     expect(request.body.messages[0].role).toBe('user');
     expect(request.body.messages[0].content).toEqual([
       { type: 'text', text: 'Mô tả ảnh.' },
@@ -338,6 +344,10 @@ describe('OpenAI-compatible provider vision payloads', () => {
     expect(result.selectedModel).toBe('claude-sonnet-4-6');
     expect(result.message).toContain('Claude Messages');
     expect(fetchMock.mock.calls[1][0]).toBe('https://direct.shopaikey.com/v1/messages');
+    expect(fetchMock.mock.calls[1][1].headers).toMatchObject({
+      Authorization: 'Bearer shop-key',
+      'anthropic-version': '2023-06-01',
+    });
     const probeBody = JSON.parse(fetchMock.mock.calls[1][1].body);
     expect(probeBody).toMatchObject({
       model: 'claude-sonnet-4-6',
@@ -349,8 +359,7 @@ describe('OpenAI-compatible provider vision payloads', () => {
   it('validates ShopAIKey Gemini models through the native Google GenAI endpoint', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
-        object: 'list',
-        data: [{ id: 'gpt-5.4-mini' }],
+        models: [{ name: 'models/gemini-3.1-flash-lite-preview' }],
       }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         candidates: [{ content: { parts: [{ text: 'pong' }] } }],
@@ -363,6 +372,7 @@ describe('OpenAI-compatible provider vision payloads', () => {
     expect(result.selectedModel).toBe('gemini-3.1-flash-lite-preview');
     expect(result.selectedModelAvailable).toBe(true);
     expect(result.models).toContain('gemini-3.1-flash-lite-preview');
+    expect(fetchMock.mock.calls[0][0]).toBe('https://direct.shopaikey.com/v1beta/models');
     expect(fetchMock.mock.calls[1][0]).toBe('https://direct.shopaikey.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent');
     expect(fetchMock.mock.calls[1][1].headers).toMatchObject({
       Authorization: 'Bearer shop-key',
@@ -376,8 +386,7 @@ describe('OpenAI-compatible provider vision payloads', () => {
   it('validates ShopAIKey Gemini through the official Google GenAI endpoint when selected', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
-        object: 'list',
-        data: [{ id: 'gpt-5.4-mini' }],
+        models: [{ name: 'models/gemini-3.1-flash-lite-preview' }],
       }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         candidates: [{ content: { parts: [{ text: 'pong' }] } }],
@@ -387,7 +396,7 @@ describe('OpenAI-compatible provider vision payloads', () => {
     const result = await validateShopAIKeyConnection('shop-key', 'gemini-3.1-flash-lite-preview', 'api');
 
     expect(result.ok).toBe(true);
-    expect(fetchMock.mock.calls[0][0]).toBe('https://api.shopaikey.com/v1/models');
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.shopaikey.com/v1beta/models');
     expect(fetchMock.mock.calls[1][0]).toBe('https://api.shopaikey.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent');
   });
 

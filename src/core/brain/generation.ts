@@ -71,7 +71,7 @@ import {
   partsRequireVision,
   waitWithController,
 } from './generationHelpers';
-import { SYSTEM_INSTRUCTION_EXTRACT, SYSTEM_INSTRUCTION_FAST_EXTRACT, RESCUE_ADDENDUM } from './prompts';
+import { buildExtractionSystemInstruction } from './prompts';
 import { measureSync } from '../../utils/performance';
 import { buildMCQFingerprint } from '../../utils/dedupe';
 import { parseJsonFromModelText } from './parsing';
@@ -519,7 +519,7 @@ export const generateQuestions = async (
     if (savedHealth) userKeyRotator.importHealthState(savedHealth);
     const adaptiveBatching = runtimeSettings.adaptiveBatching !== false;
     const tokenProfile = getModelTokenProfile(runtimeSettings.provider, runtimeSettings.model);
-    let adaptiveQuestionCap = getStructuredQuestionBatchSize(tokenProfile, adaptiveBatching);
+    let adaptiveQuestionCap = getStructuredQuestionBatchSize(tokenProfile, adaptiveBatching, runtimeSettings.detailedExplanation);
     let adaptiveLargeBatchFailures = 0;
     const visionPagesPerChunk = runtimeSettings.visionPagesPerBatch || getAdaptiveVisionPagesPerChunk(tokenProfile, adaptiveBatching);
     const textCharBudget = getAdaptiveTextCharBudget(tokenProfile, adaptiveBatching);
@@ -1644,38 +1644,39 @@ export const generateQuestions = async (
           topLevelBatchNumber,
         });
         createPostprocessInputForPartial = createPostprocessInput;
-        const sourceInstruction = `SOURCE_LABEL: ${getTrustedSourceLabel(part)}\nBắt buộc trường "source" của mọi câu hỏi trong batch này phải copy y nguyên SOURCE_LABEL. CHỈ được trích xuất câu hỏi nằm trong đúng SOURCE_LABEL của batch hiện tại. Nếu tài liệu/cache còn chứa phần khác, bỏ qua hoàn toàn các câu ngoài phạm vi SOURCE_LABEL này dù nội dung rất giống. Không tự bịa tên đề, năm, chương, trang, file đáp án hoặc nguồn khác.`;
+        const sourceInstruction = `SOURCE_LABEL: ${getTrustedSourceLabel(part)}\nCopy y nguyên SOURCE_LABEL vào trường "source" và CHỈ trích xuất câu nằm trong phạm vi SOURCE_LABEL này.`;
         const structuredSourceLabel = part.sourceMode === 'pdfText' ? 'PDF TEXT STRUCTURED' : 'DOCX';
         const hasStructuredExpectedBlocks = expectedQuestions > 0 && (part.nativeMcqBatch || part.structuredMcqBatch || part.sourceMode === 'pdfText');
         const repairInstruction = forceJsonRepair
-          ? 'LƯU Ý SỬA JSON: Lần trước batch này bị lỗi định dạng hoặc thiếu câu. Hãy trả về JSON hợp lệ tuyệt đối, đóng đủ mọi ngoặc, không markdown, không giải thích ngoài JSON.'
+          ? 'SỬA JSON: Lần trước lỗi định dạng/thiếu câu -> trả JSON hợp lệ tuyệt đối, đóng đủ ngoặc, không markdown.'
           : '';
         const isTailFirstPdfVisionRecovery = part.sourceMode === 'pdfVision' && part.pdfVisionRecoveryDirection === 'tailFirst';
         const partialRecoveryInstruction = part.partialRecovery
-          ? `LƯU Ý CỨU PHẦN THIẾU: Đây là lượt quét lại có chọn lọc. Chỉ trả về những câu còn thiếu/chưa có trong danh sách đã lưu. Nếu nội dung dưới đây trùng với câu đã lưu, bỏ qua và không tạo bản sao.${isTailFirstPdfVisionRecovery ? '\nPDF Vision tail rescue: ưu tiên đọc từ cuối phạm vi/trang cuối/cột phải lên để tìm câu bị mất do stream bị cắt, nhưng khi trả JSON vẫn sắp xếp câu theo thứ tự gốc trong tài liệu.' : ''}${part.existingQuestionFingerprints ? `\nCác câu đã lưu để tránh lặp:\n${part.existingQuestionFingerprints}` : ''}`
+          ? `CỨU PHẦN THIẾU: Chỉ trả về các câu chưa có trong danh sách đã lưu (không lặp lại).${isTailFirstPdfVisionRecovery ? ' Ưu tiên soi kỹ cuối trang/trang cuối/cột phải (nơi stream bị cắt) rồi sắp xếp lại theo thứ tự gốc.' : ''}${part.existingQuestionFingerprints ? `\nCâu đã lưu:\n${part.existingQuestionFingerprints}` : ''}`
           : '';
         const nativePrompt = hasStructuredExpectedBlocks
-          ? `NỘI DUNG ${structuredSourceLabel} ĐÃ ĐƯỢC TÁCH SẴN THÀNH ${expectedQuestions} BLOCK CÂU. Mỗi block <<<MCQ n>>> là đúng 1 câu hoặc 1 mục câu hỏi trong tài liệu. Option có ký hiệu ✅ là đáp án đúng lấy từ marker trong tài liệu; TUYỆT ĐỐI không đổi đáp án này. Nếu block có A/B/C/D thì trích đúng các lựa chọn đó. Nếu block chỉ có Question và Answer/Notes, hãy giữ nguyên câu hỏi, dùng Answer/Notes làm đáp án/giải thích, và chỉ tạo lựa chọn nhiễu khi tài liệu không cung cấp đủ options. Hãy trả về ĐÚNG ${expectedQuestions} câu theo cùng thứ tự, không bỏ câu nào.`
+          ? `${structuredSourceLabel}: Đã tách sẵn ${expectedQuestions} block <<<MCQ n>>>. Giữ nguyên đáp án có ký hiệu ✅; trích đúng thứ tự và đủ ${expectedQuestions} câu.`
           : '';
         const imagePrompt = part.sourceMode === 'docxImage'
-          ? `${part.docxImageLabel || '[DOCX IMAGE]'}\nẢnh này được nhúng trong file Word và CÓ THỂ chứa câu hỏi trắc nghiệm. Hãy phóng to/đọc kỹ toàn bộ chữ trong ảnh. Nếu ảnh chứa MCQ, hãy trích xuất đầy đủ mọi câu hỏi, lựa chọn và đáp án nếu nhìn thấy. ${forceJsonRepair ? 'Lần trước ảnh này trả rỗng hoặc lỗi; chỉ trả {"questions":[]} nếu bạn chắc chắn ảnh hoàn toàn không có câu hỏi trắc nghiệm.' : 'Nếu ảnh chỉ là minh họa và KHÔNG chứa câu hỏi trắc nghiệm, hãy trả về chính xác {"questions":[]}.'}`
+          ? `${part.docxImageLabel || '[DOCX IMAGE]'}: Đọc kỹ chữ trong ảnh nhúng Word. ${forceJsonRepair ? 'Lần trước trả rỗng/lỗi; chỉ trả {"questions":[]} nếu chắc chắn không có MCQ.' : 'Nếu chỉ là hình minh họa không có MCQ, trả {"questions":[]}.'}`
           : '';
         const boundaryRisk = part.boundaryRisk || part.trace?.boundaryRisk;
         const expectedQuestionNumbers = Array.isArray(part.expectedQuestionEvidence?.numbers) && part.expectedQuestionEvidence.numbers.length > 0
           ? part.expectedQuestionEvidence.numbers
           : (Array.isArray(part.trace?.expectedQuestionNumbers) ? part.trace.expectedQuestionNumbers : []);
         const boundaryPrompt = boundaryRisk && (boundaryRisk.severity === 'medium' || boundaryRisk.severity === 'high')
-          ? ` CẢNH BÁO BIÊN TRANG: range này được mở rộng vì có nguy cơ câu hỏi/tình huống/options bị cắt qua trang (${boundaryRisk.reasons.join(', ')}). Hãy đọc kỹ cuối trang trước và đầu trang sau, nối đầy đủ câu bị tách trang, không bỏ câu chỉ vì stem/options nằm ở hai trang khác nhau.`
+          ? ` Biên trang (${boundaryRisk.reasons.join(', ')}): nối đủ câu/tình huống/options bị cắt qua trang.`
           : '';
         const expectedNumbersPrompt = expectedQuestionNumbers.length > 0
-          ? ` Text layer thấy các marker câu hỏi: ${expectedQuestionNumbers.join(', ')}. Đây chỉ là gợi ý, nhưng nếu ảnh thật có các câu này thì phải trích đủ và giữ nhãn nguyên bản trong trường question (VD: "Câu ${expectedQuestionNumbers[0]}: ...").`
+          ? ` Gợi ý số câu từ text layer: ${expectedQuestionNumbers.join(', ')} (giữ nguyên nhãn VD: "Câu ${expectedQuestionNumbers[0]}: ...").`
           : '';
+        const hasVisionInput = Boolean(part.sourceMode === 'pdfVision' || part.sourceMode === 'docxImage' || part.inlineData || (Array.isArray(part.inlineDataParts) && part.inlineDataParts.length > 0));
         const visionPrompt = (part.sourceMode === 'pdfVision' || part.inlineData || (Array.isArray(part.inlineDataParts) && part.inlineDataParts.length > 0))
-          ? `[CHỈ THỊ QUAN TRỌNG CHO PHẦN ẢNH/VISION]: Tài liệu hiện tại đang được xử lý ở chế độ quét Vision (ảnh chụp/PDF scan). Hãy đọc cực kỳ chậm và tỉ mỉ từng dòng, từng góc của trang ảnh này. Hãy đếm thầm xem có chính xác bao nhiêu câu hỏi trắc nghiệm (MCQ) xuất hiện trên trang. Bạn phải trích xuất ĐẦY ĐỦ TRĂM PHẦN TRĂM câu hỏi, không được bỏ sót bất kỳ câu nào dù là câu ngắn, câu tình huống hay câu ở cuối trang. Đọc theo thứ tự trang từ trên xuống dưới; chú ý câu ở cuối trang, bảng, layout 2 cột và lựa chọn nằm sát mép.${part.sourceMode === 'pdfVision' && expectedQuestions > 0 ? ` Text layer gợi ý có khoảng ${expectedQuestions} câu trong phạm vi này; nếu thấy khác, hãy ưu tiên đọc ảnh thật kỹ nhưng không được bỏ sót câu đã có marker.` : ''}${expectedNumbersPrompt}${boundaryPrompt}${part.pdfVisionQuality === 'high' ? ' Đây là lượt cứu thiếu với ảnh nét hơn và phạm vi nhỏ hơn; chỉ trả các câu còn thiếu/chưa có trong danh sách đã lưu.' : ''}${isTailFirstPdfVisionRecovery ? ' Vì đây là tail rescue sau stream bị cắt, hãy soi kỹ phần cuối trang, trang cuối trong range, cột phải và các dòng sát mép trước; sau đó trả kết quả theo thứ tự đọc tự nhiên của tài liệu.' : ''}`
+          ? `[VISION]: Đọc kỹ toàn bộ trang ảnh từ trên xuống dưới, không bỏ sót câu cuối trang/sát mép/2 cột.${part.sourceMode === 'pdfVision' && expectedQuestions > 0 ? ` Ước lượng ~${expectedQuestions} câu.` : ''}${expectedNumbersPrompt}${boundaryPrompt}${part.pdfVisionQuality === 'high' ? ' Lượt ảnh nét cứu thiếu: chỉ trả các câu chưa lưu.' : ''}`
           : '';
         const extractionCommand = part.partialRecovery
-          ? `CHỈ TRÍCH XUẤT CÁC CÂU CÒN THIẾU trong phần cứu này. Không trả lại câu đã có, không mở rộng ra ngoài block/trang được cung cấp (Phần ${batchLabel}).`
-          : `HÃY QUÉT TOÀN BỘ NỘI DUNG TÀI LIỆU NÀY. Trích xuất TẤT CẢ câu hỏi trắc nghiệm tìm thấy (Phần ${batchLabel}).`;
+          ? `CHỈ trích xuất các câu còn thiếu trong Phần ${batchLabel}.`
+          : `Trích xuất TẤT CẢ MCQ trong Phần ${batchLabel}.`;
         const scanPrompt = `${repairInstruction ? `${repairInstruction}\n\n` : ''}${partialRecoveryInstruction ? `${partialRecoveryInstruction}\n\n` : ''}${sourceInstruction}\n\n${nativePrompt ? `${nativePrompt}\n\n` : ''}${imagePrompt ? `${imagePrompt}\n\n` : ''}${visionPrompt ? `${visionPrompt}\n\n` : ''}${extractionCommand}`;
 
         const handlePostprocessResult = async (postprocessResult: BatchPostprocessResult, salvageReasonError?: any): Promise<boolean> => {
@@ -2031,12 +2032,16 @@ export const generateQuestions = async (
               extractionModel,
               async (currentKey, activeModel, attemptContext) => {
                   const isRescueOrRetry = isRescueMode || isTargetedRetryBatch || part.partialRecovery || part.deferredRecovery;
-                  const targetInstruction = runtimeSettings.detailedExplanation ? SYSTEM_INSTRUCTION_EXTRACT : SYSTEM_INSTRUCTION_FAST_EXTRACT;
-                  const baseInstruction = isRescueOrRetry ? `${targetInstruction}\n${RESCUE_ADDENDUM}` : targetInstruction;
-                  const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${baseInstruction}` : baseInstruction;
+                  const finalInstruction = buildExtractionSystemInstruction({
+                    detailedExplanation: Boolean(runtimeSettings.detailedExplanation),
+                    isVision: hasVisionInput,
+                    isRescueOrRetry,
+                    customPrompt: runtimeSettings.customPrompt,
+                    forceJsonRepair: isAdvancedMode || forceJsonRepair,
+                  });
 
                   const messages = [
-                    { role: "system", content: (isAdvancedMode || forceJsonRepair) ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction },
+                    { role: "system", content: finalInstruction },
                     { role: "user", content: [{ type: "text", text: scanPrompt }, ...toOpenAIContentFromPart(part, runtimeSettings.provider, runtimeSettings.model)] }
                   ];
 
@@ -2060,12 +2065,25 @@ export const generateQuestions = async (
                   if (!activeModel.startsWith('gemini-')) throw new Error(mismatchMessage || getProviderModelMismatchMessage('google', activeModel) || `MODEL_PROVIDER_MISMATCH: ${activeModel}`);
                   const aiInstance = createGoogleGenAIClient(runtimeSettings, currentKey);
                   const isRescueOrRetry = isRescueMode || isTargetedRetryBatch || part.partialRecovery || part.deferredRecovery;
-                  const targetInstruction = runtimeSettings.detailedExplanation ? SYSTEM_INSTRUCTION_EXTRACT : SYSTEM_INSTRUCTION_FAST_EXTRACT;
-                  const baseInstruction = isRescueOrRetry ? `${targetInstruction}\n${RESCUE_ADDENDUM}` : targetInstruction;
-                  const finalInstruction = runtimeSettings.customPrompt ? `${runtimeSettings.customPrompt}\n\n${baseInstruction}` : baseInstruction;
+                  const finalInstruction = buildExtractionSystemInstruction({
+                    detailedExplanation: Boolean(runtimeSettings.detailedExplanation),
+                    isVision: hasVisionInput,
+                    isRescueOrRetry,
+                    customPrompt: runtimeSettings.customPrompt,
+                    forceJsonRepair: false,
+                  });
+                  const requestInstruction = (isAdvancedMode || forceJsonRepair)
+                    ? buildExtractionSystemInstruction({
+                        detailedExplanation: Boolean(runtimeSettings.detailedExplanation),
+                        isVision: hasVisionInput,
+                        isRescueOrRetry,
+                        customPrompt: runtimeSettings.customPrompt,
+                        forceJsonRepair: true,
+                      })
+                    : finalInstruction;
                   // Cache key bao gồm cả modelName để tránh dùng cache của model cũ khi fallback
                   const cacheSessionKey = `${hashApiKey(currentKey)}_${activeModel}`;
-                   const hasInlineVisionInput = Boolean(part.inlineData) || (Array.isArray(part.inlineDataParts) && part.inlineDataParts.length > 0);
+                  const hasInlineVisionInput = Boolean(part.inlineData) || (Array.isArray(part.inlineDataParts) && part.inlineDataParts.length > 0);
                   const enableCaching = runtimeSettings.enableContextCaching === true;
                   if (!part.text && !hasInlineVisionInput && !sessionCache[cacheSessionKey] && enableCaching) {
                     sessionCache[cacheSessionKey] = (async () => {
@@ -2078,7 +2096,7 @@ export const generateQuestions = async (
                   }
                   const kCacheName = part.text || hasInlineVisionInput || !enableCaching ? null : await sessionCache[cacheSessionKey];
                   const activeProfile = getModelTokenProfile(runtimeSettings.provider, activeModel);
-                  const config = getModelConfig(currentKey, (isAdvancedMode || forceJsonRepair) ? `${finalInstruction}\n\nLƯU Ý: Lần trích xuất trước bị lỗi định dạng. Hãy đảm bảo trả về JSON hợp lệ tuyệt đối.` : finalInstruction, questionSchema, activeModel, kCacheName || undefined, activeProfile.safeOutputBudget, {
+                  const config = getModelConfig(currentKey, requestInstruction, questionSchema, activeModel, kCacheName || undefined, activeProfile.safeOutputBudget, {
                     timeoutMs: attemptContext.timeoutMs,
                     signal: attemptContext.signal,
                     baseUrl: getGoogleRuntimeBaseUrl(runtimeSettings),
@@ -2238,7 +2256,8 @@ export const generateQuestions = async (
           return;
         }
 
-        if (!forceJsonRepair && recoveryPolicy.eligibility !== 'weak' && batchDecision.cause !== 'requestTooLarge' && depth === 0 && errorKind === 'format') {
+        const isTruncatedFormatError = /AI_FORMAT_ERROR_TRUNCATED|truncated|max_tokens|max_output_tokens/i.test(String(e?.message || ''));
+        if (!forceJsonRepair && !isTruncatedFormatError && recoveryPolicy.eligibility !== 'weak' && batchDecision.cause !== 'requestTooLarge' && depth === 0 && errorKind === 'format') {
           console.info(`🔧 Batch ${batchLabel} format failed. Retrying full batch with strict JSON repair before splitting...`);
           await processBatch(part, index, depth, true, topLevelIndex, subIndex, labelPrefix);
           return;

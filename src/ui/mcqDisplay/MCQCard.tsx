@@ -2,7 +2,6 @@ import React from 'react';
 import { CheckCircle2, ExternalLink, FileText, Filter, PenLine, Trash2 } from 'lucide-react';
 import { Explanation, MCQ, SourceTrace } from '../../types';
 import { isOptionCorrect } from '../../utils/text';
-import { hasExplanationContent } from '../../core/anki';
 import RichExplanation from './RichExplanation';
 import LazyAnkiHtml from './LazyAnkiHtml';
 import { MCQViewMode } from './types';
@@ -43,7 +42,6 @@ const MCQCard = React.memo(({
   performanceMode = false
 }: MCQCardProps) => {
   const data = isEditing && editForm ? editForm : mcq;
-  const hasExp = hasExplanationContent(mcq.explanation);
   const cardPaddingClass = compact ? 'p-6' : 'p-8';
   const cardRadiusClass = compact ? 'rounded-2xl' : 'rounded-3xl';
   const questionTextClass = compact ? 'text-lg' : 'text-xl';
@@ -180,7 +178,7 @@ const MCQCard = React.memo(({
             className={`${compact ? 'p-3' : 'p-4'} rounded-2xl border-2 transition-all flex items-center gap-3 ${isOptionCorrect(opt, data.correctAnswer, i)
               ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-500/30'
               : 'bg-white dark:bg-slate-800/50 border-slate-100 dark:border-slate-800 hover:border-indigo-200'
-            }`}
+              }`}
           >
             <span className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs shrink-0 ${isOptionCorrect(opt, data.correctAnswer, i) ? 'bg-emerald-500 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-400'}`}>
               {String.fromCharCode(65 + i)}
@@ -205,7 +203,7 @@ const MCQCard = React.memo(({
         ))}
       </div>
 
-      <div className={`${hasExp || isEditing ? (compact ? 'pt-4 md:ml-12' : 'pt-6 md:ml-14') : (compact ? 'pt-3 md:ml-12' : 'pt-3 md:ml-14')} border-t border-slate-100 dark:border-slate-800 ml-0`}>
+      <div className={`${compact ? 'pt-4 md:ml-12' : 'pt-6 md:ml-14'} border-t border-slate-100 dark:border-slate-800 ml-0`}>
         {isEditing ? (
           <div className="space-y-5 text-sm">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -230,7 +228,7 @@ const MCQCard = React.memo(({
         ) : (
           <>
             <RichExplanation exp={mcq.explanation} compact={compact} />
-            <div className={`${hasExp ? (compact ? 'mt-5' : 'mt-8') : 'mt-0'} flex flex-wrap gap-2`}>
+            <div className={`${compact ? 'mt-5' : 'mt-8'} flex flex-wrap gap-2`}>
               <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700">
                 <Filter size={10} className="text-slate-400" />
                 <span className="text-[9px] font-black text-slate-500 dark:text-slate-400 tracking-wider uppercase">Độ khó: {mcq.difficulty}</span>

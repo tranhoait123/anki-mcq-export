@@ -37,6 +37,7 @@ export interface OpenAICompatibleCallOptions {
 }
 
 const JSON_MODE_FALLBACK_INSTRUCTION = 'QUAN TRỌNG: Endpoint hiện tại không hỗ trợ response_format. Bạn vẫn PHẢI trả về JSON hợp lệ duy nhất, không markdown, không giải thích ngoài JSON.';
+const ANTHROPIC_API_VERSION = '2023-06-01';
 export const SHOPAIKEY_OPENAI_DIRECT_BASE_URL = 'https://direct.shopaikey.com/v1';
 export const SHOPAIKEY_OPENAI_API_BASE_URL = 'https://api.shopaikey.com/v1';
 export const SHOPAIKEY_OPENAI_BASE_URL = SHOPAIKEY_OPENAI_DIRECT_BASE_URL;
@@ -93,10 +94,14 @@ const buildProviderHeaders = (settings: AppSettings, apiKey: string): Record<str
     'Content-Type': 'application/json',
   };
 
-  if (typeof window !== 'undefined') {
+  if (settings.provider === 'shopaikey' && isShopAIKeyClaudeRuntime(settings)) {
+    headers['anthropic-version'] = ANTHROPIC_API_VERSION;
+  }
+
+  if (settings.provider === 'openrouter' && typeof window !== 'undefined') {
     headers['HTTP-Referer'] = window.location.origin;
     headers['X-Title'] = 'MCQ AnkiGen Pro';
-    if (settings.provider === 'openrouter') headers['X-OpenRouter-Title'] = 'MCQ AnkiGen Pro';
+    headers['X-OpenRouter-Title'] = 'MCQ AnkiGen Pro';
   }
 
   return headers;
@@ -223,7 +228,17 @@ const buildClaudeRequestBody = (
   return {
     model,
     messages: claudeMessages.length > 0 ? claudeMessages : [{ role: 'user', content: 'ping' }],
-    ...(systemText ? { system: systemText } : {}),
+    ...(systemText
+      ? {
+          system: [
+            {
+              type: 'text',
+              text: systemText,
+              cache_control: { type: 'ephemeral' },
+            },
+          ],
+        }
+      : {}),
     max_tokens: getModelTokenProfile(settings.provider, modelName).safeOutputBudget,
     temperature: 0.1,
   };
@@ -339,9 +354,13 @@ const extractProviderErrorDetail = async (response: Response): Promise<string> =
 };
 
 const extractShopAIKeyModelIds = (data: any): string[] => {
-  const items = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+  const items = Array.isArray(data?.data)
+    ? data.data
+    : Array.isArray(data?.models)
+      ? data.models
+      : (Array.isArray(data) ? data : []);
   const modelIds = items
-    .map((item: any) => String(item?.id || item?.name || item || '').trim())
+    .map((item: any) => String(item?.id || item?.name || item || '').trim().replace(/^models\//, ''))
     .filter(Boolean);
   return Array.from(new Set<string>(modelIds))
     .sort((a, b) => a.localeCompare(b));
@@ -376,8 +395,11 @@ export const validateShopAIKeyConnection = async (
   }
 
   try {
-    const openAIBaseUrl = getShopAIKeyOpenAIBaseUrl({ shopAIKeyEndpoint: endpoint });
-    const response = await fetch(`${openAIBaseUrl}/models`, {
+    const probeKind = getShopAIKeyProbeKind(normalizedSelectedModel, openAIRoute);
+    const modelsUrl = probeKind === 'gemini'
+      ? `${getShopAIKeyGoogleBaseUrl({ shopAIKeyEndpoint: endpoint })}/v1beta/models`
+      : `${getShopAIKeyOpenAIBaseUrl({ shopAIKeyEndpoint: endpoint })}/models`;
+    const response = await fetch(modelsUrl, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -399,7 +421,6 @@ export const validateShopAIKeyConnection = async (
 
     const data = await response.json();
     const listedModels = extractShopAIKeyModelIds(data);
-    const probeKind = getShopAIKeyProbeKind(normalizedSelectedModel, openAIRoute);
     const models = probeKind === 'gemini' && normalizedSelectedModel && !listedModels.includes(normalizedSelectedModel)
       ? [...listedModels, normalizedSelectedModel].sort((a, b) => a.localeCompare(b))
       : listedModels;
@@ -416,16 +437,18 @@ export const validateShopAIKeyConnection = async (
     }
 
     const probeRequest = buildShopAIKeyProbeRequest(normalizedSelectedModel, endpoint, openAIRoute);
+    const probeHeaders: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...(probeRequest.kind === 'claude' ? { 'anthropic-version': ANTHROPIC_API_VERSION } : {}),
+    };
     const probeResponse = await fetch(
       probeRequest.url,
       {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(probeRequest.body),
+        method: 'POST',
+        headers: probeHeaders,
+        body: JSON.stringify(probeRequest.body),
       }
     );
 
@@ -435,11 +458,7 @@ export const validateShopAIKeyConnection = async (
         const directProbeRequest = buildShopAIKeyProbeRequest(normalizedSelectedModel, 'direct', openAIRoute);
         const directProbeResponse = await fetch(directProbeRequest.url, {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-          },
+          headers: probeHeaders,
           body: JSON.stringify(directProbeRequest.body),
         });
         if (directProbeResponse.ok) {

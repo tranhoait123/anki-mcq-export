@@ -28,8 +28,8 @@ Giải thích ngắn cho câu ${start + index}, có thêm dữ kiện mô tả �
 
 describe('PDF safe hybrid text analysis', () => {
   it('uses a balanced raster quality ladder for normal and rescue PDF vision', () => {
-    expect(getPdfRasterConfig('standard')).toEqual({ scale: 2.0, jpegQuality: 0.85 });
-    expect(getPdfRasterConfig('high')).toEqual({ scale: 2.8, jpegQuality: 0.92 });
+    expect(getPdfRasterConfig('standard')).toEqual({ scale: 1.5, jpegQuality: 0.80 });
+    expect(getPdfRasterConfig('high')).toEqual({ scale: 2.2, jpegQuality: 0.88 });
   });
 
   it('estimates PDF question markers with confidence instead of raw count only', () => {

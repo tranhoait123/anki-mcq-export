@@ -80,7 +80,7 @@ export const getOrSetContextCache = async (
     }
 
     console.log(`💎 Creating new Context Cache for ${modelName}...`);
-    const ttlSeconds = 7200; // 2 hours
+    const ttlSeconds = 900; // 15 minutes (avoid paying 2h storage for short scans)
     const cache = await ai.caches.create({
       model: modelName,
       config: {

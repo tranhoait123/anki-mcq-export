@@ -5,6 +5,7 @@ import { buildNativeMcqBatchText, getNativeMcqBlocks } from '../docxNative';
 import { hashStringSha256 } from '../../utils/hash';
 
 export const STRUCTURED_QUESTION_BATCH_CAP = 5;
+export const FAST_STRUCTURED_QUESTION_BATCH_CAP = 15;
 
 export const getFileTextContent = (file: UploadedFile): string =>
   file.nativeText?.trim() || file.structuredText?.trim() || file.plainText?.trim() || file.content || '';
@@ -215,24 +216,32 @@ export const splitStructuredPartByBatchSize = (part: any, batchSize: number): an
 
 export const estimateTextTokens = (text: string): number => Math.ceil(String(text || '').length / 3.6);
 
-export const estimateOutputTokensForQuestions = (count: number): number =>
-  Math.ceil(Math.max(1, count) * 1100 * 1.15);
+export const estimateOutputTokensForQuestions = (count: number, detailedExplanation = true): number =>
+  Math.ceil(Math.max(1, count) * (detailedExplanation ? 1100 : 220) * 1.15);
 
 export const getAdaptiveQuestionBatchSize = (
   profile: ModelTokenProfile,
   adaptiveBatching = true,
-  runtimeCap?: number
+  runtimeCap?: number,
+  detailedExplanation = true
 ): number => {
-  if (!adaptiveBatching) return 5;
-  const budgetLimitedCount = Math.max(1, Math.floor(profile.safeOutputBudget / estimateOutputTokensForQuestions(1)));
-  return Math.max(1, Math.min(runtimeCap || profile.maxQuestionsPerBatch, profile.maxQuestionsPerBatch, budgetLimitedCount));
+  if (!adaptiveBatching) return detailedExplanation ? 5 : FAST_STRUCTURED_QUESTION_BATCH_CAP;
+  const budgetLimitedCount = Math.max(1, Math.floor(profile.safeOutputBudget / estimateOutputTokensForQuestions(1, detailedExplanation)));
+  const maxPerBatch = detailedExplanation
+    ? profile.maxQuestionsPerBatch
+    : Math.max(profile.maxQuestionsPerBatch, FAST_STRUCTURED_QUESTION_BATCH_CAP);
+  return Math.max(1, Math.min(runtimeCap || maxPerBatch, maxPerBatch, budgetLimitedCount));
 };
 
 export const getStructuredQuestionBatchSize = (
   profile: ModelTokenProfile,
-  adaptiveBatching = true
+  adaptiveBatching = true,
+  detailedExplanation = true
 ): number =>
-  Math.min(getAdaptiveQuestionBatchSize(profile, adaptiveBatching), STRUCTURED_QUESTION_BATCH_CAP);
+  Math.min(
+    getAdaptiveQuestionBatchSize(profile, adaptiveBatching, undefined, detailedExplanation),
+    detailedExplanation ? STRUCTURED_QUESTION_BATCH_CAP : FAST_STRUCTURED_QUESTION_BATCH_CAP
+  );
 
 export const getAdaptiveTextCharBudget = (profile: ModelTokenProfile, adaptiveBatching = true): number => {
   if (!adaptiveBatching) return 10000;
